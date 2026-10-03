@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import type { Leg } from "./slip";
+import { slipFromHash, type Leg } from "./slip";
 
 interface SlipCtx {
   legs: Leg[];
@@ -17,7 +17,13 @@ interface SlipCtx {
 const Ctx = createContext<SlipCtx | null>(null);
 const KEY = "nfl-props-slip-v1";
 
-function load(): { legs: Leg[]; state: string } {
+function load(): { legs: Leg[]; state: string; shared?: boolean } {
+  // a slip shared from another device arrives in the URL hash; it replaces the saved slip, then the hash is removed
+  const shared = slipFromHash(window.location.hash);
+  if (shared) {
+    try { window.history.replaceState(null, "", window.location.pathname + window.location.search); } catch { /* ignore */ }
+    return { ...shared, shared: true };
+  }
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) return JSON.parse(raw);
@@ -29,7 +35,7 @@ export function BetSlipProvider({ children }: { children: ReactNode }) {
   const [init] = useState(load);
   const [legs, setLegs] = useState<Leg[]>(init.legs);
   const [state, setState] = useState(init.state ?? "");
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!!init.shared);
 
   useEffect(() => {
     try { localStorage.setItem(KEY, JSON.stringify({ legs, state })); } catch { /* ignore */ }

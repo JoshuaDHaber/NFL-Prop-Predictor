@@ -123,3 +123,15 @@ def test_alt_fetch_reports_upstream_failures(client, monkeypatch):
 
     monkeypatch.setattr(main.pipeline, "fetch_game_lines", boom)
     assert client.post("/api/players/p0/alt-lines").status_code == 502
+
+
+def test_meta_reports_a_lan_address_for_sharing_to_phones(client):
+    assert "lan_url" in client.get("/api/meta").json()
+
+
+def test_other_devices_are_read_only(monkeypatch):
+    """Phones on the LAN can read but not POST (refreshes and alt-line fetches spend API credits)."""
+    with TestClient(main.app, client=("192.168.1.50", 50000)) as phone:
+        assert phone.get("/api/meta").status_code == 200
+        assert phone.post("/api/players/p0/alt-lines").status_code == 403
+        assert phone.post("/api/refresh", json={"odds": "none"}).status_code == 403

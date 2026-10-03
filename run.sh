@@ -3,6 +3,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORT="${PORT:-8000}"
+HOST="${HOST:-127.0.0.1}"
 
 # Prefer a Node already on PATH, then ~/.local/node, then the project-local copy.
 for d in "$HOME/.local/node/bin" "$ROOT/.tools/node/bin"; do
@@ -28,7 +29,12 @@ case "${1:-help}" in
     need_venv
     [ -d "$ROOT/frontend/dist" ] || { echo "No UI build found; building..."; need_node; npmf run build; }
     echo "Open http://localhost:$PORT"
-    cd "$ROOT/backend" && exec .venv/bin/uvicorn app.main:app --port "$PORT" ;;
+    cd "$ROOT/backend" && exec .venv/bin/uvicorn app.main:app --host "$HOST" --port "$PORT" ;;
+  lan)      # same as start, but reachable from your phone on the same Wi-Fi (read-only from other devices)
+    ip="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
+    echo "On your phone (same Wi-Fi) open http://${ip:-<your-mac-ip>}:$PORT"
+    echo "Other devices can read the app but cannot refresh data or spend API credits."
+    HOST=0.0.0.0 exec "$0" start ;;
   dev)      # API (auto-reload) on :8000 and Vite on :5173 together
     need_venv; need_node
     trap 'kill 0' EXIT INT TERM
@@ -45,6 +51,7 @@ Usage: ./run.sh <command>
   refresh   Compute this week's projections   [--odds none|missing|all] [--exclude "Name" ...]
   build     Build the React app
   start     Run the app at http://localhost:8000 (builds the UI if needed)
+  lan       Same, but reachable from your phone on the same Wi-Fi (read-only there)
   dev       Run API + Vite dev server with live reload (UI on :5173)
   test      Run backend and frontend tests
 

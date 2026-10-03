@@ -37,7 +37,18 @@ const BOOK_SITES: Record<string, string> = {
 };
 
 const fill = (url: string, state: string) => url.replace(/\{state\}/g, state.toLowerCase());
-const resolved = (url: string | null) => (url && !url.includes("{") ? url : null);
+const BOOK_HOSTS = ["draftkings.com", "fanduel.com", "betmgm.com", "betrivers.com", "caesars.com", "bovada.lv", "betonline.ag",
+  "espnbet.com", "espn.com", "thescore.bet", "fanatics.com", "hardrock.bet", "hardrockbet.com", "pointsbet.com", "wynnbet.com",
+  "mybookie.ag", "lowvig.ag", "betus.com.pa", "williamhill.com", "sportsbook.caesars.com", "barstoolsportsbook.com"];
+
+/** Only https links to known sportsbook domains are ever followed: shared links can carry arbitrary text. */
+export function isBookUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" && BOOK_HOSTS.some((h) => u.hostname === h || u.hostname.endsWith("." + h));
+  } catch { return false; }
+}
+const resolved = (url: string | null) => (url && !url.includes("{") && isBookUrl(url) ? url : null);
 
 /** Best link for a leg: its own betslip link, else the game page at that book, else the book's NFL page. */
 export function legLink(l: Pick<Leg, "link" | "eventLink" | "book">, state: string): string | null {
@@ -166,4 +177,48 @@ export function slipLinksText(legs: Leg[], state: string): string {
   }).filter((b) => b.urls.length > 0);
   if (blocks.length === 1 && blocks[0].urls.length === 1) return blocks[0].urls[0];
   return blocks.map((b) => `${b.book}:\n${b.urls.join("\n")}`).join("\n\n");
+}
+
+// ---------- sharing a slip to another device ----------
+const b64 = {
+  enc: (t: string) => btoa(String.fromCharCode(...new TextEncoder().encode(t))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""),
+  dec: (t: string) => new TextDecoder().decode(Uint8Array.from(atob(t.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0))),
+};
+
+/** The slip as URL-safe text, small enough for a message. */
+export function encodeSlip(legs: Leg[], state: string): string {
+  return b64.enc(JSON.stringify({ v: 1, s: state, l: legs.map((l) => [
+    l.playerId, l.name, l.team, l.opp, l.home ? 1 : 0, l.kind, l.side === "Over" ? "o" : "u", l.line, l.odds, l.book,
+    l.link, l.eventLink, l.alt ? 1 : 0, Number(l.prob.toFixed(4)), Number(l.ev.toFixed(4)), l.gameId]) }));
+}
+
+/** Inverse of encodeSlip. Returns null for anything malformed; links that aren't sportsbook URLs are dropped. */
+export function decodeSlip(text: string): { legs: Leg[]; state: string } | null {
+  try {
+    const d = JSON.parse(b64.dec(text));
+    if (d?.v !== 1 || !Array.isArray(d.l) || d.l.length > 50) return null;
+    const kinds = ["rush", "rec", "pass", "rr"];
+    const legs: Leg[] = [];
+    for (const r of d.l) {
+      if (!Array.isArray(r) || r.length !== 16) return null;
+      const [playerId, name, team, opp, home, kind, side, line, odds, book, link, eventLink, alt, prob, ev, gameId] = r;
+      if (![playerId, name, team, opp, book, gameId].every((x) => typeof x === "string") || !kinds.includes(kind)
+        || ![line, odds, prob, ev].every((x) => typeof x === "number" && isFinite(x))) return null;
+      const safe = (u: unknown) => (typeof u === "string" && isBookUrl(u.replace(/\{state\}/g, "xx")) ? u : null);
+      const leg = { playerId, name, team, opp, home: !!home, kind, side: side === "o" ? "Over" : "Under", line, odds, book,
+        link: safe(link), eventLink: safe(eventLink), alt: !!alt, prob, ev, gameId } as Omit<Leg, "id">;
+      legs.push({ ...leg, id: legId(leg) });
+    }
+    return { legs, state: typeof d.s === "string" ? d.s.slice(0, 2).toUpperCase() : "" };
+  } catch { return null; }
+}
+
+/** Link that reopens this slip in the app (phones need the app's network address, not localhost). */
+export function shareUrl(base: string, legs: Leg[], state: string) {
+  return `${base.replace(/\/$/, "")}/#slip=${encodeSlip(legs, state)}`;
+}
+
+export function slipFromHash(hash: string): { legs: Leg[]; state: string } | null {
+  const m = /^#slip=([A-Za-z0-9_-]+)$/.exec(hash);
+  return m ? decodeSlip(m[1]) : null;
 }

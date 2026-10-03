@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Leg } from "./slip";
-import { slipLinksText, combinedLink, openProgress, linkStatus, alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipText, toAmerican, toDecimal, toWin } from "./slip";
+import { decodeSlip, encodeSlip, isBookUrl, shareUrl, slipFromHash, slipLinksText, combinedLink, openProgress, linkStatus, alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipText, toAmerican, toDecimal, toWin } from "./slip";
 
 const leg = (o: Partial<Leg> = {}): Leg => ({
   id: "x", playerId: "p1", name: "Test Back", team: "AAA", opp: "BBB", home: true, kind: "rush", side: "Over", line: 60.5,
@@ -29,7 +29,7 @@ describe("odds math", () => {
 
 describe("links", () => {
   it("prefers the direct betslip link", () => {
-    expect(legLink(leg({ link: "https://fd/addToBetslip?x=1", eventLink: "https://fd/game", book: "FanDuel" }), "")).toBe("https://fd/addToBetslip?x=1");
+    expect(legLink(leg({ link: "https://sportsbook.fanduel.com/addToBetslip?x=1", eventLink: "https://sportsbook.fanduel.com/game", book: "FanDuel" }), "")).toBe("https://sportsbook.fanduel.com/addToBetslip?x=1");
   });
   it("fills the state placeholder, or falls back to the game page when state is unknown", () => {
     const l = leg({ link: "https://sports.{state}.betmgm.com/a", eventLink: "https://sports.betmgm.com/e", book: "BetMGM" });
@@ -102,7 +102,7 @@ describe("rebooking", () => {
 
 describe("link status", () => {
   it("classifies links by whether they can add the leg to the slip", () => {
-    expect(linkStatus({ link: "https://fd/addToBetslip?x=1" }, "")).toBe("direct");
+    expect(linkStatus({ link: "https://sportsbook.fanduel.com/addToBetslip?x=1" }, "")).toBe("direct");
     expect(linkStatus({ link: null }, "pa")).toBe("missing");
     expect(linkStatus({ link: "https://sports.{state}.betmgm.com/a" }, "")).toBe("needs-state");
     expect(linkStatus({ link: "https://sports.{state}.betmgm.com/a" }, "NJ")).toBe("direct");
@@ -164,10 +164,47 @@ describe("copy slip links", () => {
   });
   it("lists individual links for books without a combined format, and skips unlinked legs", () => {
     const m = (id: string, u: string) => leg({ id, book: "BetMGM", link: u });
-    expect(slipLinksText([m("a", "https://mgm/a"), m("b", "https://mgm/b"), leg({ id: "z", book: "BetMGM", link: null })], ""))
-      .toBe("BetMGM:\nhttps://mgm/a\nhttps://mgm/b");
+    expect(slipLinksText([m("a", "https://sports.betmgm.com/a"), m("b", "https://sports.betmgm.com/b"), leg({ id: "z", book: "BetMGM", link: null })], ""))
+      .toBe("BetMGM:\nhttps://sports.betmgm.com/a\nhttps://sports.betmgm.com/b");
   });
   it("is empty when nothing has a link", () => {
     expect(slipLinksText([leg({ link: null })], "")).toBe("");
+  });
+});
+
+describe("sharing a slip", () => {
+  const legs = [
+    leg({ id: "p1|rush|Over|60.5|DraftKings", book: "DraftKings", link: "https://sportsbook.draftkings.com/?outcomes=A%231_13Q1Q20", eventLink: "https://sportsbook.draftkings.com/event/1", prob: 0.43217, ev: -0.1 }),
+    leg({ id: "p2|pass|Under|220.5|FanDuel", playerId: "p2", name: "José Núñez", kind: "pass", side: "Under", line: 220.5, odds: -114, book: "FanDuel", link: null, alt: true }),
+  ];
+  it("round-trips a slip, including accents, links, state and ids", () => {
+    const back = decodeSlip(encodeSlip(legs, "nj"))!;
+    expect(back.state).toBe("NJ");
+    expect(back.legs).toHaveLength(2);
+    expect(back.legs[0]).toMatchObject({ playerId: "p1", side: "Over", line: 60.5, odds: 100, book: "DraftKings", id: "p1|rush|Over|60.5|DraftKings", prob: 0.4322 });
+    expect(back.legs[0].link).toBe("https://sportsbook.draftkings.com/?outcomes=A%231_13Q1Q20");
+    expect(back.legs[1]).toMatchObject({ name: "José Núñez", side: "Under", alt: true, link: null });
+  });
+  it("builds a share URL and reads it back from the hash", () => {
+    const url = shareUrl("http://192.168.1.5:8000/", legs, "");
+    expect(url.startsWith("http://192.168.1.5:8000/#slip=")).toBe(true);
+    expect(slipFromHash(url.slice(url.indexOf("#")))?.legs).toHaveLength(2);
+    expect(slipFromHash("#other=1")).toBeNull();
+  });
+  it("rejects malformed or oversized payloads", () => {
+    expect(decodeSlip("not-base64!!")).toBeNull();
+    expect(decodeSlip(btoa(JSON.stringify({ v: 2, l: [] })))).toBeNull();
+    expect(decodeSlip(btoa(JSON.stringify({ v: 1, l: [["too", "short"]] })))).toBeNull();
+  });
+  it("drops links that are not sportsbook URLs", () => {
+    const evil = leg({ link: "https://evil.example.com/steal", eventLink: "http://sportsbook.draftkings.com/insecure" });
+    const back = decodeSlip(encodeSlip([evil], ""))!;
+    expect(back.legs[0].link).toBeNull();
+    expect(back.legs[0].eventLink).toBeNull();
+  });
+  it("only follows https links on known sportsbook domains", () => {
+    expect(isBookUrl("https://sportsbook.fanduel.com/addToBetslip?marketId=1&selectionId=2")).toBe(true);
+    expect(isBookUrl("https://draftkings.com.evil.io/x")).toBe(false);
+    expect(isBookUrl("javascript:alert(1)")).toBe(false);
   });
 });

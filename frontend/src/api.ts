@@ -13,6 +13,7 @@ export interface Meta {
   games: Game[];
   has_odds_key: boolean;
   job: JobStatus;
+  lan_url: string | null;
 }
 export interface Projection {
   player_id: string; name: string; pos: string; team: string; opp: string; home: boolean; kind: Kind;

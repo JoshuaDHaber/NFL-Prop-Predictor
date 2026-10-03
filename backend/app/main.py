@@ -8,9 +8,11 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
+import socket
+
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -33,6 +35,30 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="NFL Prop Predictor", version="1.0", lifespan=lifespan)
+LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+@app.middleware("http")
+async def local_writes_only(request: Request, call_next):
+    """The app can be served on the LAN (phones read the shared slip). Anything that spends API credits or
+    changes data is a POST, so it is limited to this machine."""
+    host = request.client.host if request.client else ""
+    if request.method not in ("GET", "HEAD", "OPTIONS") and host not in LOCAL_HOSTS:
+        return JSONResponse({"detail": "Read-only from other devices"}, status_code=403)
+    return await call_next(request)
+
+
+def lan_ip() -> Optional[str]:
+    """This machine's address on the local network (a UDP 'connect' sends no packets)."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))
+            ip = s.getsockname()[0]
+        return None if ip.startswith("127.") else ip
+    except OSError:
+        return None
+
+
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_methods=["*"], allow_headers=["*"])
 
 CSV_SEED = os.path.join(config.BASE_DIR, ".cache", "odds_latest.csv")
@@ -105,7 +131,7 @@ def _run_job(odds_mode: str):
 
 # ---------- routes ----------
 @app.get("/api/meta", response_model=Meta)
-def meta(db: Session = Depends(get_db)):
+def meta(request: Request, db: Session = Depends(get_db)):
     run = latest_run(db)
     games, backtest = [], {}
     if run:
@@ -118,7 +144,13 @@ def meta(db: Session = Depends(get_db)):
     return Meta(run=None if not run else RunInfo(id=run.id, season=run.season, week=run.week,
                                                   created_at=run.created_at.isoformat(), excluded=run.excluded),
                 backtest=backtest, odds=odds_info, games=games, has_odds_key=bool(config.ODDS_API_KEY()),
-                job=JobStatus(**_job))
+                job=JobStatus(**_job), lan_url=_lan_url(request))
+
+
+def _lan_url(request: Request) -> Optional[str]:
+    ip = lan_ip()
+    port = request.url.port or (443 if request.url.scheme == "https" else 80)
+    return f"{request.url.scheme}://{ip}:{port}" if ip else None
 
 
 def _odds_info(db: Session) -> dict:

@@ -3,12 +3,12 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useBetSlip } from "../BetSlipContext";
 import { KIND_SHORT, americanOdds, pct, signedPct } from "../format";
-import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, combinedLink, legLink, slipLinksText, linkStatus, openProgress, parlay, rebook, sameGame, slipText, toWin, type BookOption } from "../slip";
+import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, combinedLink, legLink, shareUrl, slipLinksText, linkStatus, openProgress, parlay, rebook, sameGame, slipText, toWin, type BookOption } from "../slip";
 
 export default function BetSlip() {
   const { legs, remove, replace, clear, state, setState, open, setOpen } = useBetSlip();
   const [stakes, setStakes] = useState<Record<string, number>>({});
-  const [copied, setCopied] = useState<"link" | "text" | null>(null);
+  const [copied, setCopied] = useState<"link" | "text" | "share" | null>(null);
   const [target, setTarget] = useState<string | null>(null);
   const [combinedMsg, setCombinedMsg] = useState<Record<string, string>>({});
   const [opened, setOpened] = useState<Record<string, string[]>>({});
@@ -34,21 +34,21 @@ export default function BetSlip() {
   const stranded = target ? legs.filter((l) => l.book !== target) : [];
   const stakeFor = (book: string) => stakes[book] ?? 10;
 
-  const copyText = async (text: string, tag: "link" | "text") => {
+  const copyText = async (text: string, tag: "link" | "text" | "share") => {
     try { await navigator.clipboard.writeText(text); setCopied(tag); setTimeout(() => setCopied(null), 1800); } catch { /* clipboard blocked */ }
   };
   const links = slipLinksText(legs, state);
+  // phones can't reach "localhost": share this app's network address instead
+  const lanUrl = qc.getQueryData<{ lan_url: string | null }>(["meta"])?.lan_url ?? null;
+  const onLocalhost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  const shareBase = onLocalhost ? lanUrl : window.location.origin;
   // All of a book's linked legs in a single tab (only for books whose multi-selection link format we know)
   const combineFor = (book: string) => {
     const links = openProgress(legs, book, state, []).direct.map((l) => legLink(l, state)).filter((u): u is string => !!u);
     return combinedLink(book, links);
   };
-  const openCombined = (book: string) => {
-    const c = combineFor(book);
-    if (!c) return;
-    window.open(c.url, "_blank", "noopener");
-    setCombinedMsg({ ...combinedMsg, [book]: `Opened one tab with ${c.count} legs. Check that all ${c.count} are on the ${book} slip before placing; if any are missing, use "one at a time".` });
-  };
+  const noteCombined = (book: string, count: number) =>
+    setCombinedMsg({ ...combinedMsg, [book]: `Opened one tab with ${count} legs. Check that all ${count} are on the ${book} slip before placing; if any are missing, use "one at a time".` });
   // One new tab per click: browsers block extra pop-ups opened from a single click, so we step through the legs.
   const openNext = (book: string) => {
     let p = openProgress(legs, book, state, opened[book] ?? []);
@@ -164,10 +164,11 @@ export default function BetSlip() {
                   <div className="slip-book">
                     <b>{book}</b><span className="mut">{ls.length} {ls.length === 1 ? "selection" : "selections"}</span>
                     {combine && (
-                      <button className="link strong" onClick={() => openCombined(book)}
-                        title="Opens one tab with every linked leg added to the slip (experimental)">
+                      <a className="link strong" href={combine.url} target="_blank" rel="noopener noreferrer"
+                        onClick={() => noteCombined(book, combine.count)}
+                        title="Opens one tab with every linked leg added to the slip. A real link, so phones can hand it to the sportsbook app.">
                         Open all in one tab ↗
-                      </button>
+                      </a>
                     )}
                     {prog.direct.length > 0 && (
                       <button className="link" onClick={() => openNext(book)}>
@@ -241,9 +242,19 @@ export default function BetSlip() {
                   title={links ? "Copies the same link as \"Open all in one tab\" so you can open it on another device" : "No betslip links to copy yet"}>
                   {copied === "link" ? "Link copied" : "Copy slip link"}
                 </button>
+                <button className="primary outline" disabled={!shareBase}
+                  title={shareBase ? "Copies a link that reopens this whole slip in this app on another device (same Wi-Fi)" : "This app's network address isn't available"}
+                  onClick={() => shareBase && copyText(shareUrl(shareBase, legs, state), "share")}>
+                  {copied === "share" ? "Phone link copied" : "Copy phone link"}
+                </button>
                 <button className="link" onClick={() => copyText(slipText(legs), "text")}>{copied === "text" ? "Copied" : "Copy as text"}</button>
                 <button className="link" onClick={clear}>Clear all</button>
               </div>
+            )}
+            {legs.length > 0 && (
+              <p className="mut slip-disclaimer">
+                <b>Phone link:</b> {shareBase ? <>opens this slip in the app at {shareBase}, so your phone must be on the same Wi-Fi and the app started with <code>./run.sh lan</code>. Then tap each leg's button (or "Open all in one tab") to hand it to the sportsbook app. Pasting a sportsbook link into a browser's address bar won't open the app; tapping a link on a page or in Messages does.</> : <>unavailable: the app couldn't find its network address.</>}
+              </p>
             )}
             <p className="mut slip-disclaimer">
               This app doesn't place bets. "Add at book" opens the sportsbook with the selection added to its betslip

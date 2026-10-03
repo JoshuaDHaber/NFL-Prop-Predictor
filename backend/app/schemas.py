@@ -47,6 +47,7 @@ class Meta(BaseModel):
     games: list[Game]
     has_odds_key: bool
     job: JobStatus
+    lan_url: Optional[str] = None
 
 
 class ProjectionOut(BaseModel):
