@@ -99,7 +99,7 @@ def make_engine(url=None):
     url = url or config.DATABASE_URL
     if url.startswith("sqlite:///") and not url.endswith(":memory:"):
         os.makedirs(os.path.dirname(url.replace("sqlite:///", "")), exist_ok=True)
-    kwargs = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {}
+    kwargs = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {"pool_pre_ping": True, "pool_recycle": 300}
     if url.endswith(":memory:"):
         from sqlalchemy.pool import StaticPool
         kwargs["poolclass"] = StaticPool

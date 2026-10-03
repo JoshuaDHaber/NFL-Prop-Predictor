@@ -28,15 +28,18 @@ export default function RefreshButton({ meta }: { meta: Meta }) {
     <div className="refresh">
       <div className="split">
         <button className="primary" disabled={running} onClick={() => go("missing")}
-          title="Recompute projections; fetch odds (including alternate lines) only for what is not stored yet">
-          {running ? "Refreshing…" : "Refresh data"}
+          title={meta.can_run_projections ? "Recompute projections; fetch odds (including alternate lines) only for what is not stored yet"
+            : "Fetch odds (including alternate lines) only for what is not stored yet"}>
+          {running ? "Refreshing…" : meta.can_run_projections ? "Refresh data" : "Fetch odds"}
         </button>
         <button className="primary caret" disabled={running} onClick={() => setOpen(!open)} aria-label="Refresh options">▾</button>
       </div>
       {open && (
         <div className="menu" role="menu">
-          <button role="menuitem" onClick={() => go("none")}>Projections only <small>no API credits</small></button>
-          <button role="menuitem" onClick={() => go("missing")}>Projections + missing odds <small>default · incl. alt lines</small></button>
+          {meta.can_run_projections && <button role="menuitem" onClick={() => go("none")}>Projections only <small>no API credits</small></button>}
+          <button role="menuitem" onClick={() => go("missing")}>
+            {meta.can_run_projections ? "Projections + missing odds" : "Missing odds"} <small>default · incl. alt lines</small>
+          </button>
           <button role="menuitem" disabled={!meta.has_odds_key} onClick={() => go("all")}>
             Re-fetch all odds <small>{meta.has_odds_key ? "~100+ API credits" : "needs ODDS_API_KEY"}</small>
           </button>

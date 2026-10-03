@@ -112,6 +112,31 @@ Requires Python 3.9+ and Node 20+. Everything goes through one script:
 
 **Docker** (untested so far): `docker build -t nfl-props . && docker run -p 8000:8000 -v nfl-data:/srv/backend/data nfl-props`. Set `DATABASE_URL` to a Postgres URL (and add a driver such as `psycopg`) when deploying beyond one instance.
 
+## Going live: Render API + GitHub Pages site
+
+The React app is served from GitHub Pages and calls the API hosted on Render, so the public site is the real, working app. Anyone can browse; refreshing data and fetching alternate lines (which spend Odds API credits) need your **admin token**.
+
+```
+GitHub Pages (React)  ──HTTPS──▶  Render (FastAPI)  ──▶  Neon Postgres (free)
+                                          └──▶ The Odds API
+```
+
+**Why these pieces.** Render's free web service has no persistent disk and sleeps after 15 idle minutes, so the database lives on Neon (free Postgres). The first visit after a sleep takes up to a minute; the app shows "Waking the server…" and retries by itself. The weekly model run needs ~400 MB, more than Render's 512 MB free tier allows next to the server, so you run it on your Mac against the same database (`PROJECTIONS_ON_SERVER=0`); the site can still fetch odds.
+
+**One-time setup** (accounts and secrets are yours to create):
+1. **Neon:** create a project at [neon.tech](https://neon.tech) and copy its connection string (`postgresql://…`).
+2. **Copy your data up** (keeps the odds you already paid credits for):
+   ```bash
+   DATABASE_URL='postgresql://…' ./run.sh push-data
+   ```
+3. **Render:** New → Blueprint → pick this repo (it reads `render.yaml`). When asked, set `DATABASE_URL` (the Neon string) and `ODDS_API_KEY`. After the deploy, copy the service URL (`https://nfl-prop-predictor-api.onrender.com`) and, from the service's Environment tab, the generated `ADMIN_TOKEN`.
+4. **GitHub:** Settings → Secrets and variables → Actions → **Variables** → new variable `API_URL` = the Render URL. Settings → Pages → Source: **GitHub Actions**. Merge to `main` (or run the "Deploy demo to GitHub Pages" workflow). If your GitHub user isn't `JoshuaDHaber`, change `CORS_ORIGINS` in Render to your Pages origin.
+5. **Open the site, click Admin, paste the admin token.** Refresh controls appear for you only (the token stays in that browser).
+
+**Each week:** `DATABASE_URL='postgresql://…' ./run.sh refresh` runs the model and stores projections straight into Neon; then use *Fetch odds* on the site (or the same command with `--odds missing`) to pull lines.
+
+Without the `API_URL` variable the same workflow publishes the static snapshot demo described next.
+
 ## Public demo on GitHub Pages
 
 GitHub Pages hosts static files only, so it can't run the API. Instead the repo publishes a **static demo**: the same React app reading a saved snapshot (`frontend/public/demo/*.json`) instead of calling the server. Browsing, filtering, the player drawer, line tables and the betslip all work; refreshing data, loading new lines and the market-trust slider (fixed at 35%) need the live app.
@@ -144,6 +169,7 @@ backend/
     schemas.py     Pydantic response models
     cli.py         run the pipeline without the web app
     export_static.py  write the data as static JSON for the Pages demo
+    copy_db.py     copy the local database to a hosted Postgres (./run.sh push-data)
     engine/        model.py (projections, backtest, probabilities) · picks.py (pricing) · ladder.py (alt-line pricing) · odds.py · data.py
   tests/           pytest suite
 frontend/src/      App, components (picks table, player drawer, line ladder, betslip, controls, refresh), betslip math in slip.ts, typed API client

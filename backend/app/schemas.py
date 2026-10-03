@@ -50,6 +50,8 @@ class Meta(BaseModel):
     lan_url: Optional[str] = None
     books: list[str] = []
     snapshot_at: Optional[str] = None  # set only in the static demo export
+    can_write: bool = False  # this client may refresh data / fetch alt lines (local, or sent the admin token)
+    can_run_projections: bool = True  # False on small hosts that only fetch odds
 
 
 class ProjectionOut(BaseModel):

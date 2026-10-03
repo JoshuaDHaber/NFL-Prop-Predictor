@@ -162,3 +162,60 @@ utun4: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 1280
 def test_app_url_override_wins_for_sharing(client, monkeypatch):
     monkeypatch.setenv("APP_URL", "http://my-mac.tail1234.ts.net:8000/")
     assert client.get("/api/meta").json()["lan_url"] == "http://my-mac.tail1234.ts.net:8000"
+
+
+# ---------- hosted-deployment behaviour: admin token, CORS, health, database URL ----------
+def test_remote_writes_need_the_admin_token(monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", "s3cret")
+    monkeypatch.setattr(main.pipeline, "run_projections", lambda log=print: None)
+    monkeypatch.setattr(main.pipeline, "refresh_odds", lambda mode, log=print: None)
+    with TestClient(main.app, client=("203.0.113.9", 4000)) as remote:
+        assert remote.post("/api/refresh", json={"odds": "none"}).status_code == 403
+        bad = remote.post("/api/refresh", json={"odds": "none"}, headers={"Authorization": "Bearer nope"})
+        assert bad.status_code == 403
+        ok = remote.post("/api/refresh", json={"odds": "none"}, headers={"Authorization": "Bearer s3cret"})
+        assert ok.status_code == 202
+        main._job.update(state="idle")
+
+
+def test_meta_tells_each_client_whether_it_can_write(monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", "s3cret")
+    with TestClient(main.app, client=("203.0.113.9", 4000)) as remote:
+        assert remote.get("/api/meta").json()["can_write"] is False
+        assert remote.get("/api/meta", headers={"Authorization": "Bearer s3cret"}).json()["can_write"] is True
+    with TestClient(main.app) as local:
+        assert local.get("/api/meta").json()["can_write"] is True
+
+
+def test_without_a_configured_token_remote_clients_stay_read_only(monkeypatch):
+    monkeypatch.delenv("ADMIN_TOKEN", raising=False)
+    with TestClient(main.app, client=("203.0.113.9", 4000)) as remote:
+        assert remote.post("/api/refresh", json={"odds": "none"}, headers={"Authorization": "Bearer "}).status_code == 403
+
+
+def test_forbidden_responses_still_carry_cors_headers_so_the_browser_can_read_them():
+    with TestClient(main.app, client=("203.0.113.9", 4000)) as remote:
+        r = remote.post("/api/refresh", json={"odds": "none"}, headers={"Origin": "http://localhost:5173"})
+        assert r.status_code == 403 and r.headers.get("access-control-allow-origin") == "http://localhost:5173"
+
+
+def test_health_check(client):
+    assert client.get("/healthz").json() == {"ok": True}
+
+
+def test_projection_refresh_can_be_turned_off_for_small_hosts(client, monkeypatch):
+    calls = []
+    monkeypatch.setenv("PROJECTIONS_ON_SERVER", "0")
+    monkeypatch.setattr(main.pipeline, "run_projections", lambda log=print: calls.append("projections"))
+    monkeypatch.setattr(main.pipeline, "refresh_odds", lambda mode, log=print: calls.append(f"odds:{mode}"))
+    assert client.get("/api/meta").json()["can_run_projections"] is False
+    client.post("/api/refresh", json={"odds": "missing"})
+    assert calls == ["odds:missing"]
+    main._job.update(state="idle")
+
+
+def test_hosted_postgres_urls_are_pointed_at_the_installed_driver():
+    from app import config
+    assert config.normalize_db_url("postgres://u:p@h/db") == "postgresql+psycopg://u:p@h/db"
+    assert config.normalize_db_url("postgresql://u:p@h/db?sslmode=require") == "postgresql+psycopg://u:p@h/db?sslmode=require"
+    assert config.normalize_db_url("sqlite:///x.db") == "sqlite:///x.db"

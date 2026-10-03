@@ -10,22 +10,23 @@ CACHE = os.environ.get("NFLPROPS_CACHE") or os.path.join(os.path.dirname(os.path
 os.makedirs(CACHE, exist_ok=True)
 
 
-def _get_csv(url, name, max_age_hours=6):
+def _get_csv(url, name, max_age_hours=6, usecols=None):
     path = os.path.join(CACHE, name)
     if os.path.exists(path) and time.time() - os.path.getmtime(path) < max_age_hours * 3600:
-        return pd.read_csv(path, low_memory=False)
+        return pd.read_csv(path, low_memory=False, usecols=usecols)
     r = requests.get(url, timeout=60)
     r.raise_for_status()
     with open(path, "wb") as f:
         f.write(r.content)
-    return pd.read_csv(io.BytesIO(r.content), low_memory=False)
+    return pd.read_csv(io.BytesIO(r.content), low_memory=False, usecols=usecols)
 
 
-def load_stats(seasons):
+def load_stats(seasons, usecols=None):
+    """usecols trims the ~150 stat columns when only a few are needed (keeps a small server's memory down)."""
     frames = []
     for s in seasons:
         try:
-            frames.append(_get_csv(f"{BASE}/stats_player/stats_player_week_{s}.csv", f"stats_{s}.csv"))
+            frames.append(_get_csv(f"{BASE}/stats_player/stats_player_week_{s}.csv", f"stats_{s}.csv", usecols=usecols))
         except requests.HTTPError:
             pass
     df = pd.concat(frames, ignore_index=True)

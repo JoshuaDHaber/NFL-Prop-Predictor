@@ -1,4 +1,5 @@
 """FastAPI app: JSON API for projections, priced picks and data refresh (+ serves the built React app)."""
+import hmac
 import os
 import threading
 from contextlib import asynccontextmanager
@@ -40,13 +41,22 @@ app = FastAPI(title="NFL Prop Predictor", version="1.0", lifespan=lifespan)
 LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
 
-@app.middleware("http")
-async def local_writes_only(request: Request, call_next):
-    """The app can be served on the LAN (phones read the shared slip). Anything that spends API credits or
-    changes data is a POST, so it is limited to this machine."""
+def is_admin(request: Request) -> bool:
+    """May this request change data or spend API credits? Yes from this machine, or with the ADMIN_TOKEN."""
     host = request.client.host if request.client else ""
-    if request.method not in ("GET", "HEAD", "OPTIONS") and host not in LOCAL_HOSTS:
-        return JSONResponse({"detail": "Read-only from other devices"}, status_code=403)
+    if host in LOCAL_HOSTS:
+        return True
+    token = config.ADMIN_TOKEN()
+    given = request.headers.get("authorization", "")
+    return bool(token) and given.startswith("Bearer ") and hmac.compare_digest(given[7:], token)
+
+
+@app.middleware("http")
+async def admin_writes_only(request: Request, call_next):
+    """The app can be served beyond this machine (LAN, Tailscale, a host). Writes are POSTs, and those
+    (refreshes, alt-line fetches) spend API credits, so they need to come from here or carry the admin token."""
+    if request.method not in ("GET", "HEAD", "OPTIONS") and not is_admin(request):
+        return JSONResponse({"detail": "Admin only"}, status_code=403)
     return await call_next(request)
 
 
@@ -76,7 +86,7 @@ def lan_ip() -> Optional[str]:
         return None
 
 
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=config.CORS_ORIGINS(), allow_methods=["*"], allow_headers=["*"])
 
 CSV_SEED = os.path.join(config.BASE_DIR, ".cache", "odds_latest.csv")
 
@@ -137,7 +147,10 @@ def _run_job(odds_mode: str):
         _job["log"].append(msg)
 
     try:
-        pipeline.run_projections(log=log)
+        if config.PROJECTIONS_ON_SERVER():
+            pipeline.run_projections(log=log)
+        else:
+            log("Projections run off-server on this host; fetching odds only")
         pipeline.refresh_odds(odds_mode, log=log)
         _job["state"] = "done"
     except Exception as e:  # surfaced to the UI
@@ -149,7 +162,9 @@ def _run_job(odds_mode: str):
 # ---------- routes ----------
 @app.get("/api/meta", response_model=Meta)
 def meta(request: Request, db: Session = Depends(get_db)):
-    return build_meta(db, _lan_url(request))
+    out = build_meta(db, _lan_url(request))
+    out.can_write, out.can_run_projections = is_admin(request), config.PROJECTIONS_ON_SERVER()
+    return out
 
 
 def build_meta(db: Session, lan_url: Optional[str] = None) -> Meta:
@@ -294,9 +309,13 @@ def fetch_alt_lines(player_id: str, db: Session = Depends(get_db)):
     return AltFetchResult(kinds=kinds, **res)
 
 
+_LOG_COLUMNS = ["player_id", "season", "week", "season_type", "position", "team", "opponent_team", "rushing_yards",
+                "receiving_yards", "passing_yards", "carries", "targets", "attempts"]
+
+
 @lru_cache(maxsize=1)
 def _stats(season: int) -> pd.DataFrame:
-    return model.prep(data.load_stats([season - 1, season]))
+    return model.prep(data.load_stats([season - 1, season], usecols=_LOG_COLUMNS))
 
 
 def _game_logs(player_id: str, kinds: list[str], season: int, n: int = 12) -> dict:
@@ -322,6 +341,11 @@ def refresh(req: RefreshRequest, bg: BackgroundTasks):
         _job.update(state="running", started_at=datetime.utcnow().isoformat(), finished_at=None, log=[], error=None)
     bg.add_task(_run_job, req.odds)
     return JobStatus(**_job)
+
+
+@app.get("/healthz", include_in_schema=False)
+def healthz():
+    return {"ok": True}
 
 
 @app.get("/api/refresh/status", response_model=JobStatus)
