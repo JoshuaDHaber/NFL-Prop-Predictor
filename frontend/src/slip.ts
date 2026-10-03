@@ -1,4 +1,4 @@
-import type { Kind } from "./api";
+import type { Kind, Ladder } from "./api";
 import { KIND_LABEL, americanOdds } from "./format";
 
 export interface Leg {
@@ -65,3 +65,31 @@ export function slipText(legs: Leg[]) {
 }
 
 export const sameGame = (legs: Leg[]) => new Set(legs.map((l) => l.gameId)).size < legs.length;
+
+export interface BookOption { book: string; odds: number; prob: number; ev: number; link: string | null; eventLink: string | null; alt: boolean }
+
+/** Every book that offers this leg's exact line and side, best price first. */
+export function bookOptions(ladder: Ladder | undefined, leg: Pick<Leg, "line" | "side">): BookOption[] {
+  const best = new Map<string, BookOption>();
+  for (const r of ladder?.quotes ?? []) {
+    const q = leg.side === "Over" ? r.over : r.under;
+    if (r.line !== leg.line || !q) continue;
+    const cur = best.get(r.book);
+    if (!cur || q.odds > cur.odds)
+      best.set(r.book, { book: r.book, odds: q.odds, prob: q.prob, ev: q.ev, link: q.link, eventLink: r.event_link, alt: r.alt });
+  }
+  return [...best.values()].sort((a, b) => b.odds - a.odds);
+}
+
+/** The same bet placed at a different book. */
+export function rebook(leg: Leg, o: BookOption): Leg {
+  const next = { ...leg, book: o.book, odds: o.odds, prob: o.prob, ev: o.ev, link: o.link, eventLink: o.eventLink, alt: o.alt };
+  return { ...next, id: legId(next) };
+}
+
+/** Books that could carry every leg, with how many legs each can take. */
+export function bookCoverage(options: Record<string, BookOption[]>): { book: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const opts of Object.values(options)) for (const o of opts) counts.set(o.book, (counts.get(o.book) ?? 0) + 1);
+  return [...counts.entries()].map(([book, count]) => ({ book, count })).sort((a, b) => b.count - a.count || a.book.localeCompare(b.book));
+}

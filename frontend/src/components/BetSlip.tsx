@@ -1,12 +1,26 @@
+import { useQueries } from "@tanstack/react-query";
 import { useState } from "react";
+import { api } from "../api";
 import { useBetSlip } from "../BetSlipContext";
 import { KIND_SHORT, americanOdds, pct, signedPct } from "../format";
-import { groupByBook, isDirectLink, legLink, parlay, sameGame, slipText, toWin } from "../slip";
+import { bookCoverage, bookOptions, groupByBook, isDirectLink, legLink, parlay, rebook, sameGame, slipText, toWin, type BookOption } from "../slip";
 
 export default function BetSlip() {
-  const { legs, remove, clear, state, setState, open, setOpen } = useBetSlip();
+  const { legs, remove, replace, clear, state, setState, open, setOpen } = useBetSlip();
   const [stakes, setStakes] = useState<Record<string, number>>({});
   const [copied, setCopied] = useState(false);
+  // line shopping data: every book's quote for each leg's exact line (shares the drawer's query cache)
+  const keys = [...new Map(legs.map((l) => [`${l.playerId}|${l.kind}`, l])).values()];
+  const ladders = useQueries({
+    queries: keys.map((l) => ({ queryKey: ["ladder", l.playerId, l.kind], queryFn: () => api.lines(l.playerId, l.kind), enabled: open })),
+  });
+  const ladderFor = (l: { playerId: string; kind: string }) => ladders[keys.findIndex((k) => k.playerId === l.playerId && k.kind === l.kind)]?.data;
+  const options: Record<string, BookOption[]> = Object.fromEntries(legs.map((l) => [l.id, bookOptions(ladderFor(l), l)]));
+  const coverage = bookCoverage(options);
+  const moveAll = (book: string) => legs.forEach((l) => {
+    const o = options[l.id]?.find((x) => x.book === book);
+    if (o && l.book !== book) replace(l.id, rebook(l, o));
+  });
   const stakeFor = (book: string) => stakes[book] ?? 10;
 
   const copy = async () => {
@@ -34,6 +48,17 @@ export default function BetSlip() {
               </label>
             )}
 
+            {legs.length > 1 && coverage.length > 0 && (
+              <label className="statebox">Put every leg at one book
+                <select value="" onChange={(e) => e.target.value && moveAll(e.target.value)} aria-label="Move all legs to a book">
+                  <option value="">Choose a book…</option>
+                  {coverage.map((c) => (
+                    <option key={c.book} value={c.book}>{c.book} · {c.count} of {legs.length} legs available</option>
+                  ))}
+                </select>
+              </label>
+            )}
+
             {groupByBook(legs).map(([book, ls]) => {
               const stake = stakeFor(book);
               const p = parlay(ls, stake);
@@ -51,7 +76,17 @@ export default function BetSlip() {
                           <b>{l.name}</b> <span className="mut">{l.team}</span><br />
                           <span className={l.side === "Over" ? "over" : "under"}>{l.side} {l.line}</span> {KIND_SHORT[l.kind]}
                           {l.alt && <span className="alt">alt</span>}
-                          <span className="mut"> {l.home ? "vs" : "@"} {l.opp} · {americanOdds(l.odds)}</span><br />
+                          <span className="mut"> {l.home ? "vs" : "@"} {l.opp}</span><br />
+                          <label className="bookpick">
+                            <span className="mut">Book</span>
+                            <select value={l.book} aria-label={`Book for ${l.name} ${l.side} ${l.line}`}
+                              onChange={(e) => { const o = options[l.id]?.find((x) => x.book === e.target.value); if (o) replace(l.id, rebook(l, o)); }}>
+                              {!options[l.id]?.some((o) => o.book === l.book) && <option value={l.book}>{l.book} {americanOdds(l.odds)}</option>}
+                              {(options[l.id] ?? []).map((o) => (
+                                <option key={o.book} value={o.book}>{o.book} {americanOdds(o.odds)}</option>
+                              ))}
+                            </select>
+                          </label><br />
                           <span className="mut">{pct(l.prob, 0)} model · <span className={l.ev > 0 ? "pos" : ""}>{signedPct(l.ev)} EV</span> · to win ${toWin(l.odds, stake).toFixed(2)}</span>
                         </div>
                         <div className="slip-actions">

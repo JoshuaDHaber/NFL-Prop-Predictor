@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Leg } from "./slip";
-import { groupByBook, legId, legLink, parlay, sameGame, slipText, toAmerican, toDecimal, toWin } from "./slip";
+import { bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipText, toAmerican, toDecimal, toWin } from "./slip";
 
 const leg = (o: Partial<Leg> = {}): Leg => ({
   id: "x", playerId: "p1", name: "Test Back", team: "AAA", opp: "BBB", home: true, kind: "rush", side: "Over", line: 60.5,
@@ -56,5 +56,34 @@ describe("slip helpers", () => {
   });
   it("formats a copyable slip", () => {
     expect(slipText([leg()])).toBe("DraftKings\n  - Test Back Over 60.5 Rushing yds (vs BBB) +100 @ DraftKings");
+  });
+});
+
+const ladder = {
+  kind: "rush", mu: 50, sd: 20, game_id: "g1", alt_fetched_at: null,
+  quotes: [
+    { line: 60.5, book: "DraftKings", alt: false, event_link: "https://dk/e", over: { odds: -110, prob: 0.4, ev: -0.1, link: "https://dk/o" }, under: { odds: -110, prob: 0.6, ev: 0.1, link: null } },
+    { line: 60.5, book: "FanDuel", alt: false, event_link: null, over: { odds: -105, prob: 0.4, ev: -0.05, link: "https://fd/o" }, under: null },
+    { line: 55.5, book: "BetMGM", alt: true, event_link: null, over: { odds: -150, prob: 0.5, ev: -0.2, link: null }, under: null },
+  ],
+} as const;
+
+describe("rebooking", () => {
+  it("lists only books offering the exact line and side, best price first", () => {
+    const opts = bookOptions(ladder as any, { line: 60.5, side: "Over" });
+    expect(opts.map((o) => o.book)).toEqual(["FanDuel", "DraftKings"]);
+    expect(bookOptions(ladder as any, { line: 60.5, side: "Under" }).map((o) => o.book)).toEqual(["DraftKings"]);
+    expect(bookOptions(undefined, { line: 60.5, side: "Over" })).toEqual([]);
+  });
+  it("moves a leg to another book, updating price, links and id", () => {
+    const l = leg({ book: "DraftKings", odds: -110, line: 60.5, side: "Over" });
+    const moved = rebook(l, bookOptions(ladder as any, l)[0]);
+    expect(moved).toMatchObject({ book: "FanDuel", odds: -105, link: "https://fd/o" });
+    expect(moved.id).toBe("p1|rush|Over|60.5|FanDuel");
+    expect(moved.name).toBe(l.name);
+  });
+  it("counts how many legs each book can take", () => {
+    const cov = bookCoverage({ a: [{ book: "X" }, { book: "Y" }] as any, b: [{ book: "X" }] as any });
+    expect(cov).toEqual([{ book: "X", count: 2 }, { book: "Y", count: 1 }]);
   });
 });

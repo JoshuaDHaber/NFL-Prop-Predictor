@@ -6,6 +6,7 @@ interface SlipCtx {
   has: (id: string) => boolean;
   toggle: (leg: Leg) => void;
   remove: (id: string) => void;
+  replace: (oldId: string, leg: Leg) => void;
   clear: () => void;
   state: string;
   setState: (s: string) => void;
@@ -37,11 +38,14 @@ export function BetSlipProvider({ children }: { children: ReactNode }) {
   const toggle = useCallback((leg: Leg) =>
     setLegs((ls) => (ls.some((l) => l.id === leg.id) ? ls.filter((l) => l.id !== leg.id) : [...ls, leg])), []);
   const remove = useCallback((id: string) => setLegs((ls) => ls.filter((l) => l.id !== id)), []);
+  // swap a leg for the same bet at another book; if that exact bet is already on the slip, just drop the old one
+  const replace = useCallback((oldId: string, leg: Leg) => setLegs((ls) =>
+    ls.some((l) => l.id === leg.id && l.id !== oldId) ? ls.filter((l) => l.id !== oldId) : ls.map((l) => (l.id === oldId ? leg : l))), []);
   const clear = useCallback(() => setLegs([]), []);
   const has = useCallback((id: string) => legs.some((l) => l.id === id), [legs]);
 
-  const value = useMemo(() => ({ legs, has, toggle, remove, clear, state, setState, open, setOpen }),
-    [legs, has, toggle, remove, clear, state, open]);
+  const value = useMemo(() => ({ legs, has, toggle, remove, replace, clear, state, setState, open, setOpen }),
+    [legs, has, toggle, remove, replace, clear, state, open]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
