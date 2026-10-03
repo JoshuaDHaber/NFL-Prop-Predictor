@@ -72,6 +72,7 @@ export default function App() {
       {selected && (
         <Suspense fallback={null}>
           <PlayerDrawer playerId={selected.id} initialKind={selected.kind} marketWeight={debounced.marketWeight}
+            book={filters.book} onBookChange={(b) => setFilters({ ...filters, book: b })}
             onClose={() => setSelected(null)} />
         </Suspense>
       )}

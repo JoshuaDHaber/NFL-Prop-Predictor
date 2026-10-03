@@ -5,9 +5,9 @@ import { api, type Kind } from "../api";
 import { KIND_LABEL, KIND_SHORT, matchup } from "../format";
 import LineLadder from "./LineLadder";
 
-interface Props { playerId: string; initialKind: Kind; marketWeight: number; onClose: () => void }
+interface Props { playerId: string; initialKind: Kind; marketWeight: number; book: string; onBookChange: (b: string) => void; onClose: () => void }
 
-export default function PlayerDrawer({ playerId, initialKind, marketWeight, onClose }: Props) {
+export default function PlayerDrawer({ playerId, initialKind, marketWeight, book, onBookChange, onClose }: Props) {
   const { data, isLoading, error } = useQuery({
     queryKey: ["player", playerId, marketWeight], queryFn: () => api.player(playerId, marketWeight),
   });
@@ -20,9 +20,11 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, onCl
   }, [onClose]);
 
   const proj = data?.projections.find((p) => p.kind === kind);
-  const picks = data?.picks.filter((p) => p.kind === kind) ?? [];
+
   const logs = data?.logs[kind] ?? [];
-  const lines = [...new Set(picks.map((p) => p.line))];
+  // main-line markers on the chart come from the same ladder the table shows, so they follow the sportsbook filter
+  const ladder = useQuery({ queryKey: ["ladder", playerId, kind], queryFn: () => api.lines(playerId, kind) });
+  const lines = [...new Set((ladder.data?.quotes ?? []).filter((q) => !q.alt && (book === "all" || q.book === book)).map((q) => q.line))];
 
   return (
     <div className="overlay" onClick={onClose}>
@@ -67,7 +69,7 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, onCl
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <LineLadder kind={kind} mu={proj.mu} ctx={{ playerId: data.player_id, name: data.name, team: data.team,
+            <LineLadder kind={kind} mu={proj.mu} book={book} onBookChange={onBookChange} ctx={{ playerId: data.player_id, name: data.name, team: data.team,
               opp: proj.opp, home: proj.home, gameId: proj.game_id }} />
           </>
         )}

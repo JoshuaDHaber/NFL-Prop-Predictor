@@ -18,7 +18,9 @@ const bestOf = (rows: LadderRow[], side: "over" | "under"): Cell | null => {
   return best;
 };
 
-export default function LineLadder({ ctx, kind, mu }: { ctx: PlayerCtx; kind: Kind; mu: number }) {
+interface LadderProps { ctx: PlayerCtx; kind: Kind; mu: number; book: string; onBookChange: (b: string) => void }
+
+export default function LineLadder({ ctx, kind, mu, book, onBookChange }: LadderProps) {
   const qc = useQueryClient();
   const slip = useBetSlip();
   const meta = qc.getQueryData<{ has_odds_key: boolean }>(["meta"]);
@@ -30,15 +32,16 @@ export default function LineLadder({ ctx, kind, mu }: { ctx: PlayerCtx; kind: Ki
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["ladder", ctx.playerId] }); qc.invalidateQueries({ queryKey: ["picks"] }); },
   });
 
+  const onlyBook = book !== "all";
   const rows = useMemo(() => {
-    const quotes = ladder.data?.quotes ?? [];
-    if (allBooks) return quotes.map((r) => ({ key: `${r.line}-${r.book}-${r.alt}`, line: r.line, alt: r.alt, over: bestOf([r], "over"), under: bestOf([r], "under") }));
+    const quotes = (ladder.data?.quotes ?? []).filter((q) => !onlyBook || q.book === book);
+    if (allBooks || onlyBook) return quotes.map((r) => ({ key: `${r.line}-${r.book}-${r.alt}`, line: r.line, alt: r.alt, over: bestOf([r], "over"), under: bestOf([r], "under") }));
     const byLine = new Map<number, LadderRow[]>();
     quotes.forEach((r) => byLine.set(r.line, [...(byLine.get(r.line) ?? []), r]));
     return [...byLine.entries()].sort((a, b) => a[0] - b[0]).map(([line, rs]) => ({
       key: String(line), line, alt: rs.every((r) => r.alt), over: bestOf(rs, "over"), under: bestOf(rs, "under"),
     }));
-  }, [ladder.data, allBooks]);
+  }, [ladder.data, allBooks, onlyBook, book]);
   const shown = onlyEv ? rows.filter((r) => (r.over?.q.ev ?? -1) > 0 || (r.under?.q.ev ?? -1) > 0) : rows;
   const hasAlt = (ladder.data?.quotes ?? []).some((q) => q.alt);
 
@@ -74,13 +77,19 @@ export default function LineLadder({ ctx, kind, mu }: { ctx: PlayerCtx; kind: Ki
         <h3>Lines &amp; alternates</h3>
         <div className="ladder-tools">
           <label className="check"><input type="checkbox" checked={onlyEv} onChange={(e) => setOnlyEv(e.target.checked)} /> +EV only</label>
-          <label className="check"><input type="checkbox" checked={allBooks} onChange={(e) => setAllBooks(e.target.checked)} /> All books</label>
+          {!onlyBook && <label className="check"><input type="checkbox" checked={allBooks} onChange={(e) => setAllBooks(e.target.checked)} /> All books</label>}
         </div>
       </div>
       {ladder.isLoading && <p className="mut">Loading lines…</p>}
       {ladder.error && <p className="err">Couldn't load lines.</p>}
       {ladder.data && (
         <>
+          {onlyBook && (
+            <div className="book-note">
+              Showing <b>{book}</b> lines only (from your sportsbook filter).
+              <button className="link" onClick={() => onBookChange("all")}>Show all books</button>
+            </div>
+          )}
           <div className="mut ladder-note">
             Win probability and EV here use the model alone (no market blend). Projection {mu.toFixed(0)} yds.
             {ladder.data.alt_fetched_at && ` Alternates fetched ${timeAgo(ladder.data.alt_fetched_at)}.`}
@@ -95,7 +104,7 @@ export default function LineLadder({ ctx, kind, mu }: { ctx: PlayerCtx; kind: Ki
                     {cell(r.over)}{cell(r.under)}
                   </tr>
                 ))}
-                {!shown.length && <tr><td colSpan={3} className="mut">No quotes{onlyEv ? " with positive EV" : ""}.</td></tr>}
+                {!shown.length && <tr><td colSpan={3} className="mut">No {onlyBook ? `${book} ` : ""}quotes{onlyEv ? " with positive EV" : ""} for this player.</td></tr>}
               </tbody>
             </table>
           </div>

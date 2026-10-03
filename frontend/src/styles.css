@@ -100,3 +100,4 @@ button.primary:disabled { opacity: .55; cursor: default; }
 .open-msg { padding-top: 8px; }
 .slip-book { flex-wrap: wrap; } .slip-book .link.strong { font-weight: 600; } .slip-book .link { margin-left: 0; } .slip-book .mut + .link { margin-left: auto; }
 button.primary.outline { background: transparent; color: var(--acc); border: 1px solid var(--acc); } a.link { text-decoration: none; }
+.book-note { background: var(--chip); color: var(--ink); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px; font-size: 12px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
