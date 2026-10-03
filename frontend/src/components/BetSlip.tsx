@@ -3,12 +3,13 @@ import { useState } from "react";
 import { api } from "../api";
 import { useBetSlip } from "../BetSlipContext";
 import { KIND_SHORT, americanOdds, pct, signedPct } from "../format";
-import { bookCoverage, bookOptions, groupByBook, isDirectLink, legLink, parlay, rebook, sameGame, slipText, toWin, type BookOption } from "../slip";
+import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, isDirectLink, legLink, parlay, rebook, sameGame, slipText, toWin, type BookOption } from "../slip";
 
 export default function BetSlip() {
   const { legs, remove, replace, clear, state, setState, open, setOpen } = useBetSlip();
   const [stakes, setStakes] = useState<Record<string, number>>({});
   const [copied, setCopied] = useState(false);
+  const [target, setTarget] = useState<string | null>(null);
   // line shopping data: every book's quote for each leg's exact line (shares the drawer's query cache)
   const keys = [...new Map(legs.map((l) => [`${l.playerId}|${l.kind}`, l])).values()];
   const ladders = useQueries({
@@ -17,10 +18,15 @@ export default function BetSlip() {
   const ladderFor = (l: { playerId: string; kind: string }) => ladders[keys.findIndex((k) => k.playerId === l.playerId && k.kind === l.kind)]?.data;
   const options: Record<string, BookOption[]> = Object.fromEntries(legs.map((l) => [l.id, bookOptions(ladderFor(l), l)]));
   const coverage = bookCoverage(options);
-  const moveAll = (book: string) => legs.forEach((l) => {
-    const o = options[l.id]?.find((x) => x.book === book);
-    if (o && l.book !== book) replace(l.id, rebook(l, o));
-  });
+  const moveAll = (book: string) => {
+    setTarget(book);
+    legs.forEach((l) => {
+      const o = options[l.id]?.find((x) => x.book === book);
+      if (o && l.book !== book) replace(l.id, rebook(l, o));
+    });
+  };
+  // legs the chosen book can't take as-is, each with the nearest lines that book does offer
+  const stranded = target ? legs.filter((l) => l.book !== target) : [];
   const stakeFor = (book: string) => stakes[book] ?? 10;
 
   const copy = async () => {
@@ -57,6 +63,37 @@ export default function BetSlip() {
                   ))}
                 </select>
               </label>
+            )}
+
+            {target && stranded.length > 0 && (
+              <section className="suggest" aria-live="polite">
+                <div className="suggest-head">
+                  <b>{target} can't take {stranded.length === legs.length ? "these legs" : `${stranded.length} of ${legs.length} legs`} as they are.</b>
+                  <button className="link" onClick={() => setTarget(null)}>Dismiss</button>
+                </div>
+                <p className="mut">Nearest lines {target} offers for each, so everything can go on one slip:</p>
+                {stranded.map((l) => {
+                  const alts = alternativesAtBook(ladderFor(l), l, target);
+                  return (
+                    <div className="suggest-leg" key={l.id}>
+                      <div><b>{l.name}</b> <span className={l.side === "Over" ? "over" : "under"}>{l.side} {l.line}</span> <span className="mut">{KIND_SHORT[l.kind]}</span></div>
+                      {alts.length ? (
+                        <div className="chips">
+                          {alts.map((o) => (
+                            <button key={o.line} className="chip-btn" onClick={() => replace(l.id, rebook(l, o))}
+                              title={`Swap to ${l.side} ${o.line} at ${target}`}>
+                              {l.side} {o.line} <b>{americanOdds(o.odds)}</b>
+                              <span className={o.ev > 0 ? "pos" : "mut"}> {signedPct(o.ev)}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mut">{target} has no {l.side.toLowerCase()} quotes for this player yet. Open the player and load alternate lines to see more.</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </section>
             )}
 
             {groupByBook(legs).map(([book, ls]) => {

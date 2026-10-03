@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Leg } from "./slip";
-import { bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipText, toAmerican, toDecimal, toWin } from "./slip";
+import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipText, toAmerican, toDecimal, toWin } from "./slip";
 
 const leg = (o: Partial<Leg> = {}): Leg => ({
   id: "x", playerId: "p1", name: "Test Back", team: "AAA", opp: "BBB", home: true, kind: "rush", side: "Over", line: 60.5,
@@ -81,6 +81,18 @@ describe("rebooking", () => {
     expect(moved).toMatchObject({ book: "FanDuel", odds: -105, link: "https://fd/o" });
     expect(moved.id).toBe("p1|rush|Over|60.5|FanDuel");
     expect(moved.name).toBe(l.name);
+  });
+  it("suggests the nearest lines a book does offer", () => {
+    const l = { line: 58.5, side: "Over" as const };
+    expect(alternativesAtBook(ladder as any, l, "DraftKings").map((o) => o.line)).toEqual([60.5]);
+    expect(alternativesAtBook(ladder as any, l, "BetMGM").map((o) => o.line)).toEqual([55.5]);
+    expect(alternativesAtBook(ladder as any, l, "Nowhere")).toEqual([]);
+    expect(alternativesAtBook(ladder as any, { line: 60.5, side: "Under" }, "FanDuel")).toEqual([]);
+  });
+  it("re-lines a leg when swapping to a suggestion", () => {
+    const l = leg({ book: "FanDuel", line: 58.5, side: "Over" });
+    const o = alternativesAtBook(ladder as any, l, "DraftKings")[0];
+    expect(rebook(l, o)).toMatchObject({ book: "DraftKings", line: 60.5, id: "p1|rush|Over|60.5|DraftKings" });
   });
   it("counts how many legs each book can take", () => {
     const cov = bookCoverage({ a: [{ book: "X" }, { book: "Y" }] as any, b: [{ book: "X" }] as any });

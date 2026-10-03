@@ -66,7 +66,7 @@ export function slipText(legs: Leg[]) {
 
 export const sameGame = (legs: Leg[]) => new Set(legs.map((l) => l.gameId)).size < legs.length;
 
-export interface BookOption { book: string; odds: number; prob: number; ev: number; link: string | null; eventLink: string | null; alt: boolean }
+export interface BookOption { book: string; line: number; odds: number; prob: number; ev: number; link: string | null; eventLink: string | null; alt: boolean }
 
 /** Every book that offers this leg's exact line and side, best price first. */
 export function bookOptions(ladder: Ladder | undefined, leg: Pick<Leg, "line" | "side">): BookOption[] {
@@ -76,14 +76,14 @@ export function bookOptions(ladder: Ladder | undefined, leg: Pick<Leg, "line" | 
     if (r.line !== leg.line || !q) continue;
     const cur = best.get(r.book);
     if (!cur || q.odds > cur.odds)
-      best.set(r.book, { book: r.book, odds: q.odds, prob: q.prob, ev: q.ev, link: q.link, eventLink: r.event_link, alt: r.alt });
+      best.set(r.book, { book: r.book, line: r.line, odds: q.odds, prob: q.prob, ev: q.ev, link: q.link, eventLink: r.event_link, alt: r.alt });
   }
   return [...best.values()].sort((a, b) => b.odds - a.odds);
 }
 
-/** The same bet placed at a different book. */
+/** The bet at another book (and, for suggestions, at that book's line). */
 export function rebook(leg: Leg, o: BookOption): Leg {
-  const next = { ...leg, book: o.book, odds: o.odds, prob: o.prob, ev: o.ev, link: o.link, eventLink: o.eventLink, alt: o.alt };
+  const next = { ...leg, book: o.book, line: o.line, odds: o.odds, prob: o.prob, ev: o.ev, link: o.link, eventLink: o.eventLink, alt: o.alt };
   return { ...next, id: legId(next) };
 }
 
@@ -92,4 +92,20 @@ export function bookCoverage(options: Record<string, BookOption[]>): { book: str
   const counts = new Map<string, number>();
   for (const opts of Object.values(options)) for (const o of opts) counts.set(o.book, (counts.get(o.book) ?? 0) + 1);
   return [...counts.entries()].map(([book, count]) => ({ book, count })).sort((a, b) => b.count - a.count || a.book.localeCompare(b.book));
+}
+
+/** Lines a book offers for this player/side, nearest to the leg's line first: what to swap to when the book lacks the exact line. */
+export function alternativesAtBook(ladder: Ladder | undefined, leg: Pick<Leg, "line" | "side">, book: string, n = 3): BookOption[] {
+  const byLine = new Map<number, BookOption>();
+  for (const r of ladder?.quotes ?? []) {
+    const q = leg.side === "Over" ? r.over : r.under;
+    if (r.book !== book || !q) continue;
+    const cur = byLine.get(r.line);
+    if (!cur || q.odds > cur.odds)
+      byLine.set(r.line, { book, line: r.line, odds: q.odds, prob: q.prob, ev: q.ev, link: q.link, eventLink: r.event_link, alt: r.alt });
+  }
+  return [...byLine.values()]
+    .sort((a, b) => Math.abs(a.line - leg.line) - Math.abs(b.line - leg.line) || a.line - b.line)
+    .slice(0, n)
+    .sort((a, b) => a.line - b.line);
 }
