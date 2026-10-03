@@ -18,7 +18,7 @@ export default function BetSlip() {
   // line shopping data: every book's quote for each leg's exact line (shares the drawer's query cache)
   const keys = [...new Map(legs.map((l) => [`${l.playerId}|${l.kind}`, l])).values()];
   const ladders = useQueries({
-    queries: keys.map((l) => ({ queryKey: ["ladder", l.playerId, l.kind], queryFn: () => api.lines(l.playerId, l.kind), enabled: open })),
+    queries: keys.map((l) => ({ queryKey: ["ladder", l.playerId, l.kind, 0], queryFn: () => api.lines(l.playerId, l.kind, 0), enabled: open })),
   });
   const ladderFor = (l: { playerId: string; kind: string }) => ladders[keys.findIndex((k) => k.playerId === l.playerId && k.kind === l.kind)]?.data;
   const options: Record<string, BookOption[]> = Object.fromEntries(legs.map((l) => [l.id, bookOptions(ladderFor(l), l)]));

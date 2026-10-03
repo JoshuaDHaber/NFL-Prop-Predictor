@@ -18,6 +18,8 @@ const bestOf = (rows: LadderRow[], side: "over" | "under"): Cell | null => {
   return best;
 };
 
+export const ODDS_RANGE = 300; // prices shown by default: -300 to +300
+
 interface LadderProps { ctx: PlayerCtx; kind: Kind; mu: number; book: string; onBookChange: (b: string) => void }
 
 export default function LineLadder({ ctx, kind, mu, book, onBookChange }: LadderProps) {
@@ -26,7 +28,9 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
   const meta = qc.getQueryData<{ has_odds_key: boolean }>(["meta"]);
   const [allBooks, setAllBooks] = useState(false);
   const [onlyEv, setOnlyEv] = useState(false);
-  const ladder = useQuery({ queryKey: ["ladder", ctx.playerId, kind], queryFn: () => api.lines(ctx.playerId, kind) });
+  const [limitOdds, setLimitOdds] = useState(true);
+  const oddsRange = limitOdds ? ODDS_RANGE : 0;
+  const ladder = useQuery({ queryKey: ["ladder", ctx.playerId, kind, oddsRange], queryFn: () => api.lines(ctx.playerId, kind, oddsRange) });
   const fetchAlt = useMutation({
     mutationFn: () => api.fetchAlt(ctx.playerId),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["ladder", ctx.playerId] }); qc.invalidateQueries({ queryKey: ["picks"] }); },
@@ -76,6 +80,9 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
       <div className="ladder-head">
         <h3>Lines &amp; alternates</h3>
         <div className="ladder-tools">
+          <label className="check" title={`Hide prices beyond -${ODDS_RANGE} / +${ODDS_RANGE}`}>
+            <input type="checkbox" checked={limitOdds} onChange={(e) => setLimitOdds(e.target.checked)} /> −{ODDS_RANGE} to +{ODDS_RANGE}
+          </label>
           <label className="check"><input type="checkbox" checked={onlyEv} onChange={(e) => setOnlyEv(e.target.checked)} /> +EV only</label>
           {!onlyBook && <label className="check"><input type="checkbox" checked={allBooks} onChange={(e) => setAllBooks(e.target.checked)} /> All books</label>}
         </div>

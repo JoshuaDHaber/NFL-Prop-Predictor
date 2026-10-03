@@ -243,8 +243,9 @@ def _player_proj(db: Session, player_id: str, kind: str):
 
 
 @app.get("/api/players/{player_id}/lines", response_model=LadderOut)
-def player_lines(player_id: str, kind: Kind, db: Session = Depends(get_db)):
-    """Every posted quote (main and alternate lines, all books) for one player/market, priced by the model."""
+def player_lines(player_id: str, kind: Kind, odds_range: int = Query(300, ge=0, le=100000), db: Session = Depends(get_db)):
+    """Every posted quote (main and alternate lines, all books) for one player/market, priced by the model.
+    Prices outside -odds_range..+odds_range are hidden (default 300; 0 shows everything)."""
     p = _player_proj(db, player_id, kind)
     key = odds.norm(p.name)
     main = current_lines(db)
@@ -257,7 +258,7 @@ def player_lines(player_id: str, kind: Kind, db: Session = Depends(get_db)):
     quotes = pd.concat([f for f in (main, alt_df) if not f.empty] or [main], ignore_index=True)
     fetched = max((r.fetched_at for r in alts), default=None)
     return LadderOut(kind=kind, mu=p.mu, sd=p.sd, game_id=p.game_id, alt_fetched_at=fetched.isoformat() if fetched else None,
-                     quotes=build_ladder(p.mu, p.sd, quotes))
+                     quotes=build_ladder(p.mu, p.sd, quotes, odds_range))
 
 
 @app.post("/api/players/{player_id}/alt-lines", response_model=AltFetchResult)

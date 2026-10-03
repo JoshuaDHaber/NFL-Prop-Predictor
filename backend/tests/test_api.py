@@ -115,10 +115,13 @@ def test_alt_fetch_stores_alternates_and_shows_them_in_the_ladder(client, monkey
     monkeypatch.setattr(main.pipeline, "fetch_game_lines", fake)
     r = client.post("/api/players/p0/alt-lines")
     assert r.status_code == 200 and r.json()["alt_quotes"] == 2 and calls == [("2026_04_BBB_AAA", ["rush"])]
-    d = client.get("/api/players/p0/lines", params={"kind": "rush"}).json()
+    d = client.get("/api/players/p0/lines", params={"kind": "rush", "odds_range": 0}).json()
     alts = [q for q in d["quotes"] if q["alt"]]
     assert [q["line"] for q in alts] == [80.5, 100.5] and alts[0]["over"]["link"] == "https://book/slip"
     assert d["alt_fetched_at"] is not None
+    # default view hides prices beyond -300..+300: the +600 longshot is gone, the +250 stays
+    d = client.get("/api/players/p0/lines", params={"kind": "rush"}).json()
+    assert [q["line"] for q in d["quotes"] if q["alt"]] == [80.5]
 
 
 def test_alt_fetch_reports_upstream_failures(client, monkeypatch):

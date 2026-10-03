@@ -80,23 +80,67 @@ def store_lines(df: pd.DataFrame, session) -> int:
     return len(df)
 
 
+def upcoming_games() -> pd.DataFrame:
+    """Unplayed games of the next week to be played (the week the projections are for)."""
+    sched = data.load_schedule()
+    todo = sched[sched.home_score.isna()]
+    first = todo.sort_values(["season", "week"]).iloc[0]
+    return todo[(todo.season == first.season) & (todo.week == first.week)]
+
+
 def refresh_odds(mode: str = "missing", log: Log = print) -> None:
-    """mode: 'all' refetch every market, 'missing' fetch only markets we hold no lines for, 'none' skip."""
+    """Fetch prop lines, main and alternate, for the upcoming week's games (one API call per game).
+
+    mode 'all' refetches everything; 'missing' fetches only markets with no stored lines plus alternate
+    lines for games that have none; 'none' skips. Costs one credit per market per game.
+    """
     if mode == "none":
         return
     key = config.ODDS_API_KEY()
+    games = upcoming_games()
     with SessionLocal() as s:
         have = {m for (m,) in s.query(OddsLine.market).distinct()}
-        wanted = ALL_MARKETS if mode == "all" else ALL_MARKETS - have
-        if not wanted:
-            log("Odds cache already covers every market")
+        have_alt = {g for (g,) in s.query(AltLine.game_id).distinct()}
+        need_main = ALL_MARKETS if mode == "all" else ALL_MARKETS - have
+        alt_games = set(games.game_id) if mode == "all" else set(games.game_id) - have_alt
+        if not need_main and not alt_games:
+            log("Odds already cover every market and game")
             return
         if not key:
             log("No ODDS_API_KEY set; skipping odds fetch")
             return
-        log(f"Fetching odds for {sorted(wanted)} (uses API credits)...")
-        df = odds.fetch_odds_api(key, kinds=wanted)
-        log(f"Stored {store_lines(df, s)} lines")
+        events = {(e["away"], e["home"]): e["id"] for e in odds.list_events(key)}
+        todo = [(g, events.get((g.away_team, g.home_team))) for g in games.itertuples()
+                if need_main or g.game_id in alt_games]
+        cost = sum(len(need_main) + (len(ALL_MARKETS) if g.game_id in alt_games else 0) for g, e in todo if e)
+        log(f"Fetching odds for {len(todo)} games (about {cost} API credits)...")
+        mains, alts = [], []
+        for g, event_id in todo:
+            if not event_id:
+                log(f"  no sportsbook event yet for {g.away_team} @ {g.home_team}")
+                continue
+            long, remaining = odds.fetch_game_odds(key, event_id, need_main, ALL_MARKETS if g.game_id in alt_games else ())
+            paired = odds.pair_with_links(long)
+            is_alt = paired.alt.astype(bool)
+            mains.append(paired[~is_alt])
+            alts.append(paired[is_alt].assign(game_id=g.game_id))
+            log(f"  {g.away_team} @ {g.home_team}: {len(paired)} quotes (credits left: {remaining})")
+        now = datetime.utcnow()
+        main_df = pd.concat([m for m in mains if not m.empty], ignore_index=True) if any(not m.empty for m in mains) else pd.DataFrame()
+        if not main_df.empty:
+            main_df["fetched_at"] = time.time()
+            store_lines(main_df.drop(columns="alt"), s)
+        alt_df = pd.concat([a for a in alts if not a.empty], ignore_index=True) if any(not a.empty for a in alts) else pd.DataFrame()
+        if not alt_df.empty:
+            for gid in alt_df.game_id.unique():
+                s.query(AltLine).filter(AltLine.game_id == gid).delete()
+            s.add_all(AltLine(fetched_at=now, game_id=r.game_id, player=r.player, market=r.market, line=float(r.line),
+                              over_odds=None if pd.isna(r.over_odds) else float(r.over_odds),
+                              under_odds=None if pd.isna(r.under_odds) else float(r.under_odds), book=r.book,
+                              over_link=_s(r.over_link), under_link=_s(r.under_link), event_link=_s(r.event_link))
+                      for r in alt_df.itertuples())
+            s.commit()
+        log(f"Stored {len(main_df)} main and {len(alt_df)} alternate quotes")
 
 
 def seed_odds_from_csv(path: str, session) -> int:
@@ -123,7 +167,7 @@ def fetch_game_lines(game_id: str, kinds: list[str], log: Log = print) -> dict:
     event_id = odds.find_event_id(key, away, home)
     if not event_id:
         raise LookupError(f"No sportsbook event found for {away} @ {home}")
-    long, remaining = odds.fetch_game_odds(key, event_id, kinds)
+    long, remaining = odds.fetch_game_odds(key, event_id, kinds, kinds)
     paired = odds.pair_with_links(long)
     now = datetime.utcnow()
     alts, mains = paired[paired.alt.astype(bool)], paired[~paired.alt.astype(bool)]

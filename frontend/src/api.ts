@@ -56,7 +56,8 @@ export const api = {
       include_flagged: f.flagged, limit: 300 }),
   projections: (f: Filters) => get<Projection[]>("projections", { kind: f.kind, game_id: f.game, q: f.q }),
   player: (id: string, marketWeight: number) => get<PlayerDetail>(`players/${id}`, { market_weight: marketWeight }),
-  lines: (id: string, kind: Kind) => get<Ladder>(`players/${id}/lines`, { kind }),
+  /** oddsRange hides prices outside -N..+N (American); 0 shows everything. */
+  lines: (id: string, kind: Kind, oddsRange = 300) => get<Ladder>(`players/${id}/lines`, { kind, odds_range: oddsRange }),
   fetchAlt: async (id: string): Promise<AltFetchResult> => {
     const res = await fetch(`/api/players/${id}/alt-lines`, { method: "POST" });
     if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail);
