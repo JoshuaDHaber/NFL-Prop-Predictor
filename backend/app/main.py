@@ -149,6 +149,10 @@ def _run_job(odds_mode: str):
 # ---------- routes ----------
 @app.get("/api/meta", response_model=Meta)
 def meta(request: Request, db: Session = Depends(get_db)):
+    return build_meta(db, _lan_url(request))
+
+
+def build_meta(db: Session, lan_url: Optional[str] = None) -> Meta:
     run = latest_run(db)
     games, backtest = [], {}
     if run:
@@ -157,11 +161,10 @@ def meta(request: Request, db: Session = Depends(get_db)):
         games = [Game(game_id=g, label=game_label(g), gameday=d, gametime=t)
                  for g, d, t in sorted(rows, key=lambda r: (r[1], r[2], r[0]))]
         backtest = run.backtest
-    odds_info = _odds_info(db)
     return Meta(run=None if not run else RunInfo(id=run.id, season=run.season, week=run.week,
                                                   created_at=run.created_at.isoformat(), excluded=run.excluded),
-                backtest=backtest, odds=odds_info, games=games, has_odds_key=bool(config.ODDS_API_KEY()),
-                job=JobStatus(**_job), lan_url=_lan_url(request),
+                backtest=backtest, odds=_odds_info(db), games=games, has_odds_key=bool(config.ODDS_API_KEY()),
+                job=JobStatus(**_job), lan_url=lan_url,
                 books=sorted(b for (b,) in db.execute(select(OddsLine.book).distinct()).all()))
 
 
@@ -221,10 +224,16 @@ def picks(kind: Optional[Kind] = None, game_id: Optional[str] = None, q: Optiona
 
 @app.get("/api/players/{player_id}", response_model=PlayerDetail)
 def player(player_id: str, market_weight: float = Query(0.35, ge=0, le=1), db: Session = Depends(get_db)):
-    run = latest_run(db)
+    detail = build_player_detail(db, latest_run(db), player_id, market_weight)
+    if not detail:
+        raise HTTPException(404, "Player has no projection in the current run")
+    return detail
+
+
+def build_player_detail(db: Session, run: Optional[Run], player_id: str, market_weight: float = 0.35) -> Optional[PlayerDetail]:
     rows = db.scalars(select(Projection).where(Projection.run_id == run.id, Projection.player_id == player_id)).all() if run else []
     if not rows:
-        raise HTTPException(404, "Player has no projection in the current run")
+        return None
     p = rows[0]
     df = all_picks(db, run, market_weight)
     pp = df[df.player_id == player_id] if not df.empty else df
@@ -246,8 +255,11 @@ def _player_proj(db: Session, player_id: str, kind: str):
 def player_lines(player_id: str, kind: Kind, odds_range: int = Query(300, ge=0, le=100000), db: Session = Depends(get_db)):
     """Every posted quote (main and alternate lines, all books) for one player/market, priced by the model.
     Prices outside -odds_range..+odds_range are hidden (default 300; 0 shows everything)."""
-    p = _player_proj(db, player_id, kind)
-    key = odds.norm(p.name)
+    return build_ladder_out(db, _player_proj(db, player_id, kind), odds_range)
+
+
+def build_ladder_out(db: Session, p: Projection, odds_range: int = 0) -> LadderOut:
+    key, kind = odds.norm(p.name), p.kind
     main = current_lines(db)
     main = main[(main.market == kind) & (main.player.map(odds.norm) == key)].assign(alt=False)
     alts = db.scalars(select(AltLine).where(AltLine.game_id == p.game_id, AltLine.market == kind)).all()

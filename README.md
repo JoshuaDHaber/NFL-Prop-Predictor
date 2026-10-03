@@ -112,6 +112,17 @@ Requires Python 3.9+ and Node 20+. Everything goes through one script:
 
 **Docker** (untested so far): `docker build -t nfl-props . && docker run -p 8000:8000 -v nfl-data:/srv/backend/data nfl-props`. Set `DATABASE_URL` to a Postgres URL (and add a driver such as `psycopg`) when deploying beyond one instance.
 
+## Public demo on GitHub Pages
+
+GitHub Pages hosts static files only, so it can't run the API. Instead the repo publishes a **static demo**: the same React app reading a saved snapshot (`frontend/public/demo/*.json`) instead of calling the server. Browsing, filtering, the player drawer, line tables and the betslip all work; refreshing data, loading new lines and the market-trust slider (fixed at 35%) need the live app.
+
+```bash
+./run.sh refresh && ./run.sh export     # update the snapshot from your data
+git add frontend/public/demo && git commit -m "Update demo snapshot" && git push
+```
+
+Pushing to `main` runs `.github/workflows/pages.yml`, which builds with `VITE_STATIC=1` and deploys. One-time setup: in the repo go to **Settings → Pages** and set **Source** to **GitHub Actions** (free Pages needs a public repo). The snapshot contains sportsbook lines from The Odds API, so check their terms on redistribution before publishing, and expect the lines and betslip links in it to be stale.
+
 ## Using it from your phone anywhere (Tailscale, free)
 
 [Tailscale](https://tailscale.com) is a free private network between your own devices, so your phone can reach the app on your Mac from any network without hosting anything.
@@ -132,6 +143,7 @@ backend/
     db.py          SQLAlchemy models (runs, projections, odds_lines, alt_lines)
     schemas.py     Pydantic response models
     cli.py         run the pipeline without the web app
+    export_static.py  write the data as static JSON for the Pages demo
     engine/        model.py (projections, backtest, probabilities) · picks.py (pricing) · ladder.py (alt-line pricing) · odds.py · data.py
   tests/           pytest suite
 frontend/src/      App, components (picks table, player drawer, line ladder, betslip, controls, refresh), betslip math in slip.ts, typed API client

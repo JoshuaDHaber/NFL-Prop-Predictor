@@ -1,6 +1,7 @@
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { BASE, IS_STATIC } from "../env";
 import { useBetSlip } from "../BetSlipContext";
 import { KIND_SHORT, americanOdds, pct, signedPct } from "../format";
 import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, combinedLink, legLink, shareUrl, slipLinksText, linkStatus, openProgress, parlay, rebook, sameGame, slipText, toWin, type BookOption } from "../slip";
@@ -41,7 +42,7 @@ export default function BetSlip() {
   // phones can't reach "localhost": share this app's network address instead
   const lanUrl = qc.getQueryData<{ lan_url: string | null }>(["meta"])?.lan_url ?? null;
   const onLocalhost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
-  const shareBase = onLocalhost ? lanUrl : window.location.origin;
+  const shareBase = onLocalhost && !IS_STATIC ? lanUrl : (window.location.origin + BASE).replace(/\/$/, "");
   // All of a book's linked legs in a single tab (only for books whose multi-selection link format we know)
   const combineFor = (book: string) => {
     const links = openProgress(legs, book, state, []).direct.map((l) => legLink(l, state)).filter((u): u is string => !!u);
@@ -111,7 +112,7 @@ export default function BetSlip() {
               </label>
             )}
 
-            {missing.length > 0 && (
+            {!IS_STATIC && missing.length > 0 && (
               <section className="suggest">
                 <b>{missing.length} {missing.length === 1 ? "leg has" : "legs have"} no betslip link yet.</b>
                 <p className="mut">Without one, "Add all" can't add {missing.length === 1 ? "it" : "them"} to the sportsbook slip.</p>
@@ -243,7 +244,7 @@ export default function BetSlip() {
                   {copied === "link" ? "Link copied" : "Copy slip link"}
                 </button>
                 <button className="primary outline" disabled={!shareBase}
-                  title={shareBase ? "Copies a link that reopens this whole slip in this app on another device (same Wi-Fi)" : "This app's network address isn't available"}
+                  title={shareBase ? "Copies a link that reopens this whole slip in this app on another device" : "This app's network address isn't available"}
                   onClick={() => shareBase && copyText(shareUrl(shareBase, legs, state), "share")}>
                   {copied === "share" ? "Phone link copied" : "Copy phone link"}
                 </button>
@@ -253,7 +254,7 @@ export default function BetSlip() {
             )}
             {legs.length > 0 && (
               <p className="mut slip-disclaimer">
-                <b>Phone link:</b> {shareBase ? <>opens this slip in the app at {shareBase}, so your phone must be on the same Wi-Fi and the app started with <code>./run.sh lan</code>. Then tap each leg's button (or "Open all in one tab") to hand it to the sportsbook app. Pasting a sportsbook link into a browser's address bar won't open the app; tapping a link on a page or in Messages does.</> : <>unavailable: the app couldn't find its network address.</>}
+                <b>Phone link:</b> {IS_STATIC ? <>reopens this slip on any device at this page. Tap each leg's button (or "Open all in one tab") to hand it to the sportsbook app. These links come from the snapshot and have likely expired.</> : shareBase ? <>opens this slip in the app at {shareBase}, so your phone must be on the same Wi-Fi and the app started with <code>./run.sh lan</code>. Then tap each leg's button (or "Open all in one tab") to hand it to the sportsbook app. Pasting a sportsbook link into a browser's address bar won't open the app; tapping a link on a page or in Messages does.</> : <>unavailable: the app couldn't find its network address.</>}
               </p>
             )}
             <p className="mut slip-disclaimer">
