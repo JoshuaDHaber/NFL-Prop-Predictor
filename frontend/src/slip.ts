@@ -116,3 +116,11 @@ export function linkStatus(l: Pick<Leg, "link">, state: string): LinkStatus {
   if (/\{state\}/.test(l.link) && !state.trim()) return "needs-state";
   return filled.includes("{") ? "missing" : "direct";
 }
+
+/** Legs at a book that can be added by link, and which of them still need opening. Browsers allow one new tab per click,
+ *  so "open all" steps through these one click at a time instead of opening everything at once. */
+export function openProgress(legs: Leg[], book: string, state: string, opened: string[]) {
+  const direct = legs.filter((l) => l.book === book && linkStatus(l, state) === "direct");
+  const remaining = direct.filter((l) => !opened.includes(l.id));
+  return { direct, remaining, done: direct.length - remaining.length, skipped: legs.filter((l) => l.book === book).length - direct.length };
+}

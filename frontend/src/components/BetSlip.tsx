@@ -3,14 +3,14 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useBetSlip } from "../BetSlipContext";
 import { KIND_SHORT, americanOdds, pct, signedPct } from "../format";
-import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, legLink, linkStatus, parlay, rebook, sameGame, slipText, toWin, type BookOption } from "../slip";
+import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, legLink, linkStatus, openProgress, parlay, rebook, sameGame, slipText, toWin, type BookOption } from "../slip";
 
 export default function BetSlip() {
   const { legs, remove, replace, clear, state, setState, open, setOpen } = useBetSlip();
   const [stakes, setStakes] = useState<Record<string, number>>({});
   const [copied, setCopied] = useState(false);
   const [target, setTarget] = useState<string | null>(null);
-  const [openMsg, setOpenMsg] = useState<Record<string, string>>({});
+  const [opened, setOpened] = useState<Record<string, string[]>>({});
   const [linking, setLinking] = useState<string | null>(null);
   const qc = useQueryClient();
   const hasKey = qc.getQueryData<{ has_odds_key: boolean }>(["meta"])?.has_odds_key ?? false;
@@ -36,18 +36,15 @@ export default function BetSlip() {
   const copy = async () => {
     try { await navigator.clipboard.writeText(slipText(legs)); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ }
   };
-  const openAll = (book: string) => {
-    const ls = legs.filter((l) => l.book === book);
-    const direct = ls.filter((l) => linkStatus(l, state) === "direct");
-    const skipped = ls.length - direct.length;
-    const blocked = direct.filter((l) => {
-      const u = legLink(l, state);
-      return !u || !window.open(u, "_blank", "noopener");
-    }).length;
-    const parts: string[] = [];
-    if (skipped) parts.push(`${skipped} ${skipped === 1 ? "leg has" : "legs have"} no betslip link yet (see "Get links" above), so ${skipped === 1 ? "it was" : "they were"} not opened.`);
-    if (blocked) parts.push(`Your browser blocked ${blocked} ${blocked === 1 ? "tab" : "tabs"}: allow pop-ups for this site, or use each leg's own button.`);
-    setOpenMsg({ ...openMsg, [book]: parts.join(" ") });
+  // One new tab per click: browsers block extra pop-ups opened from a single click, so we step through the legs.
+  const openNext = (book: string) => {
+    let p = openProgress(legs, book, state, opened[book] ?? []);
+    if (!p.remaining.length) { setOpened({ ...opened, [book]: [] }); p = openProgress(legs, book, state, []); }  // start over
+    const leg = p.remaining[0];
+    const url = leg && legLink(leg, state);
+    if (!url) return;
+    window.open(url, "_blank", "noopener");
+    setOpened({ ...opened, [book]: [...(opened[book] ?? []).filter((id) => p.direct.some((l) => l.id === id)), leg.id] });
   };
 
   // legs with no betslip link at all (links only come with a game's alternate-lines fetch); one fetch per game covers them
@@ -104,7 +101,7 @@ export default function BetSlip() {
             {missing.length > 0 && (
               <section className="suggest">
                 <b>{missing.length} {missing.length === 1 ? "leg has" : "legs have"} no betslip link yet.</b>
-                <p className="mut">Without one, "Open all" can't add {missing.length === 1 ? "it" : "them"} to the sportsbook slip.</p>
+                <p className="mut">Without one, "Add all" can't add {missing.length === 1 ? "it" : "them"} to the sportsbook slip.</p>
                 <button className="primary" disabled={!hasKey || linking === "Fetching links…"} onClick={getLinks}>
                   {linking === "Fetching links…" ? "Fetching…" : `Get links (~${missingGames.length * 2} credits)`}
                 </button>
@@ -146,14 +143,29 @@ export default function BetSlip() {
 
             {groupByBook(legs).map(([book, ls]) => {
               const stake = stakeFor(book);
+              const prog = openProgress(legs, book, state, opened[book] ?? []);
               const p = parlay(ls, stake);
               return (
                 <section className="slip-group" key={book}>
                   <div className="slip-book">
                     <b>{book}</b><span className="mut">{ls.length} {ls.length === 1 ? "selection" : "selections"}</span>
-                    <button className="link" onClick={() => openAll(book)}>Open all ↗</button>
+                    {prog.direct.length > 0 && (
+                      <button className="link" onClick={() => openNext(book)}>
+                        {prog.remaining.length === 0 ? "All opened · start over" :
+                          prog.direct.length === 1 ? "Add at book ↗" : `Add leg ${prog.done + 1} of ${prog.direct.length} ↗`}
+                      </button>
+                    )}
                   </div>
-                  {openMsg[book] && <p className="warn open-msg">{openMsg[book]}</p>}
+                  {prog.direct.length > 1 && (
+                    <p className="mut open-msg">
+                      {prog.done === 0 ? "Your browser opens one new tab per click, so click once per leg."
+                        : prog.remaining.length ? `Opened ${prog.done} of ${prog.direct.length}. Click again for the next leg.`
+                        : `Opened all ${prog.direct.length}. Check your slip at ${book} before placing.`}
+                    </p>
+                  )}
+                  {prog.skipped > 0 && (
+                    <p className="warn open-msg">{prog.skipped} {prog.skipped === 1 ? "leg has" : "legs have"} no betslip link yet and will be skipped (see "Get links" above).</p>
+                  )}
                   {ls.map((l) => {
                     const url = legLink(l, state);
                     const direct = linkStatus(l, state) === "direct";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Leg } from "./slip";
-import { linkStatus, alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipText, toAmerican, toDecimal, toWin } from "./slip";
+import { openProgress, linkStatus, alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipText, toAmerican, toDecimal, toWin } from "./slip";
 
 const leg = (o: Partial<Leg> = {}): Leg => ({
   id: "x", playerId: "p1", name: "Test Back", team: "AAA", opp: "BBB", home: true, kind: "rush", side: "Over", line: 60.5,
@@ -107,5 +107,21 @@ describe("link status", () => {
     expect(linkStatus({ link: "https://sports.{state}.betmgm.com/a" }, "")).toBe("needs-state");
     expect(linkStatus({ link: "https://sports.{state}.betmgm.com/a" }, "NJ")).toBe("direct");
     expect(linkStatus({ link: "https://x/?c={pickType}|1" }, "pa")).toBe("missing");
+  });
+});
+
+describe("open-all stepping", () => {
+  const a = leg({ id: "a", book: "DraftKings", link: "https://dk/a" });
+  const b = leg({ id: "b", book: "DraftKings", link: "https://dk/b" });
+  const c = leg({ id: "c", book: "DraftKings", link: null });
+  const d = leg({ id: "d", book: "FanDuel", link: "https://fd/d" });
+  it("tracks which linked legs at a book are still to open", () => {
+    expect(openProgress([a, b, c, d], "DraftKings", "", [])).toMatchObject({ done: 0, skipped: 1 });
+    const p = openProgress([a, b, c, d], "DraftKings", "", ["a"]);
+    expect(p.done).toBe(1);
+    expect(p.remaining.map((l) => l.id)).toEqual(["b"]);
+  });
+  it("is finished once every linked leg was opened", () => {
+    expect(openProgress([a, b], "DraftKings", "", ["a", "b"]).remaining).toEqual([]);
   });
 });
