@@ -16,10 +16,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import config, pipeline
-from .db import OddsLine, Projection, Run, SessionLocal, current_lines
+from .db import AltLine, OddsLine, Projection, Run, SessionLocal, current_lines
 from .engine import data, model, odds
+from .engine.ladder import build_ladder
 from .engine.picks import build_picks
-from .schemas import (GameLogEntry, Game, JobStatus, Kind, Meta, OddsInfo, PickOut, PlayerDetail, ProjectionOut,
+from .schemas import (AltFetchResult, GameLogEntry, LadderOut, Game, JobStatus, Kind, Meta, OddsInfo, PickOut, PlayerDetail, ProjectionOut,
                       RefreshRequest, RunInfo)
 
 @asynccontextmanager
@@ -178,6 +179,54 @@ def player(player_id: str, market_weight: float = Query(0.35, ge=0, le=1), db: S
     return PlayerDetail(player_id=player_id, name=p.name, pos=p.pos, team=p.team,
                         projections=[ProjectionOut.model_validate(r, from_attributes=True) for r in rows],
                         picks=records(pp), logs=_game_logs(player_id, [r.kind for r in rows], run.season))
+
+
+def _player_proj(db: Session, player_id: str, kind: str):
+    run = latest_run(db)
+    p = db.scalars(select(Projection).where(Projection.run_id == run.id, Projection.player_id == player_id,
+                                            Projection.kind == kind)).first() if run else None
+    if not p:
+        raise HTTPException(404, "No projection for that player and market in the current run")
+    return p
+
+
+@app.get("/api/players/{player_id}/lines", response_model=LadderOut)
+def player_lines(player_id: str, kind: Kind, db: Session = Depends(get_db)):
+    """Every posted quote (main and alternate lines, all books) for one player/market, priced by the model."""
+    p = _player_proj(db, player_id, kind)
+    key = odds.norm(p.name)
+    main = current_lines(db)
+    main = main[(main.market == kind) & (main.player.map(odds.norm) == key)].assign(alt=False)
+    alts = db.scalars(select(AltLine).where(AltLine.game_id == p.game_id, AltLine.market == kind)).all()
+    alt_df = pd.DataFrame([dict(player=r.player, market=r.market, line=r.line, over_odds=r.over_odds,
+                                under_odds=r.under_odds, book=r.book, over_link=r.over_link, under_link=r.under_link,
+                                event_link=r.event_link, alt=True) for r in alts if odds.norm(r.player) == key],
+                          columns=list(main.columns))
+    quotes = pd.concat([f for f in (main, alt_df) if not f.empty] or [main], ignore_index=True)
+    fetched = max((r.fetched_at for r in alts), default=None)
+    return LadderOut(kind=kind, mu=p.mu, sd=p.sd, game_id=p.game_id, alt_fetched_at=fetched.isoformat() if fetched else None,
+                     quotes=build_ladder(p.mu, p.sd, quotes))
+
+
+@app.post("/api/players/{player_id}/alt-lines", response_model=AltFetchResult)
+def fetch_alt_lines(player_id: str, db: Session = Depends(get_db)):
+    """Fetch alternate lines (and betslip links) for this player's game. Costs 2 API credits per market the
+    player has a projection in."""
+    run = latest_run(db)
+    rows = db.scalars(select(Projection).where(Projection.run_id == run.id, Projection.player_id == player_id)).all() if run else []
+    if not rows:
+        raise HTTPException(404, "Player has no projection in the current run")
+    if not config.ODDS_API_KEY():
+        raise HTTPException(400, "No ODDS_API_KEY configured")
+    kinds = sorted({r.kind for r in rows})
+    try:
+        res = pipeline.fetch_game_lines(rows[0].game_id, kinds)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:  # upstream API failure
+        raise HTTPException(502, f"Odds API error: {e}")
+    _pick_cache.clear()
+    return AltFetchResult(kinds=kinds, **res)
 
 
 @lru_cache(maxsize=1)

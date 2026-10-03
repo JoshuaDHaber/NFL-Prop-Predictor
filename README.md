@@ -15,6 +15,8 @@ A full-stack web app that projects NFL player yardage, prices the projections ag
 
 - **Best props:** every Over/Under quote is priced and ranked by expected value, using the best price across sportsbooks. Filter by market and game, search by player, and adjust **minimum EV** and **how much to trust the market** with sliders that re-price the board live.
 - **Player drawer:** click any row for the last 12 games charted against the projection and the posted lines, plus every available play for that player.
+- **Alternate lines:** in the drawer, a ladder shows every posted line, main and alternate, across books, priced with the model's own win probability and EV. *Load alternate lines* fetches them for that player's game on demand (about 2 API credits per stat) and also attaches sportsbook betslip links.
+- **Betslip:** tap **+** on any quote to build a slip (saved in your browser). Selections are grouped by sportsbook with per-book parlay odds and payout, a stake box, and copy-to-clipboard. **Add at book** opens the sportsbook with that selection added to its betslip where the Odds API provides a direct link (FanDuel and DraftKings do), and otherwise opens the book. The app never places bets; you sign in and confirm at the book.
 - **Projections:** every projected player with the volume and efficiency behind the number, sortable.
 - **Model check:** backtest accuracy per market and the freshness of projections and odds.
 - **Refresh from the UI:** recompute projections and fetch odds (projections only, missing markets only, or everything) with live job status. Odds are stored in the database, so re-running the model never spends API credits.
@@ -46,6 +48,8 @@ A full-stack web app that projects NFL player yardage, prices the projections ag
 | `GET /api/picks` | Priced plays. Params: `kind`, `game_id`, `q`, `min_ev`, `market_weight`, `include_flagged`, `limit` |
 | `GET /api/projections` | Projections. Params: `kind`, `game_id`, `q` |
 | `GET /api/players/{id}` | One player: projections, available plays, recent game logs |
+| `GET /api/players/{id}/lines?kind=` | Every main and alternate quote for one player and market, priced, with betslip links |
+| `POST /api/players/{id}/alt-lines` | Fetch alternate lines and links for the player's game (spends API credits) |
 | `POST /api/refresh` | Start a refresh. Body `{"odds": "none" \| "missing" \| "all"}`; `409` if one is running |
 | `GET /api/refresh/status` | Progress log of the current or last refresh |
 
@@ -115,12 +119,12 @@ backend/
   app/
     main.py        FastAPI routes, job runner, static file serving
     pipeline.py    data -> backtest -> projections -> DB; odds refresh
-    db.py          SQLAlchemy models (runs, projections, odds_lines)
+    db.py          SQLAlchemy models (runs, projections, odds_lines, alt_lines)
     schemas.py     Pydantic response models
     cli.py         run the pipeline without the web app
-    engine/        model.py (projections, backtest, probabilities) · picks.py (pricing) · odds.py · data.py
+    engine/        model.py (projections, backtest, probabilities) · picks.py (pricing) · ladder.py (alt-line pricing) · odds.py · data.py
   tests/           pytest suite
-frontend/src/      App, components (picks table, player drawer, controls, refresh), typed API client
+frontend/src/      App, components (picks table, player drawer, line ladder, betslip, controls, refresh), betslip math in slip.ts, typed API client
 ```
 
 ## Limitations
@@ -140,3 +144,4 @@ frontend/src/      App, components (picks table, player drawer, controls, refres
 - Weather, pace and offensive-line context.
 - Store pick history and track closing-line value as an out-of-sample test.
 - Scheduled refreshes, auth for a shared deployment, more markets (receptions, attempts, touchdowns).
+- Multi-leg deep links per sportsbook (today each selection opens as its own link) and correlation-aware same-game parlay pricing.

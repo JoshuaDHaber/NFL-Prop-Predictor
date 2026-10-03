@@ -117,3 +117,35 @@ class PlayerDetail(BaseModel):
 
 class RefreshRequest(BaseModel):
     odds: Literal["none", "missing", "all"] = "missing"
+
+
+class QuoteSide(BaseModel):
+    odds: int
+    prob: float
+    ev: float
+    link: Optional[str] = None
+
+
+class LadderRow(BaseModel):
+    line: float
+    book: str
+    alt: bool
+    event_link: Optional[str] = None
+    over: Optional[QuoteSide] = None
+    under: Optional[QuoteSide] = None
+
+
+class LadderOut(BaseModel):
+    kind: Kind
+    mu: float
+    sd: float
+    game_id: str
+    alt_fetched_at: Optional[str] = None
+    quotes: list[LadderRow]
+
+
+class AltFetchResult(BaseModel):
+    kinds: list[str]
+    alt_quotes: int
+    linked: int
+    credits_remaining: Optional[str] = None

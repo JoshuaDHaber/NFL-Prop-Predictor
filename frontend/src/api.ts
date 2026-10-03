@@ -32,6 +32,11 @@ export interface PlayerDetail {
   projections: Projection[]; picks: Pick[]; logs: Record<string, GameLogEntry[]>;
 }
 
+export interface QuoteSide { odds: number; prob: number; ev: number; link: string | null }
+export interface LadderRow { line: number; book: string; alt: boolean; event_link: string | null; over: QuoteSide | null; under: QuoteSide | null }
+export interface Ladder { kind: Kind; mu: number; sd: number; game_id: string; alt_fetched_at: string | null; quotes: LadderRow[] }
+export interface AltFetchResult { kinds: string[]; alt_quotes: number; linked: number; credits_remaining: string | null }
+
 async function get<T>(path: string, params: Record<string, string | number | boolean | undefined> = {}): Promise<T> {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== "" && v !== "all") qs.set(k, String(v));
@@ -49,6 +54,12 @@ export const api = {
       include_flagged: f.flagged, limit: 300 }),
   projections: (f: Filters) => get<Projection[]>("projections", { kind: f.kind, game_id: f.game, q: f.q }),
   player: (id: string, marketWeight: number) => get<PlayerDetail>(`players/${id}`, { market_weight: marketWeight }),
+  lines: (id: string, kind: Kind) => get<Ladder>(`players/${id}/lines`, { kind }),
+  fetchAlt: async (id: string): Promise<AltFetchResult> => {
+    const res = await fetch(`/api/players/${id}/alt-lines`, { method: "POST" });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail);
+    return res.json();
+  },
   refresh: async (odds: "none" | "missing" | "all"): Promise<JobStatus> => {
     const res = await fetch("/api/refresh", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ odds }) });

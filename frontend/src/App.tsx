@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Suspense, lazy, useState } from "react";
 import { api, type Filters, type Kind } from "./api";
+import BetSlip from "./components/BetSlip";
 import Controls from "./components/Controls";
 import ModelCheck from "./components/ModelCheck";
 import PicksTable from "./components/PicksTable";
@@ -74,6 +75,7 @@ export default function App() {
             onClose={() => setSelected(null)} />
         </Suspense>
       )}
+      <BetSlip />
     </div>
   );
 }

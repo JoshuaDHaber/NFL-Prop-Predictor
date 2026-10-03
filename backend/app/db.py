@@ -63,6 +63,36 @@ class OddsLine(Base):
     over_odds: Mapped[float] = mapped_column(Float, nullable=True)
     under_odds: Mapped[float] = mapped_column(Float, nullable=True)
     book: Mapped[str] = mapped_column(String(40))
+    over_link: Mapped[str] = mapped_column(String(500), nullable=True)
+    under_link: Mapped[str] = mapped_column(String(500), nullable=True)
+    event_link: Mapped[str] = mapped_column(String(500), nullable=True)
+
+
+class AltLine(Base):
+    """Alternate-line quotes, fetched on demand for one game at a time."""
+    __tablename__ = "alt_lines"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime)
+    game_id: Mapped[str] = mapped_column(String(24), index=True)
+    player: Mapped[str] = mapped_column(String(80))
+    market: Mapped[str] = mapped_column(String(6))
+    line: Mapped[float] = mapped_column(Float)
+    over_odds: Mapped[float] = mapped_column(Float, nullable=True)
+    under_odds: Mapped[float] = mapped_column(Float, nullable=True)
+    book: Mapped[str] = mapped_column(String(40))
+    over_link: Mapped[str] = mapped_column(String(500), nullable=True)
+    under_link: Mapped[str] = mapped_column(String(500), nullable=True)
+    event_link: Mapped[str] = mapped_column(String(500), nullable=True)
+
+
+def ensure_columns(eng):
+    """create_all never alters existing tables; add the link columns to databases created before they existed."""
+    from sqlalchemy import inspect, text
+    have = {c["name"] for c in inspect(eng).get_columns("odds_lines")}
+    with eng.begin() as conn:
+        for col in ("over_link", "under_link", "event_link"):
+            if col not in have:
+                conn.execute(text(f"ALTER TABLE odds_lines ADD COLUMN {col} VARCHAR(500)"))
 
 
 def make_engine(url=None):
@@ -75,6 +105,7 @@ def make_engine(url=None):
         kwargs["poolclass"] = StaticPool
     eng = create_engine(url, **kwargs)
     Base.metadata.create_all(eng)
+    ensure_columns(eng)
     return eng
 
 
@@ -91,5 +122,7 @@ def current_lines(session):
         select(OddsLine).join(latest, (OddsLine.market == latest.c.market) & (OddsLine.fetched_at == latest.c.t))
     ).scalars().all()
     return pd.DataFrame([dict(player=r.player, market=r.market, line=r.line, over_odds=r.over_odds,
-                              under_odds=r.under_odds, book=r.book) for r in rows],
-                        columns=["player", "market", "line", "over_odds", "under_odds", "book"])
+                              under_odds=r.under_odds, book=r.book, over_link=r.over_link, under_link=r.under_link,
+                              event_link=r.event_link) for r in rows],
+                        columns=["player", "market", "line", "over_odds", "under_odds", "book", "over_link",
+                                 "under_link", "event_link"])

@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, type Kind } from "../api";
-import { KIND_LABEL, KIND_SHORT, americanOdds, matchup, pct, signedPct } from "../format";
+import { KIND_LABEL, KIND_SHORT, matchup } from "../format";
+import LineLadder from "./LineLadder";
 
 interface Props { playerId: string; initialKind: Kind; marketWeight: number; onClose: () => void }
 
@@ -66,16 +67,8 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, onCl
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <h3>Available plays</h3>
-            {picks.length === 0 && <p className="mut">No lines posted for this market.</p>}
-            {picks.map((p) => (
-              <div className="playrow" key={p.side}>
-                <b className={p.side === "Over" ? "over" : "under"}>{p.side} {p.line}</b>
-                <span>{americanOdds(p.odds)} · {p.book}</span>
-                <span>{pct(p.prob)} win</span>
-                <span className={p.ev > 0 ? "pos" : "mut"}>{signedPct(p.ev)} EV</span>
-              </div>
-            ))}
+            <LineLadder kind={kind} mu={proj.mu} ctx={{ playerId: data.player_id, name: data.name, team: data.team,
+              opp: proj.opp, home: proj.home, gameId: proj.game_id }} />
           </>
         )}
       </aside>

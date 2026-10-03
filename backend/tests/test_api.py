@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main
-from app.db import OddsLine, Projection, Run, SessionLocal
+from app.db import AltLine, OddsLine, Projection, Run, SessionLocal
 
 
 @pytest.fixture(scope="module")
@@ -73,3 +73,53 @@ def test_refresh_runs_once_at_a_time(client, monkeypatch):
     r = client.post("/api/refresh", json={"odds": "none"})
     assert r.status_code == 202
     assert client.get("/api/refresh/status").json()["state"] == "done"
+
+
+def _seed_alt(monkeypatch):
+    from app import config
+    monkeypatch.setattr(config, "ODDS_API_KEY", lambda: "test-key")
+    monkeypatch.setattr(main.config, "ODDS_API_KEY", lambda: "test-key")
+
+
+def test_ladder_lists_main_quotes_priced(client):
+    d = client.get("/api/players/p0/lines", params={"kind": "rush"}).json()
+    assert d["alt_fetched_at"] is None
+    row = d["quotes"][0]
+    assert row["line"] == 60.5 and row["alt"] is False and row["over"]["ev"] > 0 > row["under"]["ev"]
+
+
+def test_alt_fetch_needs_a_key(client):
+    assert client.post("/api/players/p0/alt-lines").status_code == 400
+
+
+def test_alt_fetch_stores_alternates_and_shows_them_in_the_ladder(client, monkeypatch):
+    _seed_alt(monkeypatch)
+    calls = []
+
+    def fake(game_id, kinds, log=print):
+        calls.append((game_id, kinds))
+        from datetime import datetime
+        with SessionLocal() as s:
+            s.add_all([AltLine(fetched_at=datetime.utcnow(), game_id=game_id, player="Alpha Back", market="rush", line=ln,
+                               over_odds=o, under_odds=None, book="X", over_link="https://book/slip", under_link=None,
+                               event_link=None) for ln, o in [(80.5, 250), (100.5, 600)]])
+            s.commit()
+        return {"alt_quotes": 2, "linked": 0, "credits_remaining": "100"}
+
+    monkeypatch.setattr(main.pipeline, "fetch_game_lines", fake)
+    r = client.post("/api/players/p0/alt-lines")
+    assert r.status_code == 200 and r.json()["alt_quotes"] == 2 and calls == [("2026_04_BBB_AAA", ["rush"])]
+    d = client.get("/api/players/p0/lines", params={"kind": "rush"}).json()
+    alts = [q for q in d["quotes"] if q["alt"]]
+    assert [q["line"] for q in alts] == [80.5, 100.5] and alts[0]["over"]["link"] == "https://book/slip"
+    assert d["alt_fetched_at"] is not None
+
+
+def test_alt_fetch_reports_upstream_failures(client, monkeypatch):
+    _seed_alt(monkeypatch)
+
+    def boom(game_id, kinds, log=print):
+        raise RuntimeError("quota exceeded")
+
+    monkeypatch.setattr(main.pipeline, "fetch_game_lines", boom)
+    assert client.post("/api/players/p0/alt-lines").status_code == 502

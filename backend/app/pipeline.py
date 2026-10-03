@@ -7,7 +7,7 @@ from typing import Callable, Optional
 import pandas as pd
 
 from . import config
-from .db import OddsLine, Projection, Run, SessionLocal
+from .db import AltLine, OddsLine, Projection, Run, SessionLocal
 from .engine import data, model, odds
 
 Log = Callable[[str], None]
@@ -62,13 +62,19 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
         return run.id
 
 
+def _s(v):
+    return None if v is None or (isinstance(v, float) and pd.isna(v)) or str(v) == "" else str(v)
+
+
 def store_lines(df: pd.DataFrame, session) -> int:
     fetched = df["fetched_at"] if "fetched_at" in df else pd.Series(time.time(), index=df.index)
     for market, g in df.groupby("market"):
         t = datetime.utcfromtimestamp(float(fetched[g.index].max()))
         session.add_all(OddsLine(fetched_at=t, player=r.player, market=market, line=float(r.line),
                                  over_odds=None if pd.isna(r.over_odds) else float(r.over_odds),
-                                 under_odds=None if pd.isna(r.under_odds) else float(r.under_odds), book=r.book)
+                                 under_odds=None if pd.isna(r.under_odds) else float(r.under_odds), book=r.book,
+                                 over_link=_s(getattr(r, "over_link", None)), under_link=_s(getattr(r, "under_link", None)),
+                                 event_link=_s(getattr(r, "event_link", None)))
                         for r in g.itertuples())
     session.commit()
     return len(df)
@@ -102,3 +108,39 @@ def seed_odds_from_csv(path: str, session) -> int:
         df["fetched_at"] = os.path.getmtime(path)
     df["fetched_at"] = df["fetched_at"].fillna(os.path.getmtime(path))
     return store_lines(df, session)
+
+
+def fetch_game_lines(game_id: str, kinds: list[str], log: Log = print) -> dict:
+    """Fetch main + alternate lines (with betslip links) for one game and store them.
+
+    Alternate lines go to alt_lines (replacing that game's previous alts). Main-line quotes already in
+    odds_lines get their links filled in; prices there are left alone so the weekly snapshot stays consistent.
+    """
+    key = config.ODDS_API_KEY()
+    if not key:
+        raise ValueError("No ODDS_API_KEY set")
+    _, _, away, home = game_id.split("_", 3)
+    event_id = odds.find_event_id(key, away, home)
+    if not event_id:
+        raise LookupError(f"No sportsbook event found for {away} @ {home}")
+    long, remaining = odds.fetch_game_odds(key, event_id, kinds)
+    paired = odds.pair_with_links(long)
+    now = datetime.utcnow()
+    alts, mains = paired[paired.alt.astype(bool)], paired[~paired.alt.astype(bool)]
+    with SessionLocal() as s:
+        for m in kinds:
+            s.query(AltLine).filter(AltLine.game_id == game_id, AltLine.market == m).delete()
+        s.add_all(AltLine(fetched_at=now, game_id=game_id, player=r.player, market=r.market, line=float(r.line),
+                          over_odds=None if pd.isna(r.over_odds) else float(r.over_odds),
+                          under_odds=None if pd.isna(r.under_odds) else float(r.under_odds), book=r.book,
+                          over_link=_s(r.over_link), under_link=_s(r.under_link), event_link=_s(r.event_link))
+                  for r in alts.itertuples())
+        patched = 0
+        for r in mains.itertuples():
+            patched += s.query(OddsLine).filter(
+                OddsLine.player == r.player, OddsLine.market == r.market, OddsLine.book == r.book,
+                OddsLine.line == float(r.line)).update(
+                {"over_link": _s(r.over_link), "under_link": _s(r.under_link), "event_link": _s(r.event_link)})
+        s.commit()
+    log(f"{game_id}: stored {len(alts)} alternate quotes, linked {patched} main quotes")
+    return {"alt_quotes": len(alts), "linked": patched, "credits_remaining": remaining}
