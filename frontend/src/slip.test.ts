@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Leg } from "./slip";
-import { combinedLink, openProgress, linkStatus, alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipText, toAmerican, toDecimal, toWin } from "./slip";
+import { slipLinksText, combinedLink, openProgress, linkStatus, alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipText, toAmerican, toDecimal, toWin } from "./slip";
 
 const leg = (o: Partial<Leg> = {}): Leg => ({
   id: "x", playerId: "p1", name: "Test Back", team: "AAA", opp: "BBB", home: true, kind: "rush", side: "Over", line: 60.5,
@@ -146,5 +146,28 @@ describe("combined links", () => {
     expect(combinedLink("FanDuel", ["https://x/addToBetslip?marketId=1&selectionId=2"])).toBeNull(); // single leg
     expect(combinedLink("BetMGM", ["https://a", "https://b"])).toBeNull(); // format unknown
     expect(combinedLink("FanDuel", ["https://x/y", "https://x/z"])).toBeNull(); // missing ids
+  });
+});
+
+describe("copy slip links", () => {
+  const dk = (id: string, o: string) => leg({ id, book: "DraftKings", link: `https://sportsbook.draftkings.com/?outcomes=${o}` });
+  const fd = (id: string, m: string, s: string) => leg({ id, book: "FanDuel", link: `https://sportsbook.fanduel.com/addToBetslip?marketId=${m}&selectionId=${s}` });
+  it("copies the bare combined URL for a single book", () => {
+    expect(slipLinksText([dk("a", "A1"), dk("b", "B2")], "")).toBe("https://sportsbook.draftkings.com/?outcomes=A1,B2");
+  });
+  it("copies the single link for a one-leg slip", () => {
+    expect(slipLinksText([dk("a", "A1")], "")).toBe("https://sportsbook.draftkings.com/?outcomes=A1");
+  });
+  it("labels each book when several are on the slip", () => {
+    const t = slipLinksText([dk("a", "A1"), dk("b", "B2"), fd("c", "42.1", "9")], "");
+    expect(t).toBe("DraftKings:\nhttps://sportsbook.draftkings.com/?outcomes=A1,B2\n\nFanDuel:\nhttps://sportsbook.fanduel.com/addToBetslip?marketId=42.1&selectionId=9");
+  });
+  it("lists individual links for books without a combined format, and skips unlinked legs", () => {
+    const m = (id: string, u: string) => leg({ id, book: "BetMGM", link: u });
+    expect(slipLinksText([m("a", "https://mgm/a"), m("b", "https://mgm/b"), leg({ id: "z", book: "BetMGM", link: null })], ""))
+      .toBe("BetMGM:\nhttps://mgm/a\nhttps://mgm/b");
+  });
+  it("is empty when nothing has a link", () => {
+    expect(slipLinksText([leg({ link: null })], "")).toBe("");
   });
 });

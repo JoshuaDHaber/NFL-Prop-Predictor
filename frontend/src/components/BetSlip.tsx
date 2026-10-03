@@ -3,12 +3,12 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useBetSlip } from "../BetSlipContext";
 import { KIND_SHORT, americanOdds, pct, signedPct } from "../format";
-import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, combinedLink, legLink, linkStatus, openProgress, parlay, rebook, sameGame, slipText, toWin, type BookOption } from "../slip";
+import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, combinedLink, legLink, slipLinksText, linkStatus, openProgress, parlay, rebook, sameGame, slipText, toWin, type BookOption } from "../slip";
 
 export default function BetSlip() {
   const { legs, remove, replace, clear, state, setState, open, setOpen } = useBetSlip();
   const [stakes, setStakes] = useState<Record<string, number>>({});
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"link" | "text" | null>(null);
   const [target, setTarget] = useState<string | null>(null);
   const [combinedMsg, setCombinedMsg] = useState<Record<string, string>>({});
   const [opened, setOpened] = useState<Record<string, string[]>>({});
@@ -34,9 +34,10 @@ export default function BetSlip() {
   const stranded = target ? legs.filter((l) => l.book !== target) : [];
   const stakeFor = (book: string) => stakes[book] ?? 10;
 
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(slipText(legs)); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ }
+  const copyText = async (text: string, tag: "link" | "text") => {
+    try { await navigator.clipboard.writeText(text); setCopied(tag); setTimeout(() => setCopied(null), 1800); } catch { /* clipboard blocked */ }
   };
+  const links = slipLinksText(legs, state);
   // All of a book's linked legs in a single tab (only for books whose multi-selection link format we know)
   const combineFor = (book: string) => {
     const links = openProgress(legs, book, state, []).direct.map((l) => legLink(l, state)).filter((u): u is string => !!u);
@@ -236,7 +237,11 @@ export default function BetSlip() {
 
             {legs.length > 0 && (
               <div className="slip-footer">
-                <button className="primary" onClick={copy}>{copied ? "Copied" : "Copy slip"}</button>
+                <button className="primary" disabled={!links} onClick={() => copyText(links, "link")}
+                  title={links ? "Copies the same link as \"Open all in one tab\" so you can open it on another device" : "No betslip links to copy yet"}>
+                  {copied === "link" ? "Link copied" : "Copy slip link"}
+                </button>
+                <button className="link" onClick={() => copyText(slipText(legs), "text")}>{copied === "text" ? "Copied" : "Copy as text"}</button>
                 <button className="link" onClick={clear}>Clear all</button>
               </div>
             )}

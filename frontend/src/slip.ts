@@ -151,3 +151,19 @@ export function combinedLink(book: string, links: string[]): CombinedLink | null
   }
   return null;
 }
+
+/**
+ * What "Copy slip" puts on the clipboard: the same link "Open all in one tab" opens, per book.
+ * One book with one link copies the bare URL (easy to paste into a message); several books are labelled.
+ * A book with no combined format falls back to each leg's own link, one per line.
+ */
+export function slipLinksText(legs: Leg[], state: string): string {
+  const blocks = groupByBook(legs).map(([book, ls]) => {
+    const urls = ls.filter((l) => linkStatus(l, state) === "direct").map((l) => legLink(l, state)!);
+    const combined = combinedLink(book, urls);
+    const out = combined ? [combined.url] : urls;
+    return { book, urls: out, skipped: ls.length - urls.length };
+  }).filter((b) => b.urls.length > 0);
+  if (blocks.length === 1 && blocks[0].urls.length === 1) return blocks[0].urls[0];
+  return blocks.map((b) => `${b.book}:\n${b.urls.join("\n")}`).join("\n\n");
+}
