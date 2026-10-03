@@ -1,5 +1,10 @@
 .env
 .venv/
 .cache/
-report.html
 __pycache__/
+.tools/
+node_modules/
+frontend/dist/
+backend/data/
+*.db
+.pytest_cache/

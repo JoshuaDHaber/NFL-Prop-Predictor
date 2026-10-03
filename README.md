@@ -1,58 +1,89 @@
 # NFL Prop Predictor
 
-A Python pipeline that projects NFL player yardage, compares those projections to live sportsbook prop lines, and publishes a ranked, filterable HTML report of the best bets of the week.
+A full-stack web app that projects NFL player yardage, prices the projections against live sportsbook prop lines, and ranks the best bets of the week.
 
-**Markets covered:** rushing yards, receiving yards, passing yards, and rush + receiving yards.
+**Markets:** rushing yards, receiving yards, passing yards, and rush + receiving yards.
 
-Each run does the following:
+- **Front end:** React + TypeScript (Vite, TanStack Query, Recharts).
+- **Back end:** FastAPI + SQLAlchemy (SQLite locally, Postgres-ready).
+- **Model:** pandas / SciPy projection engine with a walk-forward backtest.
+- **Data:** [nflverse](https://github.com/nflverse/nflverse-data) for stats, schedules, rosters and injuries; [The Odds API](https://the-odds-api.com) for prop lines.
 
-1. Pulls play-by-play-derived weekly player stats, schedules, rosters and injury reports from [nflverse](https://github.com/nflverse/nflverse-data).
-2. Projects every relevant player in the upcoming week's games.
-3. Backtests the model on past games, then uses the backtest residuals to fit the model's uncertainty.
-4. Fetches player-prop lines from [The Odds API](https://the-odds-api.com).
-5. Converts each projection into a win probability, compares it to the market price, and ranks plays by expected value.
-6. Writes a single self-contained `report.html` (no server required).
+> A modeling and software project, not betting advice. See [Limitations](#limitations).
 
-> This is a modeling and software project, not betting advice. See [Limitations](#limitations).
+## What the app does
 
-## The report
+- **Best props:** every Over/Under quote is priced and ranked by expected value, using the best price across sportsbooks. Filter by market, game and sportsbook (a book filter shows only that book's lines, still priced against the all-book market consensus, and carries into the player drawer's chart and line table), search by player, and adjust **minimum EV** and **how much to trust the market** with sliders that re-price the board live.
+- **Player drawer:** click any row for the last 12 games charted against the projection and the posted lines, plus every available play for that player.
+- **Alternate lines:** in the drawer, a ladder shows every posted line, main and alternate, across books, priced with the model's own win probability and EV. *Load alternate lines* fetches them for that player's game on demand (about 2 API credits per stat) and also attaches sportsbook betslip links.
+- **Betslip:** tap **+** on any quote to build a slip (saved in your browser). Each leg has a book switcher that lists every sportsbook offering that exact line, and "Put every leg at one book" moves the whole slip to a single book (showing how many legs it can take) so a parlay stays consistent. When that book doesn't offer a leg's exact line, the slip suggests the nearest lines the book does offer, with prices and EV, and one click swaps the leg. Selections are grouped by sportsbook with per-book parlay odds and payout, a stake box, and **Copy slip link**, which copies the same link "Open all in one tab" opens (a bare URL for one book, labelled per book otherwise) so you can open the slip on another device; **Copy phone link** copies a link that reopens the whole slip in this app on another device (the slip travels in the URL, nothing is stored on a server); tap each leg's button, or "Open all in one tab", on the phone to hand it to the sportsbook app. **Copy as text** copies a readable summary instead. **Get links** fetches missing betslip links for the slip's games on demand, **Open all in one tab** builds a single link that adds every linked leg to the slip for FanDuel and DraftKings (experimental: those multi-selection link formats are not yet confirmed against the live sites, so check the slip afterward), and each book's **Add leg N of M** button steps through its legs one new tab per click (browsers block extra pop-ups from a single click), skipping legs that have no link. **Add at book** opens the sportsbook with that selection added to its betslip where the Odds API provides a direct link (FanDuel and DraftKings do), and otherwise opens the book. The app never places bets; you sign in and confirm at the book.
+- **Projections:** every projected player with the volume and efficiency behind the number, sortable.
+- **Model check:** backtest accuracy per market and the freshness of projections and odds.
+- **Refresh from the UI:** recompute projections and fetch odds (projections only, missing markets only, or everything) with live job status. Odds are stored in the database, so re-running the model never spends API credits.
 
-`report.html` has:
+## Architecture
 
-- **Best props**: ranked by expected value, with the pick (Over/Under, line, price, sportsbook), projection and standard deviation, edge in yards, model vs. market win probability, EV, quarter-Kelly stake and a last-5-games sparkline.
-- **All projections**: every player's projected yards, with the volume and efficiency behind the number.
-- **Filters**: tabs by market (Rushing / Receiving / Passing / Rush+Rec) plus a dropdown to filter by game. Tables are sortable.
-- **Model check**: the backtest accuracy for each market, shown on the page so the numbers can be judged against the picks.
-- Light and dark themes, and a layout that works on a phone.
+```
+┌────────────┐  /api   ┌──────────────────────────────┐        ┌────────────┐
+│ React SPA  │ ──────▶ │ FastAPI                      │ ─────▶ │ nflverse   │ stats, schedule,
+│ (Vite, TS) │ ◀────── │  routes · job runner         │        │ (CSV)      │ rosters, injuries
+└────────────┘  JSON   │  engine/ model · picks · odds│ ─────▶ ├────────────┤
+                       └──────────────┬───────────────┘        │ Odds API   │ prop lines
+                                      │ SQLAlchemy             └────────────┘
+                              ┌───────▼────────┐
+                              │ SQLite/Postgres│ runs · projections · odds_lines
+                              └────────────────┘
+```
 
-## How the model works
+- **Pipeline** (`pipeline.py`): loads data, runs the backtest, projects the next unplayed week, applies injury and roster filters, and stores a `Run` with its projections. Odds are fetched separately and stored with a fetch timestamp.
+- **Pricing is computed on request** (`engine/picks.py`), not stored, so the UI's sliders can re-price instantly. Results are memoized per (run, odds version, market weight).
+- **Refresh jobs** run in a background task with a single-flight lock; the UI polls `/api/refresh/status`.
+- In production the API serves the built React app, so it deploys as one container.
+
+### API
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/meta` | Current run, backtest stats, odds freshness, game list, refresh job state |
+| `GET /api/picks` | Priced plays. Params: `kind`, `game_id`, `q`, `min_ev`, `market_weight`, `book`, `include_flagged`, `limit` |
+| `GET /api/projections` | Projections. Params: `kind`, `game_id`, `q` |
+| `GET /api/players/{id}` | One player: projections, available plays, recent game logs |
+| `GET /api/players/{id}/lines?kind=` | Every main and alternate quote for one player and market, priced, with betslip links |
+| `POST /api/players/{id}/alt-lines` | Fetch alternate lines and links for the player's game (spends API credits) |
+| `POST /api/refresh` | Start a refresh. Body `{"odds": "none" \| "missing" \| "all"}`; `409` if one is running |
+| `GET /api/refresh/status` | Progress log of the current or last refresh |
+
+Interactive docs are at `/docs` when the API is running.
+
+## The model
 
 ### Projection
 
-For each player and market, projected yards are **volume x efficiency**:
+Yards = **volume x efficiency**:
 
 | Market | Volume | Efficiency |
 |---|---|---|
 | Rushing | carries | yards per carry |
 | Receiving | targets | yards per target |
 | Passing | pass attempts | yards per attempt |
-| Rush + Receiving | rushing + receiving volume, summed | summed projections |
+| Rush + Receiving | both volumes, summed | summed projections |
 
-- **Recency weighting.** Games are weighted with an exponential decay (5-game half-life) that runs across seasons, so the recent past dominates but last year still anchors small samples.
-- **Shrinkage.** Efficiency is shrunk toward the position average with a pseudo-count prior (e.g. 40 carries, 30 targets, 120 pass attempts), because yards per attempt is noisy over short stretches. Volume is shrunk much more lightly, since a player's role is far more stable than his efficiency.
-- **Opponent adjustment.** Each defense gets a yards-allowed-per-game factor against the league average, shrunk toward neutral and applied at half strength.
-- **Game script.** The point spread nudges volume: favorites run more, underdogs pass more.
-- **Availability.** The active roster decides which team a player is on. Players on injured reserve or practice squads, players ruled Out or Doubtful, players who didn't practice with no game status posted yet, and offseason arrivals with no games for their new team are all excluded. Anyone can be excluded by hand with `--exclude`.
+- **Recency weighting:** exponential decay (5-game half-life) across seasons, so recent games dominate while last year anchors small samples.
+- **Shrinkage:** efficiency is pulled toward the position mean with a pseudo-count prior, because yards per attempt is noisy. Volume is shrunk only lightly (and not at all for most quarterback volume), since roles are stable.
+- **Opponent and game script:** a shrunk yards-allowed factor for the defense, and a point-spread nudge (favorites run more, underdogs pass more).
+- **Availability:** the active roster decides a player's team. Injured reserve, Out/Doubtful, players with no practice and no game status, and offseason arrivals with no games for their new team are excluded.
 
-### Uncertainty and probabilities
+### Probabilities and EV
 
-Yardage outcomes are modeled with a **gamma distribution** (non-negative and right-skewed, like real yardage). Its variance follows `var = a*mu + b*mu^2`, with `a` and `b` fit by least squares on the squared residuals of a **walk-forward backtest**: every historical game is projected using only data available before kickoff. Whole-number lines use a continuity correction and account for pushes.
+Outcomes follow a gamma distribution (non-negative, right-skewed) whose variance `a*mu + b*mu^2` is fit on the walk-forward backtest residuals. Whole-number lines handle pushes. The model's win probability is blended (35% by default, adjustable in the UI) with the market's no-vig probability. EV and quarter-Kelly come from that blend and the best available price.
 
-The model's win probability is blended 35% toward the market's no-vig probability, a guard against the model overstating its edge. Expected value and a quarter-Kelly stake come from that blended probability and the best available price across sportsbooks.
+Two guards keep bad data from topping the board:
+- Quotes far from the multi-book consensus line (stale or alternate lines) are ignored.
+- Plays where model and market disagree by more than ~40-67% are hidden by default and tagged "large gap". These are usually model blind spots (a teammate's injury, a role change), not value.
 
-### Backtest results
+### Backtest
 
-Walk-forward, using only prior data for each game (2025 week 6 through the current week), against a naive average of the player's last 5 games:
+Walk-forward: every game from 2025 week 6 onward is projected using only earlier data, compared with a naive last-5-games average.
 
 | Market | Games | Model MAE | Last-5 MAE | Bias |
 |---|---|---|---|---|
@@ -61,85 +92,56 @@ Walk-forward, using only prior data for each game (2025 week 6 through the curre
 | Passing | 489 | 67.0 | 70.4 | +0.6 |
 | Rush + Rec | 234 | 33.0 | 36.6 | +4.0 |
 
-MAE is mean absolute error in yards; bias is the average of (actual - projection), so near zero means the model is well calibrated overall. The model beats the naive baseline in every market.
+MAE is mean absolute error in yards; bias is the mean of (actual - projection). The passing market initially ran ~9 yards low because volume shrinkage pulled quarterback attempts toward zero; a per-market setting fixed it.
 
-Passing initially ran about 9 yards low. Diagnosing it showed the cause was volume shrinkage pulling quarterback attempts toward zero, which is wrong for a stat that stable. A separate setting for passing removed the bias.
+## Running it
 
-## Quick start
-
-Requires Python 3.9+.
+Requires Python 3.9+ and Node 20+. Everything goes through one script:
 
 ```bash
-git clone https://github.com/JoshuaDHaber/NFL-Prop-Predictor.git
-cd NFL-Prop-Predictor
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-
-.venv/bin/python run.py                       # projections only (no odds needed)
+./run.sh setup      # venv + npm install; creates backend/.env (add ODDS_API_KEY there, optional)
+./run.sh refresh    # compute this week's projections (about a minute the first time)
+./run.sh start      # app at http://localhost:8000 (API + built UI)
 ```
 
-Open `report.html` in a browser.
+`./run.sh lan` starts the app so your phone on the same Wi-Fi can open it (other devices are read-only: refreshes and API-credit-spending fetches stay limited to this machine). Other commands: `./run.sh dev` (API with auto-reload plus the Vite dev server on :5173), `./run.sh build`, `./run.sh test`, and `./run.sh refresh --odds none --exclude "Player Name"`. Run `./run.sh help` for the list.
 
-### Adding odds
+**Odds:** get a free key at [the-odds-api.com](https://the-odds-api.com) (about 500 credits a month; all four markets for a full slate cost roughly 60) and put it in `backend/.env`. Without a key the app still shows projections. In the UI, *Refresh data* fetches only markets that have no stored lines; *Re-fetch all odds* is the explicit paid action.
 
-Get a free key at [the-odds-api.com](https://the-odds-api.com) (about 500 credits a month; a full slate across all four markets costs roughly 60 credits). Save it in a `.env` file, which is git-ignored:
+**Tests and CI:** `./run.sh test` runs the backend suite (pytest: model math, pricing logic, API behavior) and the frontend typecheck and tests. GitHub Actions runs the same on every push.
 
-```
-ODDS_API_KEY=your_key_here
-```
-
-```bash
-.venv/bin/python run.py                         # fetch live odds, rank picks
-.venv/bin/python run.py --cached-odds           # reuse the last fetch, spend no credits
-.venv/bin/python run.py --lines-csv lines.csv   # bring your own lines
-.venv/bin/python run.py --demo-lines            # synthetic lines, to preview the report
-```
-
-Fetched odds are saved to `.cache/`. With `--cached-odds`, only markets missing from the cache are fetched.
-
-A CSV of your own lines needs the columns `player, market, line, over_odds, under_odds, book`, where `market` is `rush`, `rec`, `pass` or `rr` and odds are American.
-
-### Other options
-
-```bash
---week 5 --season 2026               # a specific week (default: next unplayed week)
---exclude "Player Name" ...          # drop players you know are out
---keep-dnp                           # keep players who did not practice and have no game status
---min-ev 0.05                        # EV threshold for picks (default 3%)
---market-weight 0.5                  # how much to trust the market vs. the model (default 0.35)
---out my_report.html
-```
-
-Tunable model constants (half-life, shrinkage strengths, opponent and script effects) sit at the top of `model.py`.
+**Docker** (untested so far): `docker build -t nfl-props . && docker run -p 8000:8000 -v nfl-data:/srv/backend/data nfl-props`. Set `DATABASE_URL` to a Postgres URL (and add a driver such as `psycopg`) when deploying beyond one instance.
 
 ## Project layout
 
 ```
-run.py       CLI entry point: orchestrates data, backtest, projections, odds, picks
-data.py      nflverse loaders with on-disk caching (stats, schedule, rosters, injuries)
-model.py     projection, opponent/script adjustments, walk-forward backtest, variance fit, probabilities
-odds.py      The Odds API client, CSV import, name matching, odds math
-report.py    self-contained HTML report (inline CSS/JS, sortable tables, filters)
+backend/
+  app/
+    main.py        FastAPI routes, job runner, static file serving
+    pipeline.py    data -> backtest -> projections -> DB; odds refresh
+    db.py          SQLAlchemy models (runs, projections, odds_lines, alt_lines)
+    schemas.py     Pydantic response models
+    cli.py         run the pipeline without the web app
+    engine/        model.py (projections, backtest, probabilities) · picks.py (pricing) · ladder.py (alt-line pricing) · odds.py · data.py
+  tests/           pytest suite
+frontend/src/      App, components (picks table, player drawer, line ladder, betslip, controls, refresh), betslip math in slip.ts, typed API client
 ```
 
 ## Limitations
 
-- **There is no historical odds data in the backtest.** Accuracy is measured against actual results, so the model's calibration is tested but its profitability is not. A positive-EV pick is only as good as the model, and sportsbook prop markets are efficient. Large apparent edges usually mean the model is missing something.
-- **No teammate redistribution.** When a starter is out, the model does not move his volume to teammates, so backups are under-projected.
-- **Heuristic adjustments.** The opponent and game-script effects are reasonable but untuned, and opponent strength uses raw yards allowed without adjusting for who each defense has played.
-- **Rush + Rec treats the two parts as independent**, though they are often negatively correlated. The real spread is somewhat narrower than the model assumes.
-- **Small sample early in the season.** Projections lean on last season's games until enough of this year has been played.
-- **Injury data is only as fresh as the nflverse feed.** Check final game-day statuses before relying on a pick.
-- Parameters, including the passing fix, were tuned against the same games used to report accuracy, so the backtest numbers are somewhat optimistic.
+- **The backtest has no historical odds,** so it validates accuracy, not profitability. Sportsbook prop markets are efficient; a large apparent edge usually means the model is missing context.
+- **No teammate redistribution:** when a starter is out, his volume is not moved to backups, so backups are under-projected. This is the biggest known accuracy gap.
+- **Heuristic adjustments:** opponent and game-script effects are reasonable but untuned.
+- **Rush + Rec** treats its two parts as independent, though they are often negatively correlated.
+- **Early-season samples are small;** projections lean on last season until enough of this one is played.
+- **Injury data is only as fresh as the nflverse feed.** Check game-day statuses before relying on a pick.
+- Parameters were tuned on the same games used to report accuracy, so the backtest is somewhat optimistic.
 
-## Ideas for next steps
+## Roadmap
 
 - Redistribute volume to teammates when a starter is out.
 - Model team-level pass/run volume explicitly, then split it among players.
-- Add weather, pace and offensive line context.
-- Track picks over time against closing lines (closing line value) as an out-of-sample test of the model.
-- More markets: receptions, rushing attempts, longest reception, touchdowns.
-
-## Data and credits
-
-Player, schedule, roster and injury data come from [nflverse](https://github.com/nflverse), and prop lines from [The Odds API](https://the-odds-api.com).
+- Weather, pace and offensive-line context.
+- Store pick history and track closing-line value as an out-of-sample test.
+- Scheduled refreshes, auth for a shared deployment, more markets (receptions, attempts, touchdowns).
+- Multi-leg deep links per sportsbook (today each selection opens as its own link) and correlation-aware same-game parlay pricing.
