@@ -1,0 +1,25 @@
+# Render Blueprint: the API only. The React front end is served from GitHub Pages and calls this service.
+services:
+  - type: web
+    name: nfl-prop-predictor-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: DATABASE_URL        # Neon (or any Postgres) connection string: set in the Render dashboard
+        sync: false
+      - key: ODDS_API_KEY        # set in the Render dashboard
+        sync: false
+      - key: ADMIN_TOKEN         # generated for you; paste it into the app's Admin box to refresh data
+        generateValue: true
+      - key: CORS_ORIGINS        # the GitHub Pages origin
+        value: https://joshuadhaber.github.io
+      - key: PROJECTIONS_ON_SERVER   # the weekly model run needs ~400 MB; run it on your Mac instead
+        value: "0"
+      - key: NFLPROPS_CACHE
+        value: /tmp/nflprops-cache

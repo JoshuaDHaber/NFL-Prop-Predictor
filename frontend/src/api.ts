@@ -1,4 +1,5 @@
-import { BASE, IS_STATIC } from "./env";
+import { getToken, setWaking } from "./auth";
+import { API_URL, BASE, IS_STATIC } from "./env";
 
 export type Kind = "rush" | "rec" | "pass" | "rr";
 
@@ -18,6 +19,8 @@ export interface Meta {
   lan_url: string | null;
   books: string[];
   snapshot_at?: string | null;
+  can_write: boolean;
+  can_run_projections: boolean;
 }
 export interface Projection {
   player_id: string; name: string; pos: string; team: string; opp: string; home: boolean; kind: Kind;
@@ -42,10 +45,32 @@ export interface LadderRow { line: number; book: string; alt: boolean; event_lin
 export interface Ladder { kind: Kind; mu: number; sd: number; game_id: string; alt_fetched_at: string | null; quotes: LadderRow[] }
 export interface AltFetchResult { kinds: string[]; alt_quotes: number; linked: number; credits_remaining: string | null }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const WAKE_TRIES = 30; // x 3 s: a sleeping free host takes up to about a minute to come back
+
+/** fetch against the API. Reads are retried while a hosted API wakes up; writes never are (they can spend credits). */
+export async function request(path: string, init: RequestInit = {}): Promise<Response> {
+  const token = getToken();
+  const headers = { ...(init.headers as Record<string, string>), ...(token && API_URL ? { Authorization: `Bearer ${token}` } : {}) };
+  const canRetry = !!API_URL && (init.method ?? "GET") === "GET";
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(`${API_URL}${path}`, { ...init, headers });
+      if (canRetry && [502, 503, 504].includes(res.status) && attempt < WAKE_TRIES) throw new Error("waking");
+      setWaking(false);
+      return res;
+    } catch (e) {
+      if (!canRetry || attempt >= WAKE_TRIES) { setWaking(false); throw e; }
+      setWaking(true);
+      await sleep(3000);
+    }
+  }
+}
+
 async function get<T>(path: string, params: Record<string, string | number | boolean | undefined> = {}): Promise<T> {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== "" && v !== "all") qs.set(k, String(v));
-  const res = await fetch(`/api/${path}${qs.size ? `?${qs}` : ""}`);
+  const res = await request(`/api/${path}${qs.size ? `?${qs}` : ""}`);
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   return res.json();
 }
@@ -62,12 +87,12 @@ const liveApi = {
   /** oddsRange hides prices outside -N..+N (American); 0 shows everything. */
   lines: (id: string, kind: Kind, oddsRange = 300) => get<Ladder>(`players/${id}/lines`, { kind, odds_range: oddsRange }),
   fetchAlt: async (id: string): Promise<AltFetchResult> => {
-    const res = await fetch(`/api/players/${id}/alt-lines`, { method: "POST" });
+    const res = await request(`/api/players/${id}/alt-lines`, { method: "POST" });
     if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail);
     return res.json();
   },
   refresh: async (odds: "none" | "missing" | "all"): Promise<JobStatus> => {
-    const res = await fetch("/api/refresh", { method: "POST", headers: { "Content-Type": "application/json" },
+    const res = await request("/api/refresh", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ odds }) });
     if (!res.ok) throw new Error(await res.text());
     return res.json();

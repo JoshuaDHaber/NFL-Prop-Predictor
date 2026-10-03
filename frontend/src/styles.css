@@ -103,3 +103,6 @@ button.primary.outline { background: transparent; color: var(--acc); border: 1px
 .book-note { background: var(--chip); color: var(--ink); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px; font-size: 12px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
 .demo-tag { border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; color: var(--mut); font-size: 12px; }
 .banner a { color: inherit; text-decoration: underline; }
+.head-actions { display: flex; align-items: flex-start; gap: 14px; }
+.admin { position: relative; padding-top: 8px; } .admin-pop { position: absolute; right: 0; top: 34px; z-index: 6; width: 260px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.18); display: flex; flex-direction: column; gap: 8px; }
+.admin-pop p { margin: 0; } .admin-pop input { padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; }

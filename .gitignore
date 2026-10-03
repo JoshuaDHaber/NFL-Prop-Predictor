@@ -9,3 +9,4 @@ backend/data/
 *.db
 .pytest_cache/
 *.tsbuildinfo
+frontend/dist-static/

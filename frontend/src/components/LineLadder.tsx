@@ -26,7 +26,7 @@ interface LadderProps { ctx: PlayerCtx; kind: Kind; mu: number; book: string; on
 export default function LineLadder({ ctx, kind, mu, book, onBookChange }: LadderProps) {
   const qc = useQueryClient();
   const slip = useBetSlip();
-  const meta = qc.getQueryData<{ has_odds_key: boolean }>(["meta"]);
+  const meta = qc.getQueryData<{ has_odds_key: boolean; can_write: boolean }>(["meta"]);
   const [allBooks, setAllBooks] = useState(false);
   const [onlyEv, setOnlyEv] = useState(false);
   const [limitOdds, setLimitOdds] = useState(true);
@@ -118,10 +118,10 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
           </div>
           {!hasAlt && !IS_STATIC && (
             <div className="alt-cta">
-              <button className="primary" onClick={load} disabled={!meta?.has_odds_key || fetchAlt.isPending}>
+              <button className="primary" onClick={load} disabled={!meta?.has_odds_key || !meta?.can_write || fetchAlt.isPending}>
                 {fetchAlt.isPending ? "Fetching…" : "Load alternate lines"}
               </button>
-              <span className="mut">{meta?.has_odds_key ? `Uses ~${cost} API credits · adds betslip links` : "Needs ODDS_API_KEY"}</span>
+              <span className="mut">{!meta?.can_write ? "Admin only" : meta?.has_odds_key ? `Uses ~${cost} API credits · adds betslip links` : "Needs ODDS_API_KEY"}</span>
             </div>
           )}
           {fetchAlt.error && <p className="err">{(fetchAlt.error as Error).message}</p>}

@@ -15,7 +15,8 @@ export default function BetSlip() {
   const [opened, setOpened] = useState<Record<string, string[]>>({});
   const [linking, setLinking] = useState<string | null>(null);
   const qc = useQueryClient();
-  const hasKey = qc.getQueryData<{ has_odds_key: boolean }>(["meta"])?.has_odds_key ?? false;
+  const metaFlags = qc.getQueryData<{ has_odds_key: boolean; can_write: boolean }>(["meta"]);
+  const hasKey = !!metaFlags?.has_odds_key && !!metaFlags?.can_write;
   // line shopping data: every book's quote for each leg's exact line (shares the drawer's query cache)
   const keys = [...new Map(legs.map((l) => [`${l.playerId}|${l.kind}`, l])).values()];
   const ladders = useQueries({
@@ -119,7 +120,7 @@ export default function BetSlip() {
                 <button className="primary" disabled={!hasKey || linking === "Fetching links…"} onClick={getLinks}>
                   {linking === "Fetching links…" ? "Fetching…" : `Get links (~${missingGames.length * 2} credits)`}
                 </button>
-                {!hasKey && <span className="mut"> Needs ODDS_API_KEY</span>}
+                {!hasKey && <span className="mut"> {metaFlags?.can_write === false ? "Admin only" : "Needs ODDS_API_KEY"}</span>}
                 {linking && linking !== "Fetching links…" && <p className="err">{linking}</p>}
               </section>
             )}

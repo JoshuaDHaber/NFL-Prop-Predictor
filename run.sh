@@ -25,6 +25,9 @@ case "${1:-help}" in
   refresh)  # compute projections (extra args pass through, e.g. --odds none --exclude "Name")
     need_venv; shift; py -m app.cli "$@" ;;
   build)    need_node; npmf run build ;;
+  push-data) # copy the local database (projections + odds you already paid for) to a hosted Postgres
+    need_venv; : "${DATABASE_URL:?Set DATABASE_URL to the hosted database URL first}"
+    py -m app.copy_db ;;
   export)   # snapshot the current data as static JSON for the GitHub Pages demo
     need_venv; py -m app.export_static
     echo "Snapshot written to frontend/public/demo. Commit it and push to main to publish." ;;
@@ -56,6 +59,7 @@ Usage: ./run.sh <command>
   setup     Install backend (venv) and frontend (npm) dependencies
   refresh   Compute this week's projections   [--odds none|missing|all] [--exclude "Name" ...]
   build     Build the React app
+  push-data Copy the local database to the hosted one (set DATABASE_URL)
   export    Save the current data as a static snapshot for the GitHub Pages demo
   start     Run the app at http://localhost:8000 (builds the UI if needed)
   lan       Same, but reachable from your phone on the same Wi-Fi (read-only there)

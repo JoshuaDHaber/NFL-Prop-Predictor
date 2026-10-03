@@ -8,3 +8,4 @@ sqlalchemy>=2
 pydantic>=2
 pytest
 httpx
+psycopg[binary]
