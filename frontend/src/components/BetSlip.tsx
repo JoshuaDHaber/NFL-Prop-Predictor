@@ -3,13 +3,14 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useBetSlip } from "../BetSlipContext";
 import { KIND_SHORT, americanOdds, pct, signedPct } from "../format";
-import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, legLink, linkStatus, openProgress, parlay, rebook, sameGame, slipText, toWin, type BookOption } from "../slip";
+import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, combinedLink, legLink, linkStatus, openProgress, parlay, rebook, sameGame, slipText, toWin, type BookOption } from "../slip";
 
 export default function BetSlip() {
   const { legs, remove, replace, clear, state, setState, open, setOpen } = useBetSlip();
   const [stakes, setStakes] = useState<Record<string, number>>({});
   const [copied, setCopied] = useState(false);
   const [target, setTarget] = useState<string | null>(null);
+  const [combinedMsg, setCombinedMsg] = useState<Record<string, string>>({});
   const [opened, setOpened] = useState<Record<string, string[]>>({});
   const [linking, setLinking] = useState<string | null>(null);
   const qc = useQueryClient();
@@ -35,6 +36,17 @@ export default function BetSlip() {
 
   const copy = async () => {
     try { await navigator.clipboard.writeText(slipText(legs)); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ }
+  };
+  // All of a book's linked legs in a single tab (only for books whose multi-selection link format we know)
+  const combineFor = (book: string) => {
+    const links = openProgress(legs, book, state, []).direct.map((l) => legLink(l, state)).filter((u): u is string => !!u);
+    return combinedLink(book, links);
+  };
+  const openCombined = (book: string) => {
+    const c = combineFor(book);
+    if (!c) return;
+    window.open(c.url, "_blank", "noopener");
+    setCombinedMsg({ ...combinedMsg, [book]: `Opened one tab with ${c.count} legs. Check that all ${c.count} are on the ${book} slip before placing; if any are missing, use "one at a time".` });
   };
   // One new tab per click: browsers block extra pop-ups opened from a single click, so we step through the legs.
   const openNext = (book: string) => {
@@ -144,19 +156,27 @@ export default function BetSlip() {
             {groupByBook(legs).map(([book, ls]) => {
               const stake = stakeFor(book);
               const prog = openProgress(legs, book, state, opened[book] ?? []);
+              const combine = combineFor(book);
               const p = parlay(ls, stake);
               return (
                 <section className="slip-group" key={book}>
                   <div className="slip-book">
                     <b>{book}</b><span className="mut">{ls.length} {ls.length === 1 ? "selection" : "selections"}</span>
+                    {combine && (
+                      <button className="link strong" onClick={() => openCombined(book)}
+                        title="Opens one tab with every linked leg added to the slip (experimental)">
+                        Open all in one tab ↗
+                      </button>
+                    )}
                     {prog.direct.length > 0 && (
                       <button className="link" onClick={() => openNext(book)}>
                         {prog.remaining.length === 0 ? "All opened · start over" :
-                          prog.direct.length === 1 ? "Add at book ↗" : `Add leg ${prog.done + 1} of ${prog.direct.length} ↗`}
+                          prog.direct.length === 1 ? "Add at book ↗" : combine ? `One at a time (${prog.done + 1} of ${prog.direct.length}) ↗` : `Add leg ${prog.done + 1} of ${prog.direct.length} ↗`}
                       </button>
                     )}
                   </div>
-                  {prog.direct.length > 1 && (
+                  {combinedMsg[book] && <p className="mut open-msg">{combinedMsg[book]}</p>}
+                  {prog.direct.length > 1 && (prog.done > 0 || !combine) && (
                     <p className="mut open-msg">
                       {prog.done === 0 ? "Your browser opens one new tab per click, so click once per leg."
                         : prog.remaining.length ? `Opened ${prog.done} of ${prog.direct.length}. Click again for the next leg.`

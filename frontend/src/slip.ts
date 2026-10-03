@@ -124,3 +124,30 @@ export function openProgress(legs: Leg[], book: string, state: string, opened: s
   const remaining = direct.filter((l) => !opened.includes(l.id));
   return { direct, remaining, done: direct.length - remaining.length, skipped: legs.filter((l) => l.book === book).length - direct.length };
 }
+
+export interface CombinedLink { url: string; count: number; verified: boolean }
+
+/**
+ * One URL that adds several selections to a book's slip at once, built from the per-selection links the Odds API gives us.
+ * Only books whose multi-selection format we know are supported; `verified: false` marks formats not yet confirmed against the live site.
+ */
+export function combinedLink(book: string, links: string[]): CombinedLink | null {
+  if (links.length < 2) return null;
+  if (book === "FanDuel") {
+    const pairs = links.map((l) => {
+      try {
+        const u = new URL(l);
+        return [u.searchParams.get("marketId"), u.searchParams.get("selectionId")] as const;
+      } catch { return [null, null] as const; }
+    });
+    if (pairs.some(([m, s]) => !m || !s)) return null;
+    const q = pairs.map(([m, s], i) => `marketId[${i}]=${m}&selectionId[${i}]=${s}`).join("&");
+    return { url: `https://sportsbook.fanduel.com/addToBetslip?${q}`, count: pairs.length, verified: false };
+  }
+  if (book === "DraftKings") {
+    const ids = links.map((l) => l.split("outcomes=")[1]);
+    if (ids.some((i) => !i)) return null;
+    return { url: `https://sportsbook.draftkings.com/?outcomes=${ids.join(",")}`, count: ids.length, verified: false };
+  }
+  return null;
+}

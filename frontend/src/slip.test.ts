@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Leg } from "./slip";
-import { openProgress, linkStatus, alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipText, toAmerican, toDecimal, toWin } from "./slip";
+import { combinedLink, openProgress, linkStatus, alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipText, toAmerican, toDecimal, toWin } from "./slip";
 
 const leg = (o: Partial<Leg> = {}): Leg => ({
   id: "x", playerId: "p1", name: "Test Back", team: "AAA", opp: "BBB", home: true, kind: "rush", side: "Over", line: 60.5,
@@ -123,5 +123,28 @@ describe("open-all stepping", () => {
   });
   it("is finished once every linked leg was opened", () => {
     expect(openProgress([a, b], "DraftKings", "", ["a", "b"]).remaining).toEqual([]);
+  });
+});
+
+describe("combined links", () => {
+  it("builds one FanDuel URL carrying every selection", () => {
+    const c = combinedLink("FanDuel", [
+      "https://sportsbook.fanduel.com/addToBetslip?marketId=42.1&selectionId=11",
+      "https://sportsbook.fanduel.com/addToBetslip?marketId=42.2&selectionId=22",
+    ]);
+    expect(c?.url).toBe("https://sportsbook.fanduel.com/addToBetslip?marketId[0]=42.1&selectionId[0]=11&marketId[1]=42.2&selectionId[1]=22");
+    expect(c?.count).toBe(2);
+  });
+  it("joins DraftKings outcome ids into one URL", () => {
+    const c = combinedLink("DraftKings", [
+      "https://sportsbook.draftkings.com/?outcomes=0QA1%232_13L1Q1Q20",
+      "https://sportsbook.draftkings.com/?outcomes=0QA3%234_13L1Q2Q20",
+    ]);
+    expect(c?.url).toBe("https://sportsbook.draftkings.com/?outcomes=0QA1%232_13L1Q1Q20,0QA3%234_13L1Q2Q20");
+  });
+  it("declines when it can't combine safely", () => {
+    expect(combinedLink("FanDuel", ["https://x/addToBetslip?marketId=1&selectionId=2"])).toBeNull(); // single leg
+    expect(combinedLink("BetMGM", ["https://a", "https://b"])).toBeNull(); // format unknown
+    expect(combinedLink("FanDuel", ["https://x/y", "https://x/z"])).toBeNull(); // missing ids
   });
 });

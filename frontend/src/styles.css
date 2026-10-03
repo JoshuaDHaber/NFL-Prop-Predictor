@@ -98,3 +98,4 @@ button.primary:disabled { opacity: .55; cursor: default; }
 .chip-btn { background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; font: inherit; font-size: 12px; cursor: pointer; }
 .chip-btn:hover { border-color: var(--acc); }
 .open-msg { padding-top: 8px; }
+.slip-book { flex-wrap: wrap; } .slip-book .link.strong { font-weight: 600; } .slip-book .link { margin-left: 0; } .slip-book .mut + .link { margin-left: auto; }
