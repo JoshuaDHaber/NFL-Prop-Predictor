@@ -49,6 +49,12 @@ def test_picks_rank_by_ev_and_respect_filters(client):
     assert client.get("/api/picks", params={"game_id": "nope"}).json() == []
 
 
+def test_picks_can_be_limited_to_one_sportsbook(client):
+    assert client.get("/api/meta").json()["books"] == ["X"]
+    assert client.get("/api/picks", params={"min_ev": 0.0, "book": "X"}).json()
+    assert client.get("/api/picks", params={"min_ev": -1, "book": "Other"}).json() == []
+
+
 def test_market_weight_changes_the_pricing(client):
     a = client.get("/api/picks", params={"min_ev": -1, "market_weight": 0}).json()[0]
     b = client.get("/api/picks", params={"min_ev": -1, "market_weight": 1}).json()[0]

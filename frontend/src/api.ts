@@ -14,6 +14,7 @@ export interface Meta {
   has_odds_key: boolean;
   job: JobStatus;
   lan_url: string | null;
+  books: string[];
 }
 export interface Projection {
   player_id: string; name: string; pos: string; team: string; opp: string; home: boolean; kind: Kind;
@@ -46,12 +47,12 @@ async function get<T>(path: string, params: Record<string, string | number | boo
   return res.json();
 }
 
-export interface Filters { kind: Kind | "all"; game: string; q: string; minEv: number; marketWeight: number; flagged: boolean }
+export interface Filters { kind: Kind | "all"; game: string; book: string; q: string; minEv: number; marketWeight: number; flagged: boolean }
 
 export const api = {
   meta: () => get<Meta>("meta"),
   picks: (f: Filters) =>
-    get<Pick[]>("picks", { kind: f.kind, game_id: f.game, q: f.q, min_ev: f.minEv, market_weight: f.marketWeight,
+    get<Pick[]>("picks", { kind: f.kind, game_id: f.game, book: f.book, q: f.q, min_ev: f.minEv, market_weight: f.marketWeight,
       include_flagged: f.flagged, limit: 300 }),
   projections: (f: Filters) => get<Projection[]>("projections", { kind: f.kind, game_id: f.game, q: f.q }),
   player: (id: string, marketWeight: number) => get<PlayerDetail>(`players/${id}`, { market_weight: marketWeight }),

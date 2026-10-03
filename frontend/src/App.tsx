@@ -17,7 +17,7 @@ const TABS: [Tab, string][] = [["picks", "Best props"], ["projections", "Project
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("picks");
-  const [filters, setFilters] = useState<Filters>({ kind: "all", game: "all", q: "", minEv: 0.03, marketWeight: 0.35, flagged: false });
+  const [filters, setFilters] = useState<Filters>({ kind: "all", game: "all", book: "all", q: "", minEv: 0.03, marketWeight: 0.35, flagged: false });
   const [selected, setSelected] = useState<{ id: string; kind: Kind } | null>(null);
   const debounced = useDebounced(filters, 250);
 
@@ -55,7 +55,7 @@ export default function App() {
         ))}
       </nav>
 
-      {tab !== "model" && <Controls filters={filters} onChange={setFilters} games={m.games} showPickControls={tab === "picks"} />}
+      {tab !== "model" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
 
       {tab === "picks" && (picks.isLoading ? <p className="mut">Pricing plays…</p> :
         <PicksTable picks={picks.data ?? []} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}

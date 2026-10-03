@@ -7,10 +7,11 @@ interface Props {
   filters: Filters;
   onChange: (f: Filters) => void;
   games: Game[];
+  books: string[];
   showPickControls: boolean;
 }
 
-export default function Controls({ filters, onChange, games, showPickControls }: Props) {
+export default function Controls({ filters, onChange, games, books, showPickControls }: Props) {
   const set = (patch: Partial<Filters>) => onChange({ ...filters, ...patch });
   return (
     <section className="controls" aria-label="Filters">
@@ -27,6 +28,12 @@ export default function Controls({ filters, onChange, games, showPickControls }:
           <option value="all">All games</option>
           {games.map((g) => <option key={g.game_id} value={g.game_id}>{g.label}</option>)}
         </select>
+        {showPickControls && (
+          <select value={filters.book} onChange={(e) => set({ book: e.target.value })} aria-label="Sportsbook">
+            <option value="all">All sportsbooks</option>
+            {books.map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
+        )}
         <input type="search" placeholder="Search player" value={filters.q} onChange={(e) => set({ q: e.target.value })}
           aria-label="Search player" />
         {showPickControls && (

@@ -11,8 +11,9 @@ PICK_COLUMNS = [
 ]
 
 
-def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 0.35) -> pd.DataFrame:
-    """All priced Over/Under candidates (flagged = model and market disagree by >40-67%: usually a model blind spot), best book per player/market/side, sorted by EV (no EV filter)."""
+def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 0.35, only_book: str = None) -> pd.DataFrame:
+    """All priced Over/Under candidates (flagged = model and market disagree by >40-67%: usually a model blind spot).
+    only_book keeps just that sportsbook's quotes in the output; the market consensus still uses every book., best book per player/market/side, sorted by EV (no EV filter)."""
     if proj.empty or lines.empty:
         return pd.DataFrame(columns=PICK_COLUMNS)
     lines = lines.copy()
@@ -33,6 +34,8 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
         c = cons.loc[(r.key, r.market)]
         if abs(r.line - c.line) > max(8.0, 0.3 * c.line):
             continue  # alternate / stale line far from the market consensus
+        if only_book and r.book != only_book:
+            continue
         var = p.sd ** 2
         po, pu = prob_over_under(p.mu, r.line, var)
         mk_over = c.nv_o

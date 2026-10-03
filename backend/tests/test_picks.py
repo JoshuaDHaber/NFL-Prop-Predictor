@@ -59,3 +59,14 @@ def test_one_sided_quotes_still_price_without_crashing():
     ln = lines([("Test Back", "rush", 60.5, -110, None, "A")])
     picks = build_picks(proj(mu=90), ln)
     assert list(picks.side) == ["Over"]
+
+
+def test_book_filter_keeps_only_that_books_quotes_but_prices_against_all():
+    ln = lines([("Test Back", "rush", 60.5, -110, -110, "A"), ("Test Back", "rush", 60.5, -105, -115, "B")])
+    only_a = build_picks(proj(mu=90), ln, only_book="A")
+    assert set(only_a.book) == {"A"} and len(only_a) == 2
+    assert set(build_picks(proj(mu=90), ln).book) == {"A", "B"}  # unfiltered: best price per side comes from either book
+    assert build_picks(proj(mu=90), ln, only_book="Nowhere").empty
+    # the market view still comes from both books, so it is identical with or without the filter
+    full = build_picks(proj(mu=90), ln).query("side == 'Over'").iloc[0]
+    assert only_a.query("side == 'Over'").iloc[0].p_mkt == pytest.approx(full.p_mkt)

@@ -87,16 +87,16 @@ def game_label(gid: str) -> str:
 _pick_cache: dict = {}
 
 
-def all_picks(db: Session, run: Run, w: float) -> pd.DataFrame:
+def all_picks(db: Session, run: Run, w: float, book: Optional[str] = None) -> pd.DataFrame:
     """Priced picks for (run, current odds, market weight); memoized because pricing loops over every line."""
     version = tuple(sorted(db.execute(select(OddsLine.market, func.max(OddsLine.fetched_at))
                                       .group_by(OddsLine.market)).all()))
-    key = (run.id, version, round(w, 3))
+    key = (run.id, version, round(w, 3), book)
     if key not in _pick_cache:
         if len(_pick_cache) > 20:
             _pick_cache.clear()
         proj = proj_frame(db, run.id)
-        picks = build_picks(proj, current_lines(db), w)
+        picks = build_picks(proj, current_lines(db), w, only_book=book)
         if not picks.empty:
             l5 = dict(zip(zip(proj.player_id, proj.kind), proj.last5))
             picks["last5"] = [l5.get(k, []) for k in zip(picks.player_id, picks.kind)]
@@ -144,7 +144,8 @@ def meta(request: Request, db: Session = Depends(get_db)):
     return Meta(run=None if not run else RunInfo(id=run.id, season=run.season, week=run.week,
                                                   created_at=run.created_at.isoformat(), excluded=run.excluded),
                 backtest=backtest, odds=odds_info, games=games, has_odds_key=bool(config.ODDS_API_KEY()),
-                job=JobStatus(**_job), lan_url=_lan_url(request))
+                job=JobStatus(**_job), lan_url=_lan_url(request),
+                books=sorted(b for (b,) in db.execute(select(OddsLine.book).distinct()).all()))
 
 
 def _lan_url(request: Request) -> Optional[str]:
@@ -178,13 +179,13 @@ def projections(kind: Optional[Kind] = None, game_id: Optional[str] = None, q: O
 
 
 @app.get("/api/picks", response_model=list[PickOut])
-def picks(kind: Optional[Kind] = None, game_id: Optional[str] = None, q: Optional[str] = None,
+def picks(kind: Optional[Kind] = None, game_id: Optional[str] = None, q: Optional[str] = None, book: Optional[str] = None,
           min_ev: float = Query(0.03, ge=-1, le=1), market_weight: float = Query(0.35, ge=0, le=1),
           include_flagged: bool = False, limit: int = Query(200, ge=1, le=1000), db: Session = Depends(get_db)):
     run = latest_run(db)
     if not run:
         return []
-    df = all_picks(db, run, market_weight)
+    df = all_picks(db, run, market_weight, book)
     if df.empty:
         return []
     df = df[df.ev >= min_ev]
