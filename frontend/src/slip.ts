@@ -48,9 +48,6 @@ export function legLink(l: Pick<Leg, "link" | "eventLink" | "book">, state: stri
   return direct ?? event ?? BOOK_SITES[l.book] ?? null;
 }
 
-export const isDirectLink = (l: Pick<Leg, "link">, state: string) =>
-  !!l.link && !(/\{state\}/.test(l.link) && !state.trim()) && !fill(l.link, state).includes("{");
-
 export function groupByBook(legs: Leg[]): [string, Leg[]][] {
   const m = new Map<string, Leg[]>();
   for (const l of legs) m.set(l.book, [...(m.get(l.book) ?? []), l]);
@@ -108,4 +105,14 @@ export function alternativesAtBook(ladder: Ladder | undefined, leg: Pick<Leg, "l
     .sort((a, b) => Math.abs(a.line - leg.line) - Math.abs(b.line - leg.line) || a.line - b.line)
     .slice(0, n)
     .sort((a, b) => a.line - b.line);
+}
+
+export type LinkStatus = "direct" | "needs-state" | "missing";
+
+/** Whether "Add at book" can really add this leg to the book's slip, and if not, why. */
+export function linkStatus(l: Pick<Leg, "link">, state: string): LinkStatus {
+  if (!l.link) return "missing";
+  const filled = l.link.replace(/\{state\}/g, state.trim().toLowerCase());
+  if (/\{state\}/.test(l.link) && !state.trim()) return "needs-state";
+  return filled.includes("{") ? "missing" : "direct";
 }

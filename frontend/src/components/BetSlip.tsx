@@ -1,15 +1,19 @@
-import { useQueries } from "@tanstack/react-query";
-import { useState } from "react";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useBetSlip } from "../BetSlipContext";
 import { KIND_SHORT, americanOdds, pct, signedPct } from "../format";
-import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, isDirectLink, legLink, parlay, rebook, sameGame, slipText, toWin, type BookOption } from "../slip";
+import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, legLink, linkStatus, parlay, rebook, sameGame, slipText, toWin, type BookOption } from "../slip";
 
 export default function BetSlip() {
   const { legs, remove, replace, clear, state, setState, open, setOpen } = useBetSlip();
   const [stakes, setStakes] = useState<Record<string, number>>({});
   const [copied, setCopied] = useState(false);
   const [target, setTarget] = useState<string | null>(null);
+  const [openMsg, setOpenMsg] = useState<Record<string, string>>({});
+  const [linking, setLinking] = useState<string | null>(null);
+  const qc = useQueryClient();
+  const hasKey = qc.getQueryData<{ has_odds_key: boolean }>(["meta"])?.has_odds_key ?? false;
   // line shopping data: every book's quote for each leg's exact line (shares the drawer's query cache)
   const keys = [...new Map(legs.map((l) => [`${l.playerId}|${l.kind}`, l])).values()];
   const ladders = useQueries({
@@ -33,9 +37,41 @@ export default function BetSlip() {
     try { await navigator.clipboard.writeText(slipText(legs)); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ }
   };
   const openAll = (book: string) => {
-    legs.filter((l) => l.book === book).forEach((l) => { const u = legLink(l, state); if (u) window.open(u, "_blank", "noopener"); });
+    const ls = legs.filter((l) => l.book === book);
+    const direct = ls.filter((l) => linkStatus(l, state) === "direct");
+    const skipped = ls.length - direct.length;
+    const blocked = direct.filter((l) => {
+      const u = legLink(l, state);
+      return !u || !window.open(u, "_blank", "noopener");
+    }).length;
+    const parts: string[] = [];
+    if (skipped) parts.push(`${skipped} ${skipped === 1 ? "leg has" : "legs have"} no betslip link yet (see "Get links" above), so ${skipped === 1 ? "it was" : "they were"} not opened.`);
+    if (blocked) parts.push(`Your browser blocked ${blocked} ${blocked === 1 ? "tab" : "tabs"}: allow pop-ups for this site, or use each leg's own button.`);
+    setOpenMsg({ ...openMsg, [book]: parts.join(" ") });
   };
 
+  // legs with no betslip link at all (links only come with a game's alternate-lines fetch); one fetch per game covers them
+  const missing = legs.filter((l) => linkStatus(l, state) === "missing");
+  const missingGames = [...new Map(missing.map((l) => [l.gameId, l])).values()];
+  const getLinks = async () => {
+    const credits = missingGames.length * 2;
+    if (!window.confirm(`Fetch betslip links for ${missingGames.length} ${missingGames.length === 1 ? "game" : "games"}?\n\nUses about ${credits}+ Odds API credits.`)) return;
+    setLinking("Fetching links…");
+    try {
+      for (const l of missingGames) await api.fetchAlt(l.playerId);
+      await qc.invalidateQueries({ queryKey: ["ladder"] });
+      setLinking(null);
+    } catch (e) { setLinking(`Couldn't fetch links: ${(e as Error).message}`); }
+  };
+  // once fresh quotes arrive, attach their links to legs that had none (same book, line and side)
+  useEffect(() => {
+    legs.forEach((l) => {
+      if (l.link) return;
+      const o = bookOptions(ladderFor(l), l).find((x) => x.book === l.book);
+      if (o?.link) replace(l.id, rebook(l, o));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ladders.map((q) => q.dataUpdatedAt).join(",")]);
   return (
     <>
       <button className="slip-fab" onClick={() => setOpen(true)} aria-label={`Open betslip, ${legs.length} selections`}>
@@ -63,6 +99,18 @@ export default function BetSlip() {
                   ))}
                 </select>
               </label>
+            )}
+
+            {missing.length > 0 && (
+              <section className="suggest">
+                <b>{missing.length} {missing.length === 1 ? "leg has" : "legs have"} no betslip link yet.</b>
+                <p className="mut">Without one, "Open all" can't add {missing.length === 1 ? "it" : "them"} to the sportsbook slip.</p>
+                <button className="primary" disabled={!hasKey || linking === "Fetching links…"} onClick={getLinks}>
+                  {linking === "Fetching links…" ? "Fetching…" : `Get links (~${missingGames.length * 2} credits)`}
+                </button>
+                {!hasKey && <span className="mut"> Needs ODDS_API_KEY</span>}
+                {linking && linking !== "Fetching links…" && <p className="err">{linking}</p>}
+              </section>
             )}
 
             {target && stranded.length > 0 && (
@@ -105,8 +153,10 @@ export default function BetSlip() {
                     <b>{book}</b><span className="mut">{ls.length} {ls.length === 1 ? "selection" : "selections"}</span>
                     <button className="link" onClick={() => openAll(book)}>Open all ↗</button>
                   </div>
+                  {openMsg[book] && <p className="warn open-msg">{openMsg[book]}</p>}
                   {ls.map((l) => {
                     const url = legLink(l, state);
+                    const direct = linkStatus(l, state) === "direct";
                     return (
                       <div className="slip-leg" key={l.id}>
                         <div>
@@ -128,8 +178,8 @@ export default function BetSlip() {
                         </div>
                         <div className="slip-actions">
                           {url && <a href={url} target="_blank" rel="noopener noreferrer" className="btn"
-                            title={isDirectLink(l, state) ? "Adds this selection to your betslip at the sportsbook" : "Opens the sportsbook (no direct link available)"}>
-                            {isDirectLink(l, state) ? "Add at book ↗" : "Open book ↗"}
+                            title={direct ? "Adds this selection to your betslip at the sportsbook" : "Opens the sportsbook's page (no betslip link for this selection yet)"}>
+                            {direct ? "Add at book ↗" : "Open book ↗"}
                           </a>}
                           <button className="link" onClick={() => remove(l.id)}>Remove</button>
                         </div>

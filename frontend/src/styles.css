@@ -97,3 +97,4 @@ button.primary:disabled { opacity: .55; cursor: default; }
 .suggest-leg { padding: 8px 0; border-top: 1px solid var(--line); } .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .chip-btn { background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; font: inherit; font-size: 12px; cursor: pointer; }
 .chip-btn:hover { border-color: var(--acc); }
+.open-msg { padding-top: 8px; }

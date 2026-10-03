@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Leg } from "./slip";
-import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipText, toAmerican, toDecimal, toWin } from "./slip";
+import { linkStatus, alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipText, toAmerican, toDecimal, toWin } from "./slip";
 
 const leg = (o: Partial<Leg> = {}): Leg => ({
   id: "x", playerId: "p1", name: "Test Back", team: "AAA", opp: "BBB", home: true, kind: "rush", side: "Over", line: 60.5,
@@ -97,5 +97,15 @@ describe("rebooking", () => {
   it("counts how many legs each book can take", () => {
     const cov = bookCoverage({ a: [{ book: "X" }, { book: "Y" }] as any, b: [{ book: "X" }] as any });
     expect(cov).toEqual([{ book: "X", count: 2 }, { book: "Y", count: 1 }]);
+  });
+});
+
+describe("link status", () => {
+  it("classifies links by whether they can add the leg to the slip", () => {
+    expect(linkStatus({ link: "https://fd/addToBetslip?x=1" }, "")).toBe("direct");
+    expect(linkStatus({ link: null }, "pa")).toBe("missing");
+    expect(linkStatus({ link: "https://sports.{state}.betmgm.com/a" }, "")).toBe("needs-state");
+    expect(linkStatus({ link: "https://sports.{state}.betmgm.com/a" }, "NJ")).toBe("direct");
+    expect(linkStatus({ link: "https://x/?c={pickType}|1" }, "pa")).toBe("missing");
   });
 });
