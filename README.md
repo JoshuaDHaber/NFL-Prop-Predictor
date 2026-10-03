@@ -92,33 +92,19 @@ MAE is mean absolute error in yards; bias is the mean of (actual - projection). 
 
 ## Running it
 
-Requires Python 3.9+ and Node 20+.
+Requires Python 3.9+ and Node 20+. Everything goes through one script:
 
 ```bash
-# backend
-cd backend
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp ../.env.example .env            # optional: add ODDS_API_KEY
-.venv/bin/python -m app.cli --odds none   # compute projections (about a minute the first time)
-.venv/bin/uvicorn app.main:app --port 8000
-
-# frontend (second terminal)
-cd frontend
-npm install
-npm run dev                         # http://localhost:5173, proxies /api to :8000
+./run.sh setup      # venv + npm install; creates backend/.env (add ODDS_API_KEY there, optional)
+./run.sh refresh    # compute this week's projections (about a minute the first time)
+./run.sh start      # app at http://localhost:8000 (API + built UI)
 ```
 
-Or build once and let the API serve the UI at http://localhost:8000:
-
-```bash
-cd frontend && npm install && npm run build
-```
-
-`make api`, `make web`, `make build`, `make test` and `make refresh` wrap these.
+Other commands: `./run.sh dev` (API with auto-reload plus the Vite dev server on :5173), `./run.sh build`, `./run.sh test`, and `./run.sh refresh --odds none --exclude "Player Name"`. Run `./run.sh help` for the list.
 
 **Odds:** get a free key at [the-odds-api.com](https://the-odds-api.com) (about 500 credits a month; all four markets for a full slate cost roughly 60) and put it in `backend/.env`. Without a key the app still shows projections. In the UI, *Refresh data* fetches only markets that have no stored lines; *Re-fetch all odds* is the explicit paid action.
 
-**Tests and CI:** `make test` runs the backend suite (pytest: model math, pricing logic, API behavior) and the frontend typecheck and tests. GitHub Actions runs the same on every push.
+**Tests and CI:** `./run.sh test` runs the backend suite (pytest: model math, pricing logic, API behavior) and the frontend typecheck and tests. GitHub Actions runs the same on every push.
 
 **Docker** (untested so far): `docker build -t nfl-props . && docker run -p 8000:8000 -v nfl-data:/srv/backend/data nfl-props`. Set `DATABASE_URL` to a Postgres URL (and add a driver such as `psycopg`) when deploying beyond one instance.
 
