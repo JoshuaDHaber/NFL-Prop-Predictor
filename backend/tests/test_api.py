@@ -141,3 +141,21 @@ def test_other_devices_are_read_only(monkeypatch):
         assert phone.get("/api/meta").status_code == 200
         assert phone.post("/api/players/p0/alt-lines").status_code == 403
         assert phone.post("/api/refresh", json={"odds": "none"}).status_code == 403
+
+
+def test_tailscale_address_is_recognised_in_ifconfig_output():
+    sample = """lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384
+\tinet 127.0.0.1 netmask 0xff000000
+en0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+\tinet 192.168.1.194 netmask 0xffffff00 broadcast 192.168.1.255
+utun4: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 1280
+\tinet 100.101.102.103 --> 100.101.102.103 netmask 0xffffffff
+"""
+    assert main.tailscale_ip(sample) == "100.101.102.103"
+    assert main.tailscale_ip("inet 100.20.1.1 netmask 0xff") is None  # outside 100.64.0.0/10
+    assert main.tailscale_ip("inet 192.168.1.5 netmask 0xff") is None
+
+
+def test_app_url_override_wins_for_sharing(client, monkeypatch):
+    monkeypatch.setenv("APP_URL", "http://my-mac.tail1234.ts.net:8000/")
+    assert client.get("/api/meta").json()["lan_url"] == "http://my-mac.tail1234.ts.net:8000"

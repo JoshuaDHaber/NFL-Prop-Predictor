@@ -30,9 +30,12 @@ case "${1:-help}" in
     [ -d "$ROOT/frontend/dist" ] || { echo "No UI build found; building..."; need_node; npmf run build; }
     echo "Open http://localhost:$PORT"
     cd "$ROOT/backend" && exec .venv/bin/uvicorn app.main:app --host "$HOST" --port "$PORT" ;;
-  lan)      # same as start, but reachable from your phone on the same Wi-Fi (read-only from other devices)
+  lan)      # same as start, but reachable from your phone (read-only from other devices)
+    ts="$(ifconfig 2>/dev/null | awk '/inet 100\./{split($2,a,"."); if (a[2]>=64 && a[2]<=127) {print $2; exit}}')"
     ip="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
-    echo "On your phone (same Wi-Fi) open http://${ip:-<your-mac-ip>}:$PORT"
+    [ -n "$ts" ] && echo "Tailscale (any network, your devices only): http://$ts:$PORT"
+    echo "Same Wi-Fi:                                 http://${ip:-<your-mac-ip>}:$PORT"
+    [ -z "$ts" ] && echo "Tip: install Tailscale (see README) to reach this from anywhere."
     echo "Other devices can read the app but cannot refresh data or spend API credits."
     HOST=0.0.0.0 exec "$0" start ;;
   dev)      # API (auto-reload) on :8000 and Vite on :5173 together

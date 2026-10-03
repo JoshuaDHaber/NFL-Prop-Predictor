@@ -8,7 +8,9 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+import re
 import socket
+import subprocess
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,8 +50,23 @@ async def local_writes_only(request: Request, call_next):
     return await call_next(request)
 
 
+def tailscale_ip(ifconfig_text: str) -> Optional[str]:
+    """A Tailscale address (100.64.0.0/10) from `ifconfig` output, if this machine is on a tailnet."""
+    for m in re.finditer(r"inet (100\.(\d+)\.\d+\.\d+)\b", ifconfig_text):
+        if 64 <= int(m.group(2)) <= 127:
+            return m.group(1)
+    return None
+
+
 def lan_ip() -> Optional[str]:
-    """This machine's address on the local network (a UDP 'connect' sends no packets)."""
+    """The address other devices should use to reach this machine: Tailscale if present (works from
+    anywhere), else the local-network address (a UDP 'connect' sends no packets)."""
+    try:
+        ts = tailscale_ip(subprocess.run(["ifconfig"], capture_output=True, text=True, timeout=3).stdout)
+        if ts:
+            return ts
+    except (OSError, subprocess.SubprocessError):
+        pass
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.connect(("10.255.255.255", 1))
@@ -149,6 +166,8 @@ def meta(request: Request, db: Session = Depends(get_db)):
 
 
 def _lan_url(request: Request) -> Optional[str]:
+    if os.environ.get("APP_URL"):  # e.g. a Tailscale MagicDNS name: http://my-mac.tailnet-name.ts.net:8000
+        return os.environ["APP_URL"].rstrip("/")
     ip = lan_ip()
     port = request.url.port or (443 if request.url.scheme == "https" else 80)
     return f"{request.url.scheme}://{ip}:{port}" if ip else None
