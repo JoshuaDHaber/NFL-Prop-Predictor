@@ -6,7 +6,7 @@ import pandas as pd
 import requests
 
 BASE = "https://github.com/nflverse/nflverse-data/releases/download"
-CACHE = os.path.join(os.path.dirname(__file__), ".cache")
+CACHE = os.environ.get("NFLPROPS_CACHE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".cache")
 os.makedirs(CACHE, exist_ok=True)
 
 
