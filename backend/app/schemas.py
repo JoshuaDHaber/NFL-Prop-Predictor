@@ -49,6 +49,7 @@ class Meta(BaseModel):
     job: JobStatus
     lan_url: Optional[str] = None
     books: list[str] = []
+    snapshot_at: Optional[str] = None  # set only in the static demo export
 
 
 class ProjectionOut(BaseModel):

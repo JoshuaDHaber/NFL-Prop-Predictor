@@ -14,14 +14,16 @@ def price_quote(mu: float, sd: float, line: float, side: str, american: float):
     return p, p * (dec - 1) - (1 - p)
 
 
-def build_ladder(mu: float, sd: float, quotes: pd.DataFrame) -> list[dict]:
-    """quotes columns: line, book, alt, over_odds, under_odds, over_link, under_link, event_link."""
+def build_ladder(mu: float, sd: float, quotes: pd.DataFrame, max_abs_odds: float = 0) -> list[dict]:
+    """quotes columns: line, book, alt, over_odds, under_odds, over_link, under_link, event_link.
+
+    max_abs_odds > 0 hides prices outside -max..+max (American), e.g. 300 hides -400 locks and +900 longshots."""
     out = []
     for q in quotes.itertuples():
         row = dict(line=float(q.line), book=q.book, alt=bool(q.alt), event_link=_none(q.event_link), over=None, under=None)
         for side in ("over", "under"):
             odd = getattr(q, f"{side}_odds")
-            if pd.notna(odd):
+            if pd.notna(odd) and (not max_abs_odds or -max_abs_odds <= odd <= max_abs_odds):
                 p, ev = price_quote(mu, sd, q.line, side, odd)
                 row[side] = dict(odds=int(odd), prob=p, ev=ev, link=_none(getattr(q, f"{side}_link")))
         if row["over"] or row["under"]:

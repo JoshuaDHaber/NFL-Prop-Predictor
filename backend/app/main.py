@@ -8,7 +8,9 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+import re
 import socket
+import subprocess
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,8 +50,23 @@ async def local_writes_only(request: Request, call_next):
     return await call_next(request)
 
 
+def tailscale_ip(ifconfig_text: str) -> Optional[str]:
+    """A Tailscale address (100.64.0.0/10) from `ifconfig` output, if this machine is on a tailnet."""
+    for m in re.finditer(r"inet (100\.(\d+)\.\d+\.\d+)\b", ifconfig_text):
+        if 64 <= int(m.group(2)) <= 127:
+            return m.group(1)
+    return None
+
+
 def lan_ip() -> Optional[str]:
-    """This machine's address on the local network (a UDP 'connect' sends no packets)."""
+    """The address other devices should use to reach this machine: Tailscale if present (works from
+    anywhere), else the local-network address (a UDP 'connect' sends no packets)."""
+    try:
+        ts = tailscale_ip(subprocess.run(["ifconfig"], capture_output=True, text=True, timeout=3).stdout)
+        if ts:
+            return ts
+    except (OSError, subprocess.SubprocessError):
+        pass
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.connect(("10.255.255.255", 1))
@@ -132,6 +149,10 @@ def _run_job(odds_mode: str):
 # ---------- routes ----------
 @app.get("/api/meta", response_model=Meta)
 def meta(request: Request, db: Session = Depends(get_db)):
+    return build_meta(db, _lan_url(request))
+
+
+def build_meta(db: Session, lan_url: Optional[str] = None) -> Meta:
     run = latest_run(db)
     games, backtest = [], {}
     if run:
@@ -140,15 +161,16 @@ def meta(request: Request, db: Session = Depends(get_db)):
         games = [Game(game_id=g, label=game_label(g), gameday=d, gametime=t)
                  for g, d, t in sorted(rows, key=lambda r: (r[1], r[2], r[0]))]
         backtest = run.backtest
-    odds_info = _odds_info(db)
     return Meta(run=None if not run else RunInfo(id=run.id, season=run.season, week=run.week,
                                                   created_at=run.created_at.isoformat(), excluded=run.excluded),
-                backtest=backtest, odds=odds_info, games=games, has_odds_key=bool(config.ODDS_API_KEY()),
-                job=JobStatus(**_job), lan_url=_lan_url(request),
+                backtest=backtest, odds=_odds_info(db), games=games, has_odds_key=bool(config.ODDS_API_KEY()),
+                job=JobStatus(**_job), lan_url=lan_url,
                 books=sorted(b for (b,) in db.execute(select(OddsLine.book).distinct()).all()))
 
 
 def _lan_url(request: Request) -> Optional[str]:
+    if os.environ.get("APP_URL"):  # e.g. a Tailscale MagicDNS name: http://my-mac.tailnet-name.ts.net:8000
+        return os.environ["APP_URL"].rstrip("/")
     ip = lan_ip()
     port = request.url.port or (443 if request.url.scheme == "https" else 80)
     return f"{request.url.scheme}://{ip}:{port}" if ip else None
@@ -202,10 +224,16 @@ def picks(kind: Optional[Kind] = None, game_id: Optional[str] = None, q: Optiona
 
 @app.get("/api/players/{player_id}", response_model=PlayerDetail)
 def player(player_id: str, market_weight: float = Query(0.35, ge=0, le=1), db: Session = Depends(get_db)):
-    run = latest_run(db)
+    detail = build_player_detail(db, latest_run(db), player_id, market_weight)
+    if not detail:
+        raise HTTPException(404, "Player has no projection in the current run")
+    return detail
+
+
+def build_player_detail(db: Session, run: Optional[Run], player_id: str, market_weight: float = 0.35) -> Optional[PlayerDetail]:
     rows = db.scalars(select(Projection).where(Projection.run_id == run.id, Projection.player_id == player_id)).all() if run else []
     if not rows:
-        raise HTTPException(404, "Player has no projection in the current run")
+        return None
     p = rows[0]
     df = all_picks(db, run, market_weight)
     pp = df[df.player_id == player_id] if not df.empty else df
@@ -224,10 +252,14 @@ def _player_proj(db: Session, player_id: str, kind: str):
 
 
 @app.get("/api/players/{player_id}/lines", response_model=LadderOut)
-def player_lines(player_id: str, kind: Kind, db: Session = Depends(get_db)):
-    """Every posted quote (main and alternate lines, all books) for one player/market, priced by the model."""
-    p = _player_proj(db, player_id, kind)
-    key = odds.norm(p.name)
+def player_lines(player_id: str, kind: Kind, odds_range: int = Query(300, ge=0, le=100000), db: Session = Depends(get_db)):
+    """Every posted quote (main and alternate lines, all books) for one player/market, priced by the model.
+    Prices outside -odds_range..+odds_range are hidden (default 300; 0 shows everything)."""
+    return build_ladder_out(db, _player_proj(db, player_id, kind), odds_range)
+
+
+def build_ladder_out(db: Session, p: Projection, odds_range: int = 0) -> LadderOut:
+    key, kind = odds.norm(p.name), p.kind
     main = current_lines(db)
     main = main[(main.market == kind) & (main.player.map(odds.norm) == key)].assign(alt=False)
     alts = db.scalars(select(AltLine).where(AltLine.game_id == p.game_id, AltLine.market == kind)).all()
@@ -238,7 +270,7 @@ def player_lines(player_id: str, kind: Kind, db: Session = Depends(get_db)):
     quotes = pd.concat([f for f in (main, alt_df) if not f.empty] or [main], ignore_index=True)
     fetched = max((r.fetched_at for r in alts), default=None)
     return LadderOut(kind=kind, mu=p.mu, sd=p.sd, game_id=p.game_id, alt_fetched_at=fetched.isoformat() if fetched else None,
-                     quotes=build_ladder(p.mu, p.sd, quotes))
+                     quotes=build_ladder(p.mu, p.sd, quotes, odds_range))
 
 
 @app.post("/api/players/{player_id}/alt-lines", response_model=AltFetchResult)

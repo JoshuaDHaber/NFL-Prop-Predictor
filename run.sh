@@ -25,14 +25,20 @@ case "${1:-help}" in
   refresh)  # compute projections (extra args pass through, e.g. --odds none --exclude "Name")
     need_venv; shift; py -m app.cli "$@" ;;
   build)    need_node; npmf run build ;;
+  export)   # snapshot the current data as static JSON for the GitHub Pages demo
+    need_venv; py -m app.export_static
+    echo "Snapshot written to frontend/public/demo. Commit it and push to main to publish." ;;
   start)    # API + built UI at http://localhost:$PORT
     need_venv
     [ -d "$ROOT/frontend/dist" ] || { echo "No UI build found; building..."; need_node; npmf run build; }
     echo "Open http://localhost:$PORT"
     cd "$ROOT/backend" && exec .venv/bin/uvicorn app.main:app --host "$HOST" --port "$PORT" ;;
-  lan)      # same as start, but reachable from your phone on the same Wi-Fi (read-only from other devices)
+  lan)      # same as start, but reachable from your phone (read-only from other devices)
+    ts="$(ifconfig 2>/dev/null | awk '/inet 100\./{split($2,a,"."); if (a[2]>=64 && a[2]<=127) {print $2; exit}}')"
     ip="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
-    echo "On your phone (same Wi-Fi) open http://${ip:-<your-mac-ip>}:$PORT"
+    [ -n "$ts" ] && echo "Tailscale (any network, your devices only): http://$ts:$PORT"
+    echo "Same Wi-Fi:                                 http://${ip:-<your-mac-ip>}:$PORT"
+    [ -z "$ts" ] && echo "Tip: install Tailscale (see README) to reach this from anywhere."
     echo "Other devices can read the app but cannot refresh data or spend API credits."
     HOST=0.0.0.0 exec "$0" start ;;
   dev)      # API (auto-reload) on :8000 and Vite on :5173 together
@@ -50,6 +56,7 @@ Usage: ./run.sh <command>
   setup     Install backend (venv) and frontend (npm) dependencies
   refresh   Compute this week's projections   [--odds none|missing|all] [--exclude "Name" ...]
   build     Build the React app
+  export    Save the current data as a static snapshot for the GitHub Pages demo
   start     Run the app at http://localhost:8000 (builds the UI if needed)
   lan       Same, but reachable from your phone on the same Wi-Fi (read-only there)
   dev       Run API + Vite dev server with live reload (UI on :5173)

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, type Kind } from "../api";
 import { KIND_LABEL, KIND_SHORT, matchup } from "../format";
-import LineLadder from "./LineLadder";
+import LineLadder, { ODDS_RANGE } from "./LineLadder";
 
 interface Props { playerId: string; initialKind: Kind; marketWeight: number; book: string; onBookChange: (b: string) => void; onClose: () => void }
 
@@ -23,7 +23,7 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
 
   const logs = data?.logs[kind] ?? [];
   // main-line markers on the chart come from the same ladder the table shows, so they follow the sportsbook filter
-  const ladder = useQuery({ queryKey: ["ladder", playerId, kind], queryFn: () => api.lines(playerId, kind) });
+  const ladder = useQuery({ queryKey: ["ladder", playerId, kind, ODDS_RANGE], queryFn: () => api.lines(playerId, kind, ODDS_RANGE) });
   const lines = [...new Set((ladder.data?.quotes ?? []).filter((q) => !q.alt && (book === "all" || q.book === book)).map((q) => q.line))];
 
   return (

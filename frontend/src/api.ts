@@ -1,3 +1,5 @@
+import { BASE, IS_STATIC } from "./env";
+
 export type Kind = "rush" | "rec" | "pass" | "rr";
 
 export interface BacktestStat { n: number; mae_model: number; mae_naive: number; bias: number }
@@ -15,6 +17,7 @@ export interface Meta {
   job: JobStatus;
   lan_url: string | null;
   books: string[];
+  snapshot_at?: string | null;
 }
 export interface Projection {
   player_id: string; name: string; pos: string; team: string; opp: string; home: boolean; kind: Kind;
@@ -49,14 +52,15 @@ async function get<T>(path: string, params: Record<string, string | number | boo
 
 export interface Filters { kind: Kind | "all"; game: string; book: string; q: string; minEv: number; marketWeight: number; flagged: boolean }
 
-export const api = {
+const liveApi = {
   meta: () => get<Meta>("meta"),
   picks: (f: Filters) =>
     get<Pick[]>("picks", { kind: f.kind, game_id: f.game, book: f.book, q: f.q, min_ev: f.minEv, market_weight: f.marketWeight,
       include_flagged: f.flagged, limit: 300 }),
   projections: (f: Filters) => get<Projection[]>("projections", { kind: f.kind, game_id: f.game, q: f.q }),
   player: (id: string, marketWeight: number) => get<PlayerDetail>(`players/${id}`, { market_weight: marketWeight }),
-  lines: (id: string, kind: Kind) => get<Ladder>(`players/${id}/lines`, { kind }),
+  /** oddsRange hides prices outside -N..+N (American); 0 shows everything. */
+  lines: (id: string, kind: Kind, oddsRange = 300) => get<Ladder>(`players/${id}/lines`, { kind, odds_range: oddsRange }),
   fetchAlt: async (id: string): Promise<AltFetchResult> => {
     const res = await fetch(`/api/players/${id}/alt-lines`, { method: "POST" });
     if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail);
@@ -70,3 +74,48 @@ export const api = {
   },
   status: () => get<JobStatus>("refresh/status"),
 };
+
+
+// ---------- static demo: the same functions, backed by exported JSON ----------
+const slug = (book: string) => book.replace(/[^A-Za-z0-9]+/g, "_");
+async function file<T>(path: string): Promise<T> {
+  const res = await fetch(`${BASE}demo/${path}`);
+  if (!res.ok) throw new Error(`${res.status} ${path}`);
+  return res.json();
+}
+const unavailable = () => { throw new Error("Not available in the demo snapshot"); };
+
+/** Mirrors the server's odds-range rule: hide a side priced beyond -N..+N, drop rows left with neither. */
+export function limitOdds(quotes: LadderRow[], range: number): LadderRow[] {
+  if (!range) return quotes;
+  const ok = (q: QuoteSide | null) => (q && q.odds >= -range && q.odds <= range ? q : null);
+  return quotes.map((r) => ({ ...r, over: ok(r.over), under: ok(r.under) })).filter((r) => r.over || r.under);
+}
+
+const staticApi: typeof liveApi = {
+  meta: () => file<Meta>("meta.json"),
+  picks: async (f) => {
+    const all = await file<Pick[]>(`picks/${f.book === "all" ? "all" : slug(f.book)}.json`);
+    const q = f.q.toLowerCase();
+    return all
+      .filter((p) => p.ev >= f.minEv && (f.flagged || !p.flagged) && (f.kind === "all" || p.kind === f.kind)
+        && (f.game === "all" || p.game_id === f.game) && (!q || p.name.toLowerCase().includes(q)))
+      .sort((a, b) => b.ev - a.ev)
+      .slice(0, 300);
+  },
+  projections: async (f) => {
+    const q = f.q.toLowerCase();
+    return (await file<Projection[]>("projections.json")).filter((p) => (f.kind === "all" || p.kind === f.kind)
+      && (f.game === "all" || p.game_id === f.game) && (!q || p.name.toLowerCase().includes(q)));
+  },
+  player: (id) => file<PlayerDetail>(`players/${id}.json`),
+  lines: async (id, kind, range = 300) => {
+    const l = await file<Ladder>(`ladders/${id}_${kind}.json`);
+    return { ...l, quotes: limitOdds(l.quotes, range) };
+  },
+  fetchAlt: async () => unavailable(),
+  refresh: async () => unavailable(),
+  status: async () => ({ state: "idle", started_at: null, finished_at: null, log: [], error: null }),
+};
+
+export const api = IS_STATIC ? staticApi : liveApi;

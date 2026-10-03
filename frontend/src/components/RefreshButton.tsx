@@ -28,7 +28,7 @@ export default function RefreshButton({ meta }: { meta: Meta }) {
     <div className="refresh">
       <div className="split">
         <button className="primary" disabled={running} onClick={() => go("missing")}
-          title="Recompute projections; fetch odds only for markets with none stored">
+          title="Recompute projections; fetch odds (including alternate lines) only for what is not stored yet">
           {running ? "Refreshing…" : "Refresh data"}
         </button>
         <button className="primary caret" disabled={running} onClick={() => setOpen(!open)} aria-label="Refresh options">▾</button>
@@ -36,9 +36,9 @@ export default function RefreshButton({ meta }: { meta: Meta }) {
       {open && (
         <div className="menu" role="menu">
           <button role="menuitem" onClick={() => go("none")}>Projections only <small>no API credits</small></button>
-          <button role="menuitem" onClick={() => go("missing")}>Projections + missing odds <small>default</small></button>
+          <button role="menuitem" onClick={() => go("missing")}>Projections + missing odds <small>default · incl. alt lines</small></button>
           <button role="menuitem" disabled={!meta.has_odds_key} onClick={() => go("all")}>
-            Re-fetch all odds <small>{meta.has_odds_key ? "~60 API credits" : "needs ODDS_API_KEY"}</small>
+            Re-fetch all odds <small>{meta.has_odds_key ? "~100+ API credits" : "needs ODDS_API_KEY"}</small>
           </button>
         </div>
       )}

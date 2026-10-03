@@ -7,6 +7,7 @@ import ModelCheck from "./components/ModelCheck";
 import PicksTable from "./components/PicksTable";
 import ProjectionsTable from "./components/ProjectionsTable";
 import RefreshButton from "./components/RefreshButton";
+import { IS_STATIC } from "./env";
 import { timeAgo } from "./format";
 import { useDebounced } from "./useDebounced";
 
@@ -41,11 +42,20 @@ export default function App() {
             {latestOdds && ` · odds ${timeAgo(latestOdds)}`}
           </div>
         </div>
-        <RefreshButton meta={m} />
+        {IS_STATIC ? <div className="demo-tag" title="This page reads a saved snapshot, not a live server">Demo snapshot</div> : <RefreshButton meta={m} />}
       </header>
 
-      {!m.run && <div className="banner">No projections yet. Click <b>Refresh data</b> to run the model (takes about a minute).</div>}
-      {m.run && !hasOdds && tab === "picks" && (
+      {IS_STATIC && (
+        <div className="banner">
+          <b>Static demo.</b> This is a frozen snapshot{m.snapshot_at ? ` from ${new Date(m.snapshot_at + "Z").toLocaleString()}` : ""}.
+          Projections come from this project's model; sportsbook lines are from <a href="https://the-odds-api.com">The Odds API</a> and
+          are out of date by now, as are the betslip links. Refreshing, loading new lines and the market-trust slider need the live app.
+          For information only, not betting advice.
+        </div>
+      )}
+
+      {!IS_STATIC && !m.run && <div className="banner">No projections yet. Click <b>Refresh data</b> to run the model (takes about a minute).</div>}
+      {!IS_STATIC && m.run && !hasOdds && tab === "picks" && (
         <div className="banner">No sportsbook lines are loaded, so there are no picks. Add an <code>ODDS_API_KEY</code> and refresh.</div>
       )}
 

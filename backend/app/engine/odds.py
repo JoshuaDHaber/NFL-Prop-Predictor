@@ -32,41 +32,6 @@ def norm(name):
     return " ".join(re.sub(r"[^a-z ]", " ", n).split())
 
 
-def fetch_odds_api(key, kinds=None, regions="us", books=None):
-    keys = [k for k, v in MARKETS.items() if kinds is None or v in kinds]
-    ev = requests.get(f"{API}/events", params={"apiKey": key}, timeout=30)
-    ev.raise_for_status()
-    rows = []
-    for e in ev.json():
-        params = dict(apiKey=key, regions=regions, markets=",".join(keys), oddsFormat="american", includeLinks="true")
-        if books:
-            params["bookmakers"] = books
-        r = requests.get(f"{API}/events/{e['id']}/odds", params=params, timeout=30)
-        if r.status_code != 200:
-            continue
-        for bk in r.json().get("bookmakers", []):
-            for m in bk["markets"]:
-                for o in m["outcomes"]:
-                    rows.append(dict(player=o["description"], market=MARKETS[m["key"]], alt=False, side=o["name"].lower(),
-                                     line=o["point"], odds=o["price"], book=bk["title"], link=o.get("link"),
-                                     event_link=bk.get("link")))
-    remaining = r.headers.get("x-requests-remaining") if ev.ok else None
-    print(f"Odds API credits remaining: {remaining}")
-    df = pd.DataFrame(rows)
-    out = _pair(df)
-    out["fetched_at"] = time.time()
-    return out
-
-
-def _pair(long):
-    """long rows (player, market, side, line, odds, book) -> one row per player/market/book/line."""
-    if long.empty:
-        return pd.DataFrame(columns=["player", "market", "line", "over_odds", "under_odds", "book"])
-    o = long[long.side == "over"].rename(columns={"odds": "over_odds"}).drop(columns="side")
-    u = long[long.side == "under"].rename(columns={"odds": "under_odds"}).drop(columns="side")
-    return o.merge(u, on=["player", "market", "line", "book"], how="outer")
-
-
 def load_csv(path):
     return pd.read_csv(path)
 
@@ -91,22 +56,25 @@ def implied(a):
     return 1 / american_to_dec(a)
 
 
-def find_event_id(key, away, home):
-    """Odds API event id for a game given nflverse team abbreviations (the /events call is free)."""
+def list_events(key):
+    """Upcoming events as {id, away, home} with nflverse team abbreviations (this call is free)."""
     r = requests.get(f"{API}/events", params={"apiKey": key}, timeout=30)
     r.raise_for_status()
-    for e in r.json():
-        if e["away_team"] == TEAM_NAMES.get(away) and e["home_team"] == TEAM_NAMES.get(home):
-            return e["id"]
-    return None
+    by_name = {v: k for k, v in TEAM_NAMES.items()}
+    return [dict(id=e["id"], away=by_name.get(e["away_team"]), home=by_name.get(e["home_team"])) for e in r.json()]
 
 
-def fetch_game_odds(key, event_id, kinds, regions="us"):
-    """Main + alternate yardage lines for one game, with bookmaker betslip links where offered.
+def find_event_id(key, away, home):
+    """Odds API event id for a game given nflverse team abbreviations."""
+    return next((e["id"] for e in list_events(key) if e["away"] == away and e["home"] == home), None)
 
-    Returns (long DataFrame, credits_remaining). Costs 2 credits per kind (main + alternate market).
+
+def fetch_game_odds(key, event_id, main_kinds, alt_kinds=(), regions="us"):
+    """Main and/or alternate yardage lines for one game, with bookmaker betslip links where offered.
+
+    Returns (long DataFrame, credits_remaining). Costs one credit per market requested.
     """
-    keys = [k for k, v in {**MARKETS, **ALT_MARKETS}.items() if v in kinds]
+    keys = [k for k, v in MARKETS.items() if v in main_kinds] + [k for k, v in ALT_MARKETS.items() if v in alt_kinds]
     r = requests.get(f"{API}/events/{event_id}/odds", timeout=30, params=dict(
         apiKey=key, regions=regions, markets=",".join(keys), oddsFormat="american", includeLinks="true"))
     r.raise_for_status()
