@@ -1,6 +1,7 @@
 import type { Pick } from "../api";
 import { KIND_LABEL, americanOdds, fmtEdge, fmtProj, kickoff, matchup, pct, playLabel, signedPct } from "../format";
 import { useSort } from "../useSort";
+import Avatar from "./Avatar";
 import Spark from "./Spark";
 
 export default function PicksTable({ picks, onSelect }: { picks: Pick[]; onSelect: (p: Pick) => void }) {
@@ -25,19 +26,24 @@ export default function PicksTable({ picks, onSelect }: { picks: Pick[]; onSelec
             <tr key={`${p.player_id}-${p.kind}-${p.side}`} onClick={() => onSelect(p)} className="clickable"
               tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onSelect(p)}>
               <td>
-                <b>{p.name}</b> <span className="mut">{p.pos} {p.team}</span>
-                {p.status && <span className="q"> {p.status}</span>}
-                {p.flagged && <span className="flag" title="Model and market disagree strongly">large gap</span>}
-                <br /><span className="mut">{matchup(p.opp, p.home)} · {kickoff(p.gameday, p.gametime)}</span>
+                <div className="pcell">
+                  <Avatar name={p.name} size={34} />
+                  <div>
+                    <b>{p.name}</b> <span className="pos-pill">{p.pos}</span> <span className="mut">{p.team}</span>
+                    {p.status && <span className="q"> {p.status}</span>}
+                    {p.flagged && <span className="flag" title="Model and market disagree strongly">large gap</span>}
+                    <br /><span className="mut">{matchup(p.opp, p.home)} · {kickoff(p.gameday, p.gametime)}</span>
+                  </div>
+                </div>
               </td>
               <td>{KIND_LABEL[p.kind]}</td>
-              <td className={`pick ${p.side === "Over" ? "over" : "under"}`}>
-                {playLabel(p.kind, p.side, p.line)}<br /><span className="mut">{americanOdds(p.odds)} · {p.book}</span>
+              <td>
+                <span className={`side-pill ${p.side === "Over" ? "over" : "under"}`}>{playLabel(p.kind, p.side, p.line)}</span><br /><span className="mut">{americanOdds(p.odds)} · {p.book}</span>
               </td>
               <td>{fmtProj(p.kind, p.mu)}{p.kind !== "td" && <><br /><span className="mut">±{p.sd.toFixed(0)}</span></>}</td>
               <td>{fmtEdge(p.kind, p.edge_yds)}</td>
-              <td>{pct(p.prob)}<br /><span className="mut">model {pct(p.p_model, 0)} · mkt {pct(p.p_mkt, 0)}</span></td>
-              <td className="pos">{signedPct(p.ev)}</td>
+              <td><b>{pct(p.prob)}</b><span className="meter" aria-hidden><i style={{ width: `${Math.min(100, p.prob * 100)}%` }} /></span><span className="mut">model {pct(p.p_model, 0)} · mkt {pct(p.p_mkt, 0)}</span></td>
+              <td><span className="ev-pill">{signedPct(p.ev)}</span></td>
               <td>{pct(p.kelly)}</td>
               <td><Spark values={p.last5} /></td>
             </tr>

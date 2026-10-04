@@ -1,8 +1,9 @@
 import type { Filters, Game, Kind } from "../api";
 import { IS_STATIC } from "../env";
-import { KIND_SHORT, pct, signedPct } from "../format";
+import { KIND_SHORT, kickoff, pct, signedPct } from "../format";
 
 const KINDS: (Kind | "all")[] = ["all", "rush", "rec", "pass", "rr", "td"];
+const ICON: Record<Kind | "all", string> = { all: "📊", rush: "🏃", rec: "🙌", pass: "🎯", rr: "⚡", td: "🏈" };
 
 interface Props {
   filters: Filters;
@@ -20,7 +21,7 @@ export default function Controls({ filters, onChange, games, books, showPickCont
         {KINDS.map((k) => (
           <button key={k} role="tab" aria-selected={filters.kind === k} className={filters.kind === k ? "on" : ""}
             onClick={() => set({ kind: k })}>
-            {k === "all" ? "All yardage" : KIND_SHORT[k]}
+            <span className="ico" aria-hidden>{ICON[k]}</span>{k === "all" ? "All yardage" : KIND_SHORT[k]}
           </button>
         ))}
       </div>
@@ -34,11 +35,18 @@ export default function Controls({ filters, onChange, games, books, showPickCont
           ))}
         </div>
       )}
+      <div className="games" role="tablist" aria-label="Game">
+        <button role="tab" aria-selected={filters.game === "all"} className={`game${filters.game === "all" ? " on" : ""}`} onClick={() => set({ game: "all" })}>
+          <b>All games</b><small>{games.length} this week</small>
+        </button>
+        {games.map((g) => (
+          <button key={g.game_id} role="tab" aria-selected={filters.game === g.game_id} className={`game${filters.game === g.game_id ? " on" : ""}`}
+            onClick={() => set({ game: g.game_id })}>
+            <b>{g.label}</b><small>{kickoff(g.gameday, g.gametime)}</small>
+          </button>
+        ))}
+      </div>
       <div className="row">
-        <select value={filters.game} onChange={(e) => set({ game: e.target.value })} aria-label="Game">
-          <option value="all">All games</option>
-          {games.map((g) => <option key={g.game_id} value={g.game_id}>{g.label}</option>)}
-        </select>
         {showPickControls && (
           <select value={filters.book} onChange={(e) => set({ book: e.target.value })} aria-label="Sportsbook">
             <option value="all">All sportsbooks</option>

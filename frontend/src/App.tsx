@@ -11,6 +11,7 @@ import { useWaking } from "./auth";
 import AdminButton from "./components/AdminButton";
 import { API_URL, IS_STATIC } from "./env";
 import { KIND_LABEL, americanOdds, fmtProj, matchup, playLabel, signedPct, timeAgo } from "./format";
+import ThemeToggle from "./components/ThemeToggle";
 import TopTiles, { type Tile } from "./components/TopTiles";
 import { useDebounced } from "./useDebounced";
 
@@ -64,6 +65,7 @@ export default function App() {
 
   return (
     <div className="wrap">
+      <ThemeToggle />
       <header>
         <div>
           <h1><span className="logo">🏈</span> NFL Prop <span className="grad">Predictor</span></h1>

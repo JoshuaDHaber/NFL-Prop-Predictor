@@ -1,6 +1,7 @@
 import type { Projection } from "../api";
 import { KIND_LABEL, fmtProj, matchup, signed } from "../format";
 import { useSort } from "../useSort";
+import Avatar from "./Avatar";
 import Spark from "./Spark";
 
 export default function ProjectionsTable({ rows, onSelect }: { rows: Projection[]; onSelect: (p: Projection) => void }) {
@@ -23,7 +24,12 @@ export default function ProjectionsTable({ rows, onSelect }: { rows: Projection[
           {sorted.map((p) => (
             <tr key={`${p.player_id}-${p.kind}`} className="clickable" onClick={() => onSelect(p)} tabIndex={0}
               onKeyDown={(e) => e.key === "Enter" && onSelect(p)}>
-              <td><b>{p.name}</b> <span className="mut">{p.pos} {p.team}</span>{p.status && <span className="q"> {p.status}</span>}</td>
+              <td>
+                <div className="pcell">
+                  <Avatar name={p.name} size={34} />
+                  <div><b>{p.name}</b> <span className="pos-pill">{p.pos}</span> <span className="mut">{p.team}</span>{p.status && <span className="q"> {p.status}</span>}</div>
+                </div>
+              </td>
               <td>{KIND_LABEL[p.kind]}</td>
               <td>{matchup(p.opp, p.home)}</td>
               <td><b>{fmtProj(p.kind, p.mu)}</b></td>
