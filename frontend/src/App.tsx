@@ -94,7 +94,7 @@ export default function App() {
 
       <footer>
         Yards = volume × efficiency, recency-weighted and shrunk to position means, adjusted for opponent and game
-        script. Win probabilities come from a gamma distribution fit on a walk-forward backtest, blended with the
+        script. Win probabilities come from the backtest's own error distribution, blended with the
         market's no-vig price. Large edges usually mean the model is missing context. Not betting advice.
       </footer>
 

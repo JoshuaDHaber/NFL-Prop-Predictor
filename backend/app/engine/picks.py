@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 from . import odds
-from .model import prob_over_under
+from .model import prob_over_under, prob_over_under_dist
 from .td import TD_ASSUMED_HOLD, TD_MIN_MARKET_WEIGHT  # noqa: F401  (re-exported for callers and tests)
 
 
@@ -14,9 +14,11 @@ PICK_COLUMNS = [
 ]
 
 
-def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 0.35, only_book: str = None) -> pd.DataFrame:
+def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 0.35, only_book: str = None,
+                dists: dict = None) -> pd.DataFrame:
     """All priced Over/Under candidates (flagged = model and market disagree by >40-67%: usually a model blind spot).
-    only_book keeps just that sportsbook's quotes in the output; the market consensus still uses every book., best book per player/market/side, sorted by EV (no EV filter)."""
+    only_book keeps just that sportsbook's quotes in the output; the market consensus still uses every book.
+    dists: per-kind error tables from the backtest (model.fit_dist); without one, the older gamma curve is used., best book per player/market/side, sorted by EV (no EV filter)."""
     if proj.empty or lines.empty:
         return pd.DataFrame(columns=PICK_COLUMNS)
     lines = lines.copy()
@@ -43,11 +45,17 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
             continue
         var = p.sd ** 2
         is_td = r.market == "td"
-        po, pu = (p.mu, 1 - p.mu) if is_td else prob_over_under(p.mu, r.line, var)  # TD: mu already is P(>=1 TD)
+        if is_td:
+            po, pu = p.mu, 1 - p.mu  # mu already is P(>=1 TD)
+        elif dists and r.market in dists:
+            po, pu = prob_over_under_dist(p.mu, r.line, dists[r.market])
+        else:
+            po, pu = prob_over_under(p.mu, r.line, var)
         mk_over = c.nv_o
         if not is_td and pd.notna(mk_over) and abs(c.line - r.line) > 1e-9:
             # shift the consensus probability to this book's line using the model's own slope
-            po_c, _ = prob_over_under(p.mu, c.line, var)
+            po_c = (prob_over_under_dist(p.mu, c.line, dists[r.market]) if dists and r.market in dists
+                    else prob_over_under(p.mu, c.line, var))[0]
             mk_over = float(np.clip(c.nv_o + (po - po_c), 0.02, 0.98))
         for side, odd, p_side, mk in (("Over", r.over_odds, po, mk_over), ("Under", r.under_odds, pu, 1 - mk_over)):
             if pd.isna(odd):

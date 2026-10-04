@@ -33,11 +33,11 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
     bt = model.walk_forward(stats, priors, played, start_t=(season - 1) * 100 + 6, td_priors=td_pri)
     bt = bt[bt.t < week_t]
     bt_td, bt = bt[bt.kind == "td"], bt[bt.kind != "td"]
-    bt_sum, var_params = model.backtest_summary(bt), model.fit_variance(bt)
+    bt_sum, var_params = model.backtest_summary(bt), model.fit_dist(bt)
     lam = -np.log1p(-np.clip(bt_td.mu.to_numpy(), 0, 1 - 1e-9))
     td_scale = tdm.fit_scale(lam, bt_td.actual.to_numpy()) if len(bt_td) else 1.0
     bt_sum["td"] = tdm.summary(bt_td, td_scale)
-    var_params["td"] = (td_scale, 0.0)  # (scale on expected TDs, unused)
+    var_params["td"] = [td_scale, 0.0]  # anytime TD: (scale on expected TDs, unused); yardage kinds hold their error tables
 
     log("Projecting upcoming games...")
     proj = model.upcoming_projections(stats, sched, priors, var_params, week_t, data.load_roster(season),
@@ -58,7 +58,7 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
     proj = proj[~proj.status.isin(drop)]
 
     with SessionLocal() as s:
-        run = Run(season=season, week=week, backtest=bt_sum, variance={k: list(v) for k, v in var_params.items()},
+        run = Run(season=season, week=week, backtest=bt_sum, variance=var_params,
                   excluded=excluded)
         run.projections = [
             Projection(player_id=r.player_id, name=r.name, pos=r.pos, team=r.team, opp=r.opp, home=bool(r.home),

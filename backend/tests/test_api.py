@@ -236,3 +236,11 @@ def test_picks_can_be_limited_to_overs_or_unders(client):
     assert overs and unders and {p["side"] for p in overs} == {"Over"} and {p["side"] for p in unders} == {"Under"}
     assert len(overs) + len(unders) == len(both)
     assert client.get("/api/picks", params={"side": "Sideways"}).status_code == 422
+
+
+def test_old_runs_with_only_gamma_parameters_still_price(client):
+    from app.db import Run
+    run = Run(season=2026, week=4, backtest={}, variance={"rush": [1.0, 0.1]}, excluded=[])
+    assert main._dists(run) == {}  # legacy [a, b] lists are ignored, so pricing falls back to the gamma curve
+    run.variance = {"rush": dict(mu=[1.0], sd=[1.0], z=[0.0]), "td": [1.0, 0.0]}
+    assert list(main._dists(run)) == ["rush"]

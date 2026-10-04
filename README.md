@@ -82,7 +82,7 @@ The backtest scores it with a Brier score against always predicting the average 
 
 ### Probabilities and EV
 
-Outcomes follow a gamma distribution (non-negative, right-skewed) whose variance `a*mu + b*mu^2` is fit on the walk-forward backtest residuals. Whole-number lines handle pushes. The model's win probability is blended (35% by default, adjustable in the UI) with the market's no-vig probability. EV and quarter-Kelly come from that blend and the best available price.
+The chance of beating a line comes from the backtest's own errors, not an assumed curve. For each market the walk-forward backtest gives a robust spread of the errors (binned by projection size, so passing and rushing each get their own) and the empirical distribution of the standardized errors, which carries the real skew and the blow-up games. The probability of going over a line is read straight off that table, so it matches how often actual yardage beat the projection. Whole-number lines leave room for a push, and no probability is allowed to reach 0 or 100%. (An earlier version assumed a gamma curve, which was too skewed and made unders look better than they were; passing was hit hardest, with actuals beating the model's median 67% of the time instead of ~50%.) The model's win probability is then blended (35% by default, adjustable in the UI) with the market's no-vig probability. EV and quarter-Kelly come from that blend and the best available price.
 
 Two guards keep bad data from topping the board:
 - Quotes far from the multi-book consensus line (stale or alternate lines) are ignored.

@@ -114,6 +114,11 @@ def game_label(gid: str) -> str:
 _pick_cache: dict = {}
 
 
+def _dists(run: Run) -> dict:
+    """Per-kind error tables from the run's backtest (older runs stored only gamma parameters: those are skipped)."""
+    return {k: v for k, v in (run.variance or {}).items() if isinstance(v, dict)}
+
+
 def all_picks(db: Session, run: Run, w: float, book: Optional[str] = None) -> pd.DataFrame:
     """Priced picks for (run, current odds, market weight); memoized because pricing loops over every line."""
     version = tuple(sorted(db.execute(select(OddsLine.market, func.max(OddsLine.fetched_at))
@@ -123,7 +128,7 @@ def all_picks(db: Session, run: Run, w: float, book: Optional[str] = None) -> pd
         if len(_pick_cache) > 20:
             _pick_cache.clear()
         proj = proj_frame(db, run.id)
-        picks = build_picks(proj, current_lines(db), w, only_book=book)
+        picks = build_picks(proj, current_lines(db), w, only_book=book, dists=_dists(run))
         if not picks.empty:
             l5 = dict(zip(zip(proj.player_id, proj.kind), proj.last5))
             picks["last5"] = [l5.get(k, []) for k in zip(picks.player_id, picks.kind)]
@@ -292,7 +297,7 @@ def build_ladder_out(db: Session, p: Projection, odds_range: int = 0) -> LadderO
     quotes = pd.concat([f for f in (main, alt_df) if not f.empty] or [main], ignore_index=True)
     fetched = max((r.fetched_at for r in alts), default=None)
     return LadderOut(kind=kind, mu=p.mu, sd=p.sd, game_id=p.game_id, alt_fetched_at=fetched.isoformat() if fetched else None,
-                     quotes=build_ladder(p.mu, p.sd, quotes, odds_range, kind))
+                     quotes=build_ladder(p.mu, p.sd, quotes, odds_range, kind, _dists(db.get(Run, p.run_id)).get(kind)))
 
 
 @app.post("/api/players/{player_id}/alt-lines", response_model=AltFetchResult)

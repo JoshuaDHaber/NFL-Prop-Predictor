@@ -5,8 +5,10 @@ yards = volume (carries | targets) x efficiency (yds/carry | yds/target)
   * efficiency: recency-weighted, heavily shrunk toward the position mean
   * opponent: shrunk yards-allowed-per-game factor vs. league average
   * game script: team spread nudges rush volume up (favorites) / pass volume down
-Spread of outcomes is a gamma distribution whose variance (a*mu + b*mu^2) is fit
-from a walk-forward backtest of this same model.
+The spread and shape of outcomes come from the walk-forward backtest of this same model: the typical error
+(a robust spread, binned by projection size) and the empirical distribution of standardized errors. So the
+chance of beating a line matches how often actual yardage beat the projection, including skew and blow-up
+games. (Older runs used an assumed gamma curve, kept as a fallback in prob_over_under.)
 """
 import numpy as np
 import pandas as pd
@@ -145,16 +147,47 @@ def walk_forward(df, priors, sched, start_t, td_priors=None):
     return pd.DataFrame(rows, columns=["player_id", "name", "kind", "t", "mu", "actual", "naive5"])
 
 
-def fit_variance(bt):
-    """var = a*mu + b*mu^2 by least squares on squared residuals, per kind."""
-    params = {}
+Z_PROBS = np.linspace(0, 1, 41)
+
+
+def fit_dist(bt):
+    """Per kind: robust spread by projection size, plus the empirical quantiles of standardized errors.
+
+    sd(mu) is the IQR-based spread of (actual - mu) in bins of mu, interpolated between bin centers; z is
+    (actual - mu) / sd(mu), so its quantiles carry the real skew and tails.
+    """
+    out = {}
     for kind, g in bt.groupby("kind"):
-        mu, r2 = g.mu.to_numpy(), ((g.actual - g.mu) ** 2).to_numpy()
-        A = np.column_stack([mu, mu ** 2])
-        coef, *_ = np.linalg.lstsq(A, r2, rcond=None)
-        a, b = max(coef[0], 0.0), max(coef[1], 0.05)
-        params[kind] = (a, b)
-    return params
+        g = g.copy()
+        nb = int(np.clip(len(g) // 60, 3, 6))
+        g["bin"] = pd.qcut(g.mu, nb, duplicates="drop")
+        mus, sds = [], []
+        for _, b in g.groupby("bin", observed=True):
+            res = b.actual - b.mu
+            mus.append(float(b.mu.mean()))
+            sds.append(float(max(np.subtract(*np.percentile(res, [75, 25])) / 1.349, 1e-3)))
+        z = (g.actual - g.mu) / np.interp(g.mu, mus, sds)
+        out[kind] = dict(mu=mus, sd=sds, z=[float(x) for x in np.quantile(z, Z_PROBS)])
+    return out
+
+
+def sd_at(mu, dist):
+    """Typical error (standard-deviation scale) at a projection, from a fit_dist table."""
+    return float(np.interp(mu, dist["mu"], dist["sd"]))
+
+
+def prob_over_under_dist(mu, line, dist):
+    """(p_over, p_under) from the empirical error distribution. Whole-number lines leave room for a push."""
+    sd = sd_at(mu, dist)
+
+    def cdf(y):  # P(actual <= y)
+        return float(np.interp((y - mu) / sd, dist["z"], Z_PROBS))
+
+    if float(line) == int(line):
+        po, pu = 1 - cdf(line + 0.5), cdf(line - 0.5)
+    else:
+        po, pu = 1 - cdf(line), cdf(line)
+    return min(max(po, 0.01), 0.99), min(max(pu, 0.01), 0.99)  # the data can't justify certainty
 
 
 def backtest_summary(bt):
@@ -217,10 +250,9 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
                                          sd=0.0, spread=sp, gameday=gm.gameday, gametime=gm.gametime, game_id=gm.game_id,
                                          last5=tdm.td_count(hist).tail(5).tolist()))
                 for kind, (mu, vol, eff) in all_kinds(hist, p.position, priors, opp, sp, comp).items():
-                    a, b = var_params[kind]
                     rows.append(dict(player_id=pid, name=p.player_display_name, pos=p.position, team=team,
                                      opp=other, home=team == gm.home_team, kind=kind, mu=mu, vol=vol, eff=eff,
-                                     sd=float(np.sqrt(a * mu + b * mu * mu)), spread=sp,
+                                     sd=sd_at(mu, var_params[kind]), spread=sp,
                                      gameday=gm.gameday, gametime=gm.gametime, game_id=gm.game_id,
                                      last5=actual_hist(hist, kind).tail(5).tolist()))
     return pd.DataFrame(rows)

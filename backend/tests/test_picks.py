@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -70,3 +71,20 @@ def test_book_filter_keeps_only_that_books_quotes_but_prices_against_all():
     # the market view still comes from both books, so it is identical with or without the filter
     full = build_picks(proj(mu=90), ln).query("side == 'Over'").iloc[0]
     assert only_a.query("side == 'Over'").iloc[0].p_mkt == pytest.approx(full.p_mkt)
+
+
+def test_picks_use_the_backtest_error_table_when_the_run_has_one():
+    from app.engine.model import prob_over_under_dist
+    # a table where outcomes land well ABOVE the projection: standardized errors centred at +1
+    dist = dict(mu=[20.0, 100.0], sd=[10.0, 30.0], z=[float(z) for z in np.linspace(-1, 3, 41)])
+    ln = lines([("Test Back", "rush", 80.5, -110, -110, "A")])
+    with_dist = build_picks(proj(mu=80), ln, market_weight=0.0, dists={"rush": dist}).query("side == 'Over'").iloc[0]
+    expected_over, _ = prob_over_under_dist(80.0, 80.5, dist)
+    assert with_dist.p_model == pytest.approx(expected_over)
+    without = build_picks(proj(mu=80), ln, market_weight=0.0).query("side == 'Over'").iloc[0]  # gamma fallback
+    assert with_dist.p_model > without.p_model  # the table's upward skew moves the answer
+
+
+def test_a_missing_kind_in_the_tables_falls_back_to_the_gamma_curve():
+    ln = lines([("Test Back", "rush", 80.5, -110, -110, "A")])
+    assert build_picks(proj(mu=80), ln, dists={"pass": dict(mu=[1.0], sd=[1.0], z=[0.0])}).p_model.notna().all()
