@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, type Kind } from "../api";
 import { KIND_LABEL, KIND_SHORT, fmtProj, matchup } from "../format";
+import Avatar from "./Avatar";
 import LineLadder, { ODDS_RANGE } from "./LineLadder";
 
 interface Props { playerId: string; initialKind: Kind; marketWeight: number; book: string; onBookChange: (b: string) => void; onClose: () => void }
@@ -35,8 +36,13 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
         {error && <p className="err">Couldn't load this player.</p>}
         {data && proj && (
           <>
-            <h2>{data.name}</h2>
-            <div className="mut">{data.pos} · {data.team} {matchup(proj.opp, proj.home)}</div>
+            <div className="player-head">
+              <Avatar name={data.name} src={data.headshot} size={84} />
+              <div>
+                <h2>{data.name}</h2>
+                <div className="mut"><span className="pos-pill">{data.pos}</span> {data.team} {matchup(proj.opp, proj.home)}</div>
+              </div>
+            </div>
             <div className="seg small" role="tablist">
               {data.projections.map((p) => (
                 <button key={p.kind} className={p.kind === kind ? "on" : ""} onClick={() => setKind(p.kind)}>

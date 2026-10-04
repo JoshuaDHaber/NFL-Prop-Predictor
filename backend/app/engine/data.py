@@ -1,4 +1,5 @@
 """Data loading: nflverse weekly player stats, schedules, injuries (cached on disk)."""
+import functools
 import io
 import os
 import time
@@ -51,3 +52,18 @@ def load_roster(season):
     r = _get_csv(f"{BASE}/rosters/roster_{season}.csv", f"roster_{season}.csv", max_age_hours=3)
     r = r[r.week == r.week.max()]
     return dict(zip(r[r.status == "ACT"].gsis_id, r[r.status == "ACT"].team))
+
+
+def load_headshots(season):
+    return _headshots(season, int(time.time() // 3600))
+
+
+@functools.lru_cache(maxsize=2)
+def _headshots(season, _hour):
+    """gsis_id -> headshot URL from the roster file; empty when the roster can't be loaded (images are decoration)."""
+    try:
+        r = _get_csv(f"{BASE}/rosters/roster_{season}.csv", f"roster_{season}.csv", max_age_hours=3,
+                     usecols=["gsis_id", "headshot_url"]).dropna()
+    except Exception:
+        return {}
+    return dict(zip(r.gsis_id, r.headshot_url))

@@ -10,7 +10,8 @@ import RefreshButton from "./components/RefreshButton";
 import { useWaking } from "./auth";
 import AdminButton from "./components/AdminButton";
 import { API_URL, IS_STATIC } from "./env";
-import { timeAgo } from "./format";
+import { KIND_LABEL, americanOdds, fmtProj, matchup, playLabel, signedPct, timeAgo } from "./format";
+import TopTiles, { type Tile } from "./components/TopTiles";
 import { useDebounced } from "./useDebounced";
 
 const PlayerDrawer = lazy(() => import("./components/PlayerDrawer")); // keeps the charting library out of the first load
@@ -40,6 +41,24 @@ export default function App() {
     </div>
   );
   const m = meta.data;
+  const tiles: Tile[] = tab === "picks"
+    ? [...(picks.data ?? [])].sort((a, b) => b.ev - a.ev).slice(0, 3).map((p) => ({
+      key: `${p.player_id}-${p.kind}-${p.side}`, label: KIND_LABEL[p.kind], name: p.name, meta: `${p.pos} ${p.team} ${matchup(p.opp, p.home)}`,
+      value: <>{playLabel(p.kind, p.side, p.line)} <em>{signedPct(p.ev)} EV</em></>, caption: `${americanOdds(p.odds)} at ${p.book}`,
+      onClick: () => setSelected({ id: p.player_id, kind: p.kind }),
+    }))
+    : tab === "projections"
+      ? (filters.kind === "all" ? (["pass", "rush", "rec", "rr"] as Kind[]).map((k) => (projections.data ?? []).filter((p) => p.kind === k).sort((a, b) => b.mu - a.mu)[0])
+        : [...(projections.data ?? [])].sort((a, b) => b.mu - a.mu).slice(0, 3)).filter(Boolean).map((p) => ({
+        key: `${p.player_id}-${p.kind}`, label: filters.kind === "all" ? `Top ${KIND_LABEL[p.kind]}` : KIND_LABEL[p.kind], name: p.name, meta: `${p.pos} ${p.team} ${matchup(p.opp, p.home)}`,
+        value: <>{fmtProj(p.kind, p.mu)} {p.kind !== "td" && <em>±{p.sd.toFixed(0)}</em>}</>, caption: p.kind === "td" ? "chance to score" : "projected yards",
+        onClick: () => setSelected({ id: p.player_id, kind: p.kind }),
+      }))
+      : Object.entries(m.backtest).map(([k, b]) => ({ k, b, gain: (b.mae_naive - b.mae_model) / b.mae_naive * 100 }))
+        .sort((a, b) => b.gain - a.gain).slice(0, 3).map(({ k, b, gain }) => ({
+          key: k, label: "Best backtested market", name: KIND_LABEL[k as Kind], meta: `${b.n.toLocaleString()} games`,
+          value: <>{gain.toFixed(1)}% <em>better</em></>, caption: "than the naive baseline",
+        }));
   const hasOdds = Object.keys(m.odds).length > 0;
   const latestOdds = Object.values(m.odds).map((o) => o.fetched_at).sort().at(-1);
 
@@ -47,7 +66,7 @@ export default function App() {
     <div className="wrap">
       <header>
         <div>
-          <h1>NFL Prop Predictor</h1>
+          <h1><span className="logo">🏈</span> NFL Prop <span className="grad">Predictor</span></h1>
           <div className="sub">
             {m.run ? `${m.run.season} Week ${m.run.week} · projections ${timeAgo(m.run.created_at)}` : "No projections yet"}
             {latestOdds && ` · odds ${timeAgo(latestOdds)}`}
@@ -78,11 +97,13 @@ export default function App() {
         <div className="banner">No sportsbook lines are loaded, so there are no picks. Add an <code>ODDS_API_KEY</code> and refresh.</div>
       )}
 
-      <nav className="tabs" role="tablist">
+      <nav className="tabs" role="tablist" aria-label="Sections">
         {TABS.map(([k, label]) => (
           <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{label}</button>
         ))}
       </nav>
+
+      <TopTiles tiles={tiles} />
 
       {tab !== "model" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
 

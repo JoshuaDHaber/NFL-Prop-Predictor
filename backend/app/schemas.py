@@ -123,6 +123,7 @@ class PlayerDetail(BaseModel):
     name: str
     pos: str
     team: str
+    headshot: Optional[str] = None
     projections: list[ProjectionOut]
     picks: list[PickOut]
     logs: dict[str, list[GameLogEntry]]

@@ -297,6 +297,7 @@ def build_player_detail(db: Session, run: Optional[Run], player_id: str, market_
     df = all_picks(db, run, market_weight)
     pp = df[df.player_id == player_id] if not df.empty else df
     return PlayerDetail(player_id=player_id, name=p.name, pos=p.pos, team=p.team,
+                        headshot=data.load_headshots(run.season).get(player_id),
                         projections=[ProjectionOut.model_validate(r, from_attributes=True) for r in rows],
                         picks=records(pp), logs=_game_logs(player_id, [r.kind for r in rows], run.season))
 

@@ -38,7 +38,7 @@ export interface Pick {
 }
 export interface GameLogEntry { label: string; opp: string; yards: number; volume: number }
 export interface PlayerDetail {
-  player_id: string; name: string; pos: string; team: string;
+  player_id: string; name: string; pos: string; team: string; headshot?: string | null;
   projections: Projection[]; picks: Pick[]; logs: Record<string, GameLogEntry[]>;
 }
 
