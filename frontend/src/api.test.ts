@@ -22,3 +22,11 @@ describe("limitOdds (demo mode mirrors the server's -300..+300 rule)", () => {
     expect(r.under?.odds).toBe(120);
   });
 });
+
+describe("limitOdds for anytime TD", () => {
+  it("never hides TD prices, which are normally +300 to +2000", () => {
+    const rows = [row(0.5, 900, null), row(0.5, 250, null)];
+    expect(limitOdds(rows, 300, "td")).toHaveLength(2);
+    expect(limitOdds(rows, 300, "rush")).toHaveLength(1); // the same prices are trimmed for yardage
+  });
+});

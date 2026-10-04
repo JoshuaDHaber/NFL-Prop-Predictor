@@ -4,14 +4,17 @@ import time
 from datetime import datetime
 from typing import Callable, Optional
 
+import numpy as np
 import pandas as pd
 
 from . import config
 from .db import AltLine, OddsLine, Projection, Run, SessionLocal
 from .engine import data, model, odds
+from .engine import td as tdm
 
 Log = Callable[[str], None]
 ALL_MARKETS = set(odds.MARKETS.values())
+ALT_KINDS = set(odds.ALT_MARKETS.values())  # anytime TD has no alternate market
 
 
 def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log = print) -> int:
@@ -26,12 +29,19 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
     stats = model.prep(data.load_stats([season - 2, season - 1, season]))
     priors = model.league_priors(stats)
     log("Walk-forward backtest (fits variance, checks accuracy)...")
-    bt = model.walk_forward(stats, priors, played, start_t=(season - 1) * 100 + 6)
+    td_pri = tdm.td_priors(stats)
+    bt = model.walk_forward(stats, priors, played, start_t=(season - 1) * 100 + 6, td_priors=td_pri)
     bt = bt[bt.t < week_t]
+    bt_td, bt = bt[bt.kind == "td"], bt[bt.kind != "td"]
     bt_sum, var_params = model.backtest_summary(bt), model.fit_variance(bt)
+    lam = -np.log1p(-np.clip(bt_td.mu.to_numpy(), 0, 1 - 1e-9))
+    td_scale = tdm.fit_scale(lam, bt_td.actual.to_numpy()) if len(bt_td) else 1.0
+    bt_sum["td"] = tdm.summary(bt_td, td_scale)
+    var_params["td"] = (td_scale, 0.0)  # (scale on expected TDs, unused)
 
     log("Projecting upcoming games...")
-    proj = model.upcoming_projections(stats, sched, priors, var_params, week_t, data.load_roster(season))
+    proj = model.upcoming_projections(stats, sched, priors, var_params, week_t, data.load_roster(season),
+                                      td_priors=td_pri, td_scale=td_scale)
 
     inj = data.load_injuries(season)
     status = {}
@@ -112,14 +122,14 @@ def refresh_odds(mode: str = "missing", log: Log = print) -> None:
         events = {(e["away"], e["home"]): e["id"] for e in odds.list_events(key)}
         todo = [(g, events.get((g.away_team, g.home_team))) for g in games.itertuples()
                 if need_main or g.game_id in alt_games]
-        cost = sum(len(need_main) + (len(ALL_MARKETS) if g.game_id in alt_games else 0) for g, e in todo if e)
+        cost = sum(len(need_main) + (len(ALT_KINDS) if g.game_id in alt_games else 0) for g, e in todo if e)
         log(f"Fetching odds for {len(todo)} games (about {cost} API credits)...")
         mains, alts = [], []
         for g, event_id in todo:
             if not event_id:
                 log(f"  no sportsbook event yet for {g.away_team} @ {g.home_team}")
                 continue
-            long, remaining = odds.fetch_game_odds(key, event_id, need_main, ALL_MARKETS if g.game_id in alt_games else ())
+            long, remaining = odds.fetch_game_odds(key, event_id, need_main, ALT_KINDS if g.game_id in alt_games else ())
             paired = odds.pair_with_links(long)
             is_alt = paired.alt.astype(bool)
             mains.append(paired[~is_alt])

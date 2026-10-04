@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, type Kind } from "../api";
-import { KIND_LABEL, KIND_SHORT, matchup } from "../format";
+import { KIND_LABEL, KIND_SHORT, fmtProj, matchup } from "../format";
 import LineLadder, { ODDS_RANGE } from "./LineLadder";
 
 interface Props { playerId: string; initialKind: Kind; marketWeight: number; book: string; onBookChange: (b: string) => void; onClose: () => void }
@@ -24,7 +24,8 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
   const logs = data?.logs[kind] ?? [];
   // main-line markers on the chart come from the same ladder the table shows, so they follow the sportsbook filter
   const ladder = useQuery({ queryKey: ["ladder", playerId, kind, ODDS_RANGE], queryFn: () => api.lines(playerId, kind, ODDS_RANGE) });
-  const lines = [...new Set((ladder.data?.quotes ?? []).filter((q) => !q.alt && (book === "all" || q.book === book)).map((q) => q.line))];
+  const isTd = kind === "td";
+  const lines = isTd ? [] : [...new Set((ladder.data?.quotes ?? []).filter((q) => !q.alt && (book === "all" || q.book === book)).map((q) => q.line))];
 
   return (
     <div className="overlay" onClick={onClose}>
@@ -44,24 +45,35 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
               ))}
             </div>
             <div className="facts">
-              <div><span className="mut">Projection</span><b>{proj.mu.toFixed(0)} yds</b></div>
-              <div><span className="mut">Std dev</span><b>±{proj.sd.toFixed(0)}</b></div>
-              <div><span className="mut">Volume</span><b>{proj.vol.toFixed(1)}</b></div>
-              <div><span className="mut">Yds / att</span><b>{proj.eff.toFixed(2)}</b></div>
+              {isTd ? (
+                <>
+                  <div><span className="mut">Chance to score</span><b>{fmtProj(kind, proj.mu)}</b></div>
+                  <div><span className="mut">Expected TDs</span><b>{proj.eff.toFixed(2)}</b></div>
+                  <div><span className="mut">Touches</span><b>{proj.vol.toFixed(1)}</b></div>
+                  <div><span className="mut">TD / touch</span><b>{(proj.eff / Math.max(proj.vol, 0.1)).toFixed(3)}</b></div>
+                </>
+              ) : (
+                <>
+                  <div><span className="mut">Projection</span><b>{proj.mu.toFixed(0)} yds</b></div>
+                  <div><span className="mut">Std dev</span><b>±{proj.sd.toFixed(0)}</b></div>
+                  <div><span className="mut">Volume</span><b>{proj.vol.toFixed(1)}</b></div>
+                  <div><span className="mut">Yds / att</span><b>{proj.eff.toFixed(2)}</b></div>
+                </>
+              )}
             </div>
-            <h3>Last {logs.length} games · {KIND_LABEL[kind]}</h3>
+            <h3>Last {logs.length} games · {isTd ? "touchdowns scored" : KIND_LABEL[kind]}</h3>
             <div className="chart">
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={logs} margin={{ top: 8, right: 8, bottom: 0, left: -16 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
                   <XAxis dataKey="label" tick={{ fontSize: 10, fill: "var(--mut)" }} interval={0} angle={-35} textAnchor="end" height={50} />
                   <YAxis tick={{ fontSize: 11, fill: "var(--mut)" }} />
-                  <Tooltip formatter={(v: number) => [`${v} yds`, "Yards"]}
+                  <Tooltip formatter={(v: number) => (isTd ? [`${v}`, "TDs"] : [`${v} yds`, "Yards"])}
                     labelFormatter={(l, items) => `${l} ${items[0]?.payload ? "vs " + items[0].payload.opp : ""}`}
                     contentStyle={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--ink)" }} />
                   <Bar dataKey="yards" fill="var(--acc)" radius={[3, 3, 0, 0]} />
-                  <ReferenceLine y={proj.mu} stroke="var(--good)" strokeDasharray="5 3"
-                    label={{ value: `proj ${proj.mu.toFixed(0)}`, position: "insideTopRight", fill: "var(--good)", fontSize: 11 }} />
+                  <ReferenceLine y={isTd ? proj.eff : proj.mu} stroke="var(--good)" strokeDasharray="5 3"
+                    label={{ value: isTd ? `expected ${proj.eff.toFixed(2)}` : `proj ${proj.mu.toFixed(0)}`, position: "insideTopRight", fill: "var(--good)", fontSize: 11 }} />
                   {lines.map((l) => (
                     <ReferenceLine key={l} y={l} stroke="var(--bad)" strokeDasharray="2 3"
                       label={{ value: `line ${l}`, position: "insideBottomRight", fill: "var(--bad)", fontSize: 11 }} />

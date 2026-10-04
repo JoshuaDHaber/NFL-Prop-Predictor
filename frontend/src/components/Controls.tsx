@@ -2,7 +2,7 @@ import type { Filters, Game, Kind } from "../api";
 import { IS_STATIC } from "../env";
 import { KIND_SHORT, pct, signedPct } from "../format";
 
-const KINDS: (Kind | "all")[] = ["all", "rush", "rec", "pass", "rr"];
+const KINDS: (Kind | "all")[] = ["all", "rush", "rec", "pass", "rr", "td"];
 
 interface Props {
   filters: Filters;
@@ -20,7 +20,7 @@ export default function Controls({ filters, onChange, games, books, showPickCont
         {KINDS.map((k) => (
           <button key={k} role="tab" aria-selected={filters.kind === k} className={filters.kind === k ? "on" : ""}
             onClick={() => set({ kind: k })}>
-            {k === "all" ? "All markets" : KIND_SHORT[k]}
+            {k === "all" ? "All yardage" : KIND_SHORT[k]}
           </button>
         ))}
       </div>
@@ -56,6 +56,12 @@ export default function Controls({ filters, onChange, games, books, showPickCont
           </>
         )}
       </div>
+      {filters.kind === "td" && (
+        <p className="td-note">
+          <b>Anytime TD:</b> books post a single “Yes” price with a large margin, and this model doesn't see red-zone usage, so it
+          always leans at least 60% on the market's chance. Treat these edges with caution; big ones usually mean the model is missing something.
+        </p>
+      )}
     </section>
   );
 }

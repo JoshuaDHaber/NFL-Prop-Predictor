@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { BASE, IS_STATIC } from "../env";
 import { useBetSlip } from "../BetSlipContext";
-import { KIND_SHORT, americanOdds, pct, signedPct } from "../format";
+import { KIND_SHORT, americanOdds, pct, playLabel, signedPct } from "../format";
 import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, combinedLink, legLink, shareUrl, slipLinksText, linkStatus, openProgress, parlay, rebook, sameGame, slipText, toWin, type BookOption } from "../slip";
 
 export default function BetSlip() {
@@ -136,13 +136,13 @@ export default function BetSlip() {
                   const alts = alternativesAtBook(ladderFor(l), l, target);
                   return (
                     <div className="suggest-leg" key={l.id}>
-                      <div><b>{l.name}</b> <span className={l.side === "Over" ? "over" : "under"}>{l.side} {l.line}</span> <span className="mut">{KIND_SHORT[l.kind]}</span></div>
+                      <div><b>{l.name}</b> <span className={l.side === "Over" ? "over" : "under"}>{playLabel(l.kind, l.side, l.line)}</span> {l.kind !== "td" && <span className="mut">{KIND_SHORT[l.kind]}</span>}</div>
                       {alts.length ? (
                         <div className="chips">
                           {alts.map((o) => (
                             <button key={o.line} className="chip-btn" onClick={() => replace(l.id, rebook(l, o))}
-                              title={`Swap to ${l.side} ${o.line} at ${target}`}>
-                              {l.side} {o.line} <b>{americanOdds(o.odds)}</b>
+                              title={`Swap to ${playLabel(l.kind, l.side, o.line)} at ${target}`}>
+                              {playLabel(l.kind, l.side, o.line)} <b>{americanOdds(o.odds)}</b>
                               <span className={o.ev > 0 ? "pos" : "mut"}> {signedPct(o.ev)}</span>
                             </button>
                           ))}
@@ -197,12 +197,12 @@ export default function BetSlip() {
                       <div className="slip-leg" key={l.id}>
                         <div>
                           <b>{l.name}</b> <span className="mut">{l.team}</span><br />
-                          <span className={l.side === "Over" ? "over" : "under"}>{l.side} {l.line}</span> {KIND_SHORT[l.kind]}
+                          <span className={l.side === "Over" ? "over" : "under"}>{playLabel(l.kind, l.side, l.line)}</span> {l.kind !== "td" && KIND_SHORT[l.kind]}
                           {l.alt && <span className="alt">alt</span>}
                           <span className="mut"> {l.home ? "vs" : "@"} {l.opp}</span><br />
                           <label className="bookpick">
                             <span className="mut">Book</span>
-                            <select value={l.book} aria-label={`Book for ${l.name} ${l.side} ${l.line}`}
+                            <select value={l.book} aria-label={`Book for ${l.name} ${playLabel(l.kind, l.side, l.line)}`}
                               onChange={(e) => { const o = options[l.id]?.find((x) => x.book === e.target.value); if (o) replace(l.id, rebook(l, o)); }}>
                               {!options[l.id]?.some((o) => o.book === l.book) && <option value={l.book}>{l.book} {americanOdds(l.odds)}</option>}
                               {(options[l.id] ?? []).map((o) => (

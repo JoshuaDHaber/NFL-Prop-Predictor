@@ -10,9 +10,12 @@ import pandas as pd
 import requests
 
 API = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl"
-MARKETS = {"player_rush_yds": "rush", "player_reception_yds": "rec",
-           "player_pass_yds": "pass", "player_rush_reception_yds": "rr"}
-ALT_MARKETS = {k + "_alternate": v for k, v in MARKETS.items()}
+YARD_MARKETS = {"player_rush_yds": "rush", "player_reception_yds": "rec",
+                "player_pass_yds": "pass", "player_rush_reception_yds": "rr"}
+# anytime TD has no line or alternates: books post a "Yes" price per player (some also "No")
+MARKETS = {**YARD_MARKETS, "player_anytime_td": "td"}
+ALT_MARKETS = {k + "_alternate": v for k, v in YARD_MARKETS.items()}
+TD_LINE = 0.5  # stored as an "Over 0.5": Yes is the over side, No (if posted) the under side
 
 TEAM_NAMES = {
     "ARI": "Arizona Cardinals", "ATL": "Atlanta Falcons", "BAL": "Baltimore Ravens", "BUF": "Buffalo Bills",
@@ -83,8 +86,10 @@ def fetch_game_odds(key, event_id, main_kinds, alt_kinds=(), regions="us"):
         for m in bk["markets"]:
             kind = {**MARKETS, **ALT_MARKETS}[m["key"]]
             for o in m["outcomes"]:
+                is_td = kind == "td"
                 rows.append(dict(player=o["description"], market=kind, alt=m["key"].endswith("_alternate"),
-                                 side=o["name"].lower(), line=o["point"], odds=o["price"], book=bk["title"],
+                                 side={"yes": "over", "no": "under"}.get(o["name"].lower(), o["name"].lower()) if is_td else o["name"].lower(),
+                                 line=TD_LINE if is_td else o["point"], odds=o["price"], book=bk["title"],
                                  link=o.get("link"), event_link=bk.get("link")))
     return pd.DataFrame(rows), r.headers.get("x-requests-remaining")
 

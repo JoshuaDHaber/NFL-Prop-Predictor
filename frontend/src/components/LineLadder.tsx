@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { api, type Kind, type LadderRow, type QuoteSide } from "../api";
 import { useBetSlip } from "../BetSlipContext";
 import { IS_STATIC } from "../env";
-import { americanOdds, signedPct, timeAgo } from "../format";
+import { americanOdds, playLabel, signedPct, timeAgo } from "../format";
 import { legId, type Leg } from "../slip";
 
 export interface PlayerCtx { playerId: string; name: string; team: string; opp: string; home: boolean; gameId: string }
@@ -24,6 +24,7 @@ export const ODDS_RANGE = 300; // prices shown by default: -300 to +300
 interface LadderProps { ctx: PlayerCtx; kind: Kind; mu: number; book: string; onBookChange: (b: string) => void }
 
 export default function LineLadder({ ctx, kind, mu, book, onBookChange }: LadderProps) {
+  const isTd = kind === "td"; // anytime TD: one line (0.5), shown as Yes / No
   const qc = useQueryClient();
   const slip = useBetSlip();
   const meta = qc.getQueryData<{ has_odds_key: boolean; can_write: boolean }>(["meta"]);
@@ -68,7 +69,7 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
     return (
       <td className={`lcell ${c.q.ev > 0 ? "plus" : ""}`}>
         <button className={`add ${inSlip ? "on" : ""}`} onClick={() => slip.toggle(toLeg(c))}
-          aria-label={`${inSlip ? "Remove" : "Add"} ${c.side} ${c.row.line} at ${c.row.book}`}>{inSlip ? "✓" : "+"}</button>
+          aria-label={`${inSlip ? "Remove" : "Add"} ${playLabel(kind, c.side, c.row.line)} at ${c.row.book}`}>{inSlip ? "✓" : "+"}</button>
         <span className="lc-main"><span className="odds">{americanOdds(c.q.odds)}</span>
           <span className={c.q.ev > 0 ? "pos" : "mut"}> {signedPct(c.q.ev)}</span><br />
           <span className="mut">{c.row.book}</span></span>
@@ -81,9 +82,9 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
       <div className="ladder-head">
         <h3>Lines &amp; alternates</h3>
         <div className="ladder-tools">
-          <label className="check" title={`Hide prices beyond -${ODDS_RANGE} / +${ODDS_RANGE}`}>
+          {!isTd && <label className="check" title={`Hide prices beyond -${ODDS_RANGE} / +${ODDS_RANGE}`}>
             <input type="checkbox" checked={limitOdds} onChange={(e) => setLimitOdds(e.target.checked)} /> −{ODDS_RANGE} to +{ODDS_RANGE}
-          </label>
+          </label>}
           <label className="check"><input type="checkbox" checked={onlyEv} onChange={(e) => setOnlyEv(e.target.checked)} /> +EV only</label>
           {!onlyBook && <label className="check"><input type="checkbox" checked={allBooks} onChange={(e) => setAllBooks(e.target.checked)} /> All books</label>}
         </div>
@@ -99,16 +100,16 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
             </div>
           )}
           <div className="mut ladder-note">
-            Win probability and EV here use the model alone (no market blend). Projection {mu.toFixed(0)} yds.
+            {isTd ? `Model chance of a TD ${(mu * 100).toFixed(0)}%. Win probability and EV lean at least 60% on the market's chance, since the model is a weak signal here.` : `Win probability and EV here use the model alone (no market blend). Projection ${mu.toFixed(0)} yds.`}
             {ladder.data.alt_fetched_at && ` Alternates fetched ${timeAgo(ladder.data.alt_fetched_at)}.`}
           </div>
           <div className="scroll ladder">
             <table>
-              <thead><tr><th>Line</th><th>Over</th><th>Under</th></tr></thead>
+              <thead><tr><th>{isTd ? "Market" : "Line"}</th><th>{isTd ? "Yes" : "Over"}</th><th>{isTd ? "No" : "Under"}</th></tr></thead>
               <tbody>
                 {shown.map((r) => (
-                  <tr key={r.key} className={Math.abs(r.line - mu) < 5 ? "near" : ""}>
-                    <td><b>{r.line}</b>{r.alt && <span className="alt">alt</span>}</td>
+                  <tr key={r.key} className={!isTd && Math.abs(r.line - mu) < 5 ? "near" : ""}>
+                    <td><b>{isTd ? "Anytime TD" : r.line}</b>{r.alt && <span className="alt">alt</span>}</td>
                     {cell(r.over)}{cell(r.under)}
                   </tr>
                 ))}
@@ -116,7 +117,7 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
               </tbody>
             </table>
           </div>
-          {!hasAlt && !IS_STATIC && (
+          {!hasAlt && !IS_STATIC && !isTd && (
             <div className="alt-cta">
               <button className="primary" onClick={load} disabled={!meta?.has_odds_key || !meta?.can_write || fetchAlt.isPending}>
                 {fetchAlt.isPending ? "Fetching…" : "Load alternate lines"}

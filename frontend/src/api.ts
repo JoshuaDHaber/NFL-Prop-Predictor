@@ -1,9 +1,11 @@
 import { getToken, setWaking } from "./auth";
 import { API_URL, BASE, IS_STATIC } from "./env";
 
-export type Kind = "rush" | "rec" | "pass" | "rr";
+export type Kind = "rush" | "rec" | "pass" | "rr" | "td";
 
-export interface BacktestStat { n: number; mae_model: number; mae_naive: number; bias: number }
+export interface CalibrationBin { predicted: number; actual: number; n: number }
+/** Yardage kinds report mean absolute error in yards; anytime TD reports Brier scores (metric: "brier"). */
+export interface BacktestStat { n: number; mae_model: number; mae_naive: number; bias: number; metric?: "mae" | "brier"; calibration?: CalibrationBin[] }
 export interface Game { game_id: string; label: string; gameday: string; gametime: string }
 export interface JobStatus {
   state: "idle" | "running" | "done" | "error";
@@ -80,9 +82,9 @@ export interface Filters { kind: Kind | "all"; game: string; book: string; q: st
 const liveApi = {
   meta: () => get<Meta>("meta"),
   picks: (f: Filters) =>
-    get<Pick[]>("picks", { kind: f.kind, game_id: f.game, book: f.book, q: f.q, min_ev: f.minEv, market_weight: f.marketWeight,
+    get<Pick[]>("picks", { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, game_id: f.game, book: f.book, q: f.q, min_ev: f.minEv, market_weight: f.marketWeight,
       include_flagged: f.flagged, limit: 300 }),
-  projections: (f: Filters) => get<Projection[]>("projections", { kind: f.kind, game_id: f.game, q: f.q }),
+  projections: (f: Filters) => get<Projection[]>("projections", { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, game_id: f.game, q: f.q }),
   player: (id: string, marketWeight: number) => get<PlayerDetail>(`players/${id}`, { market_weight: marketWeight }),
   /** oddsRange hides prices outside -N..+N (American); 0 shows everything. */
   lines: (id: string, kind: Kind, oddsRange = 300) => get<Ladder>(`players/${id}/lines`, { kind, odds_range: oddsRange }),
@@ -111,8 +113,8 @@ async function file<T>(path: string): Promise<T> {
 const unavailable = () => { throw new Error("Not available in the demo snapshot"); };
 
 /** Mirrors the server's odds-range rule: hide a side priced beyond -N..+N, drop rows left with neither. */
-export function limitOdds(quotes: LadderRow[], range: number): LadderRow[] {
-  if (!range) return quotes;
+export function limitOdds(quotes: LadderRow[], range: number, kind?: Kind): LadderRow[] {
+  if (!range || kind === "td") return quotes; // anytime TD prices (+400, +1200) are ordinary, so the range never applies
   const ok = (q: QuoteSide | null) => (q && q.odds >= -range && q.odds <= range ? q : null);
   return quotes.map((r) => ({ ...r, over: ok(r.over), under: ok(r.under) })).filter((r) => r.over || r.under);
 }
@@ -123,20 +125,20 @@ const staticApi: typeof liveApi = {
     const all = await file<Pick[]>(`picks/${f.book === "all" ? "all" : slug(f.book)}.json`);
     const q = f.q.toLowerCase();
     return all
-      .filter((p) => p.ev >= f.minEv && (f.flagged || !p.flagged) && (f.kind === "all" || p.kind === f.kind)
+      .filter((p) => p.ev >= f.minEv && (f.flagged || !p.flagged) && (f.kind === "all" ? p.kind !== "td" : p.kind === f.kind)
         && (f.game === "all" || p.game_id === f.game) && (!q || p.name.toLowerCase().includes(q)))
       .sort((a, b) => b.ev - a.ev)
       .slice(0, 300);
   },
   projections: async (f) => {
     const q = f.q.toLowerCase();
-    return (await file<Projection[]>("projections.json")).filter((p) => (f.kind === "all" || p.kind === f.kind)
+    return (await file<Projection[]>("projections.json")).filter((p) => (f.kind === "all" ? p.kind !== "td" : p.kind === f.kind)
       && (f.game === "all" || p.game_id === f.game) && (!q || p.name.toLowerCase().includes(q)));
   },
   player: (id) => file<PlayerDetail>(`players/${id}.json`),
   lines: async (id, kind, range = 300) => {
     const l = await file<Ladder>(`ladders/${id}_${kind}.json`);
-    return { ...l, quotes: limitOdds(l.quotes, range) };
+    return { ...l, quotes: limitOdds(l.quotes, range, kind) };
   },
   fetchAlt: async () => unavailable(),
   refresh: async () => unavailable(),

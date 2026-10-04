@@ -2,7 +2,7 @@
 
 A full-stack web app that projects NFL player yardage, prices the projections against live sportsbook prop lines, and ranks the best bets of the week.
 
-**Markets:** rushing yards, receiving yards, passing yards, and rush + receiving yards.
+**Markets:** rushing yards, receiving yards, passing yards, rush + receiving yards, and anytime touchdown.
 
 - **Front end:** React + TypeScript (Vite, TanStack Query, Recharts).
 - **Back end:** FastAPI + SQLAlchemy (SQLite locally, Postgres-ready).
@@ -73,6 +73,13 @@ Yards = **volume x efficiency**:
 - **Opponent and game script:** a shrunk yards-allowed factor for the defense, and a point-spread nudge (favorites run more, underdogs pass more).
 - **Availability:** the active roster decides a player's team. Injured reserve, Out/Doubtful, players with no practice and no game status, and offseason arrivals with no games for their new team are excluded.
 
+### Anytime touchdown
+
+For each player with a real rushing or receiving role, the expected touchdowns in the game are
+`carries x TD-per-carry + targets x TD-per-target`. Both rates are recency-weighted and shrunk toward the position average, and the total is scaled by how many points the team is expected to score (from the spread and total). The chance of at least one TD is the Poisson probability `1 - exp(-expected TDs)`, with one scale factor fit in the backtest so the average predicted rate matches the actual rate. Passing TDs don't count, matching the market.
+
+The backtest scores it with a Brier score against always predicting the average TD rate, and shows a calibration table on the Model check tab. It's a weak signal: it has no red-zone or goal-line usage, and books price the market sharply. So TD plays always lean at least 60% on the market's chance (books post a lone "Yes" price with a large margin, which the app estimates and strips), are priced in their own tab rather than in "All yardage", and large edges are flagged. Prices aren't limited to -300..+300 for this market, since +400 to +2000 are ordinary.
+
 ### Probabilities and EV
 
 Outcomes follow a gamma distribution (non-negative, right-skewed) whose variance `a*mu + b*mu^2` is fit on the walk-forward backtest residuals. Whole-number lines handle pushes. The model's win probability is blended (35% by default, adjustable in the UI) with the market's no-vig probability. EV and quarter-Kelly come from that blend and the best available price.
@@ -91,6 +98,7 @@ Walk-forward: every game from 2025 week 6 onward is projected using only earlier
 | Receiving | 1,866 | 23.4 | 24.8 | +0.4 |
 | Passing | 489 | 67.0 | 70.4 | +0.6 |
 | Rush + Rec | 234 | 33.0 | 36.6 | +4.0 |
+| Anytime TD (Brier score, lower is better) | 2,634 | 0.190 | 0.201 | 0.000 |
 
 MAE is mean absolute error in yards; bias is the mean of (actual - projection). The passing market initially ran ~9 yards low because volume shrinkage pulled quarterback attempts toward zero; a per-market setting fixed it.
 
@@ -170,7 +178,7 @@ backend/
     cli.py         run the pipeline without the web app
     export_static.py  write the data as static JSON for the Pages demo
     copy_db.py     copy the local database to a hosted Postgres (./run.sh push-data)
-    engine/        model.py (projections, backtest, probabilities) · picks.py (pricing) · ladder.py (alt-line pricing) · odds.py · data.py
+    engine/        model.py (projections, backtest, probabilities) · td.py (anytime touchdown) · picks.py (pricing) · ladder.py (alt-line pricing) · odds.py · data.py
   tests/           pytest suite
 frontend/src/      App, components (picks table, player drawer, line ladder, betslip, controls, refresh), betslip math in slip.ts, typed API client
 ```

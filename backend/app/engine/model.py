@@ -12,6 +12,8 @@ import numpy as np
 import pandas as pd
 from scipy import stats as st
 
+from . import td as tdm
+
 HALFLIFE = 5.0          # games
 VOL_PRIOR_K = {"rush": 0.5, "rec": 0.5, "pass": 0.2}   # pseudo-games of shrinkage on volume (QB volume is stable)
 EFF_K = {"rush": 40.0, "rec": 30.0, "pass": 120.0}   # pseudo-attempts of shrinkage on efficiency
@@ -101,8 +103,8 @@ def combined(comp):
     return (r[0] + c[0], r[1] + c[1], (r[0] + c[0]) / (r[1] + c[1]))
 
 
-def all_kinds(hist, pos, priors, opp, spread):
-    comp = components(hist, pos, priors, opp, spread)
+def all_kinds(hist, pos, priors, opp, spread, comp=None):
+    comp = comp if comp is not None else components(hist, pos, priors, opp, spread)
     res = {k: v for k, v in comp.items() if v[1] >= CFG[k]["min_vol"]}
     if pos != "QB" and (rr := combined(comp)):
         res["rr"] = rr
@@ -113,9 +115,13 @@ def actual_hist(df, kind):
     return df["rushing_yards"].fillna(0) + df["receiving_yards"].fillna(0) if kind == "rr" else df[CFG[kind]["yds"]]
 
 
-def walk_forward(df, priors, sched, start_t):
-    """Project every historical player-game from t >= start_t using only prior data."""
+def walk_forward(df, priors, sched, start_t, td_priors=None):
+    """Project every historical player-game from t >= start_t using only prior data.
+
+    With td_priors, anytime-TD rows are added too (kind "td": mu = unscaled P(>=1 TD), actual = 0/1).
+    """
     spread_map = _spread_lookup(sched)
+    implied_map = tdm.implied_points(sched)
     rows = []
     opp_cache = {t: opp_table(df, t) for t in sorted(df[df.t >= start_t].t.unique())}
     for pid, g in df.groupby("player_id"):
@@ -127,9 +133,15 @@ def walk_forward(df, priors, sched, start_t):
             hist = g.iloc[:i].copy()
             hist.attrs["opp"] = r.opponent_team
             sp = spread_map.get((r.season, r.week, r.team), 0.0)
-            for kind, (mu, vol, eff) in all_kinds(hist, r.position, priors, opp_cache[r.t], sp).items():
+            comp = components(hist, r.position, priors, opp_cache[r.t], sp)
+            for kind, (mu, vol, eff) in all_kinds(hist, r.position, priors, opp_cache[r.t], sp, comp).items():
                 rows.append((pid, r.player_display_name, kind, r.t, mu, float(actual_hist(g.iloc[[i]], kind).iloc[0]),
                              float(actual_hist(hist, kind).tail(5).mean())))
+            if td_priors is not None:
+                res = tdm.project_td(hist, comp, r.position, td_priors, implied_map.get((r.season, r.week, r.team)))
+                if res:
+                    rows.append((pid, r.player_display_name, "td", r.t, res[0], float(tdm.td_count(g.iloc[[i]]).iloc[0] >= 1),
+                                 float((tdm.td_count(hist).tail(8) >= 1).mean())))
     return pd.DataFrame(rows, columns=["player_id", "name", "kind", "t", "mu", "actual", "naive5"])
 
 
@@ -175,11 +187,12 @@ def prob_over_under(mu, line, var):
     return float(d.sf(line)), float(d.cdf(line))
 
 
-def upcoming_projections(df, sched, priors, var_params, week_t, roster):
+def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_priors=None, td_scale=1.0):
     """Project all active players for games not yet played in the target week."""
     season, week = divmod(week_t, 100)
     games = sched[(sched.season == season) & (sched.week == week) & sched.home_score.isna()]
     opp = opp_table(df, week_t)
+    implied_map = tdm.implied_points(sched)
     latest = df.sort_values("t").groupby("player_id").tail(1).set_index("player_id")
     by_player = {pid: g for pid, g in df.groupby("player_id")}
     rows = []
@@ -195,7 +208,15 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster):
                     continue
                 hist = hist.copy()
                 hist.attrs["opp"] = other
-                for kind, (mu, vol, eff) in all_kinds(hist, p.position, priors, opp, sp).items():
+                comp = components(hist, p.position, priors, opp, sp)
+                if td_priors is not None:
+                    res = tdm.project_td(hist, comp, p.position, td_priors, implied_map.get((season, week, team)), td_scale)
+                    if res:  # kind "td": mu = P(>=1 TD), vol = expected touches, eff = expected TDs
+                        rows.append(dict(player_id=pid, name=p.player_display_name, pos=p.position, team=team,
+                                         opp=other, home=team == gm.home_team, kind="td", mu=res[0], vol=res[2], eff=res[1],
+                                         sd=0.0, spread=sp, gameday=gm.gameday, gametime=gm.gametime, game_id=gm.game_id,
+                                         last5=tdm.td_count(hist).tail(5).tolist()))
+                for kind, (mu, vol, eff) in all_kinds(hist, p.position, priors, opp, sp, comp).items():
                     a, b = var_params[kind]
                     rows.append(dict(player_id=pid, name=p.player_display_name, pos=p.position, team=team,
                                      opp=other, home=team == gm.home_team, kind=kind, mu=mu, vol=vol, eff=eff,

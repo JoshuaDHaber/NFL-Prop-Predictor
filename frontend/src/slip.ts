@@ -1,5 +1,5 @@
 import type { Kind, Ladder } from "./api";
-import { KIND_LABEL, americanOdds } from "./format";
+import { KIND_LABEL, americanOdds, playLabel } from "./format";
 
 export interface Leg {
   id: string;
@@ -66,7 +66,7 @@ export function groupByBook(legs: Leg[]): [string, Leg[]][] {
 }
 
 export const legText = (l: Leg) =>
-  `${l.name} ${l.side} ${l.line} ${KIND_LABEL[l.kind]} (${l.home ? "vs" : "@"} ${l.opp}) ${americanOdds(l.odds)} @ ${l.book}`;
+  `${l.name} ${playLabel(l.kind, l.side, l.line)}${l.kind === "td" ? "" : ` ${KIND_LABEL[l.kind]}`} (${l.home ? "vs" : "@"} ${l.opp}) ${americanOdds(l.odds)} @ ${l.book}`;
 
 export function slipText(legs: Leg[]) {
   return groupByBook(legs).map(([book, ls]) => `${book}\n${ls.map((l) => `  - ${legText(l)}`).join("\n")}`).join("\n\n");
@@ -197,7 +197,7 @@ export function decodeSlip(text: string): { legs: Leg[]; state: string } | null 
   try {
     const d = JSON.parse(b64.dec(text));
     if (d?.v !== 1 || !Array.isArray(d.l) || d.l.length > 50) return null;
-    const kinds = ["rush", "rec", "pass", "rr"];
+    const kinds = ["rush", "rec", "pass", "rr", "td"];
     const legs: Leg[] = [];
     for (const r of d.l) {
       if (!Array.isArray(r) || r.length !== 16) return null;

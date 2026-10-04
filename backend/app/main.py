@@ -200,14 +200,16 @@ def _odds_info(db: Session) -> dict:
 
 
 @app.get("/api/projections", response_model=list[ProjectionOut])
-def projections(kind: Optional[Kind] = None, game_id: Optional[str] = None, q: Optional[str] = None,
-                db: Session = Depends(get_db)):
+def projections(kind: Optional[Kind] = None, exclude_kind: Optional[Kind] = None, game_id: Optional[str] = None,
+                q: Optional[str] = None, db: Session = Depends(get_db)):
     run = latest_run(db)
     if not run:
         return []
     stmt = select(Projection).where(Projection.run_id == run.id).order_by(Projection.mu.desc())
     if kind:
         stmt = stmt.where(Projection.kind == kind)
+    if exclude_kind:
+        stmt = stmt.where(Projection.kind != exclude_kind)
     if game_id:
         stmt = stmt.where(Projection.game_id == game_id)
     if q:
@@ -216,7 +218,8 @@ def projections(kind: Optional[Kind] = None, game_id: Optional[str] = None, q: O
 
 
 @app.get("/api/picks", response_model=list[PickOut])
-def picks(kind: Optional[Kind] = None, game_id: Optional[str] = None, q: Optional[str] = None, book: Optional[str] = None,
+def picks(kind: Optional[Kind] = None, exclude_kind: Optional[Kind] = None, game_id: Optional[str] = None, q: Optional[str] = None,
+          book: Optional[str] = None,
           min_ev: float = Query(0.03, ge=-1, le=1), market_weight: float = Query(0.35, ge=0, le=1),
           include_flagged: bool = False, limit: int = Query(200, ge=1, le=1000), db: Session = Depends(get_db)):
     run = latest_run(db)
@@ -230,6 +233,8 @@ def picks(kind: Optional[Kind] = None, game_id: Optional[str] = None, q: Optiona
         df = df[~df.flagged]
     if kind:
         df = df[df.kind == kind]
+    if exclude_kind:
+        df = df[df.kind != exclude_kind]
     if game_id:
         df = df[df.game_id == game_id]
     if q:
@@ -285,7 +290,7 @@ def build_ladder_out(db: Session, p: Projection, odds_range: int = 0) -> LadderO
     quotes = pd.concat([f for f in (main, alt_df) if not f.empty] or [main], ignore_index=True)
     fetched = max((r.fetched_at for r in alts), default=None)
     return LadderOut(kind=kind, mu=p.mu, sd=p.sd, game_id=p.game_id, alt_fetched_at=fetched.isoformat() if fetched else None,
-                     quotes=build_ladder(p.mu, p.sd, quotes, odds_range))
+                     quotes=build_ladder(p.mu, p.sd, quotes, odds_range, kind))
 
 
 @app.post("/api/players/{player_id}/alt-lines", response_model=AltFetchResult)
@@ -310,7 +315,7 @@ def fetch_alt_lines(player_id: str, db: Session = Depends(get_db)):
 
 
 _LOG_COLUMNS = ["player_id", "season", "week", "season_type", "position", "team", "opponent_team", "rushing_yards",
-                "receiving_yards", "passing_yards", "carries", "targets", "attempts"]
+                "receiving_yards", "passing_yards", "carries", "targets", "attempts", "rushing_tds", "receiving_tds"]
 
 
 @lru_cache(maxsize=1)
@@ -323,7 +328,9 @@ def _game_logs(player_id: str, kinds: list[str], season: int, n: int = 12) -> di
     g = st[st.player_id == player_id].sort_values("t").tail(n)
     out = {}
     for kind in kinds:
-        if kind == "rr":
+        if kind == "td":  # touchdowns scored per game (rushing + receiving) against touches
+            yards, vol = g.rushing_tds.fillna(0) + g.receiving_tds.fillna(0), g.carries.fillna(0) + g.targets.fillna(0)
+        elif kind == "rr":
             yards, vol = g.rushing_yards.fillna(0) + g.receiving_yards.fillna(0), g.carries.fillna(0) + g.targets.fillna(0)
         else:
             c = model.CFG[kind]

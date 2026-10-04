@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { americanOdds, kickoff, pct, signed, signedPct, timeAgo } from "./format";
+import { americanOdds, fmtEdge, fmtProj, kickoff, pct, playLabel, signed, signedPct, timeAgo } from "./format";
 
 describe("format", () => {
   it("formats percentages and signs", () => {
@@ -21,3 +21,20 @@ describe("format", () => {
     expect(timeAgo("2026-10-04T08:00:00", now)).toBe("4 h ago");
   });
 });
+
+describe("anytime TD formatting", () => {
+  it("shows a touchdown projection as a chance, and yardage as yards", () => {
+    expect(fmtProj("td", 0.412)).toBe("41%");
+    expect(fmtProj("rush", 54.6)).toBe("55");
+  });
+  it("names the plays: Anytime TD / No TD, but Over 54.5 for yardage", () => {
+    expect(playLabel("td", "Over", 0.5)).toBe("Anytime TD");
+    expect(playLabel("td", "Under", 0.5)).toBe("No TD");
+    expect(playLabel("rec", "Under", 54.5)).toBe("Under 54.5");
+  });
+  it("gives the edge in yards, or percentage points for touchdowns", () => {
+    expect(fmtEdge("pass", 7.74)).toBe("+7.7");
+    expect(fmtEdge("td", -3.26)).toBe("-3.3 pts");
+  });
+});
+

@@ -10,13 +10,26 @@ export default function ModelCheck({ meta }: { meta: Meta }) {
         {kinds.map((k) => {
           const b = meta.backtest[k];
           const better = ((b.mae_naive - b.mae_model) / b.mae_naive) * 100;
+          const brier = b.metric === "brier";
           return (
             <div className="card stat" key={k}>
-              <div className="mut">{KIND_LABEL[k]} · {b.n.toLocaleString()} backtested games</div>
-              <div className="big">{b.mae_model.toFixed(1)} <small>yds MAE</small></div>
+              <div className="mut">{KIND_LABEL[k]} · {b.n.toLocaleString()} backtested {brier ? "player-games" : "games"}</div>
+              <div className="big">{b.mae_model.toFixed(brier ? 3 : 1)} <small>{brier ? "Brier score" : "yds MAE"}</small></div>
               <div className="mut">
-                vs {b.mae_naive.toFixed(1)} for a last-5 average ({better.toFixed(1)}% better) · bias {signed(b.bias)}
+                {brier
+                  ? `vs ${b.mae_naive.toFixed(3)} for always predicting the average TD rate (${better.toFixed(1)}% better; lower is better)`
+                  : `vs ${b.mae_naive.toFixed(1)} for a last-5 average (${better.toFixed(1)}% better)`} · bias {signed(b.bias, brier ? 3 : 1)}
               </div>
+              {brier && b.calibration && b.calibration.length > 0 && (
+                <table className="calib" aria-label="Anytime TD calibration">
+                  <thead><tr><th>Predicted</th><th>Actual</th><th>Games</th></tr></thead>
+                  <tbody>
+                    {b.calibration.map((c, i) => (
+                      <tr key={i}><td>{(c.predicted * 100).toFixed(0)}%</td><td>{(c.actual * 100).toFixed(0)}%</td><td>{c.n}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           );
         })}

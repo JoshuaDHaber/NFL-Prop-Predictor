@@ -4,6 +4,9 @@ import pandas as pd
 
 from . import odds
 from .model import prob_over_under
+from .td import TD_ASSUMED_HOLD, TD_MIN_MARKET_WEIGHT  # noqa: F401  (re-exported for callers and tests)
+
+
 
 PICK_COLUMNS = [
     "player_id", "name", "pos", "team", "opp", "home", "kind", "mu", "sd", "status", "game_id", "gameday", "gametime",
@@ -24,6 +27,8 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
 
     # market no-vig consensus per player/market
     lines["nv_o"] = odds.implied(lines.over_odds) / (odds.implied(lines.over_odds) + odds.implied(lines.under_odds))
+    td_only = (lines.market == "td") & lines.under_odds.isna()
+    lines.loc[td_only, "nv_o"] = odds.implied(lines.loc[td_only, "over_odds"]) / (1 + TD_ASSUMED_HOLD)
     cons = lines.groupby(["key", "market"]).agg(line=("line", "median"), nv_o=("nv_o", "mean"), books=("book", "nunique"))
 
     out = []
@@ -37,9 +42,10 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
         if only_book and r.book != only_book:
             continue
         var = p.sd ** 2
-        po, pu = prob_over_under(p.mu, r.line, var)
+        is_td = r.market == "td"
+        po, pu = (p.mu, 1 - p.mu) if is_td else prob_over_under(p.mu, r.line, var)  # TD: mu already is P(>=1 TD)
         mk_over = c.nv_o
-        if pd.notna(mk_over) and abs(c.line - r.line) > 1e-9:
+        if not is_td and pd.notna(mk_over) and abs(c.line - r.line) > 1e-9:
             # shift the consensus probability to this book's line using the model's own slope
             po_c, _ = prob_over_under(p.mu, c.line, var)
             mk_over = float(np.clip(c.nv_o + (po - po_c), 0.02, 0.98))
@@ -47,16 +53,19 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
             if pd.isna(odd):
                 continue
             mk = p_side if pd.isna(mk) else mk  # only one side posted: no market view to blend
-            prob = (1 - market_weight) * p_side + market_weight * mk
+            w = max(market_weight, TD_MIN_MARKET_WEIGHT) if is_td else market_weight
+            prob = (1 - w) * p_side + w * mk
             dec = float(odds.american_to_dec(odd))
             ev = prob * (dec - 1) - (1 - prob)
+            # yardage: projection minus line in yards; TD: model minus market chance in percentage points
+            edge = (p_side - mk) * 100 if is_td else (p.mu - r.line) * (1 if side == "Over" else -1)
+            flagged = (not (0.6 <= p_side / max(mk, 1e-6) <= 1.67)) if is_td else not (0.6 <= p.mu / max(c.line, 0.5) <= 1.67)
             out.append(dict(
                 player_id=p.player_id, name=p.name, pos=p.pos, team=p.team, opp=p.opp, home=bool(p.home), kind=r.market,
                 mu=p.mu, sd=p.sd, status=p.status, game_id=p.game_id, gameday=p.gameday, gametime=p.gametime,
                 side=side, line=float(r.line), odds=int(odd), book=r.book, p_model=p_side, p_mkt=mk, prob=prob, ev=ev,
                 kelly=max(0.0, ev / (dec - 1)) / 4, books=int(c.books),
-                edge_yds=(p.mu - r.line) * (1 if side == "Over" else -1),
-                flagged=not (0.6 <= p.mu / max(c.line, 0.5) <= 1.67)))
+                edge_yds=edge, flagged=flagged))
     df = pd.DataFrame(out, columns=PICK_COLUMNS)
     if df.empty:
         return df

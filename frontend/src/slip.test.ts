@@ -208,3 +208,14 @@ describe("sharing a slip", () => {
     expect(isBookUrl("javascript:alert(1)")).toBe(false);
   });
 });
+
+describe("anytime TD legs", () => {
+  const tdLeg = leg({ kind: "td", side: "Over", line: 0.5, odds: 150, book: "FanDuel", name: "Test Back" });
+  it("reads naturally in the copied slip text", () => {
+    expect(slipText([tdLeg])).toBe("FanDuel\n  - Test Back Anytime TD (vs BBB) +150 @ FanDuel");
+  });
+  it("survives a trip through a shared phone link", () => {
+    const back = decodeSlip(encodeSlip([tdLeg], ""))!;
+    expect(back.legs[0]).toMatchObject({ kind: "td", side: "Over", line: 0.5, odds: 150 });
+  });
+});

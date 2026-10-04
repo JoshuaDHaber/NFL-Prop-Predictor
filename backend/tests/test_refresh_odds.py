@@ -35,9 +35,10 @@ def clean_and_stub(monkeypatch):
 
 def test_first_refresh_fetches_main_and_alternate_lines_for_every_game(clean_and_stub):
     pipeline.refresh_odds("missing", log=lambda m: None)
-    assert clean_and_stub == [("evt1", ["pass", "rec", "rr", "rush"], ["pass", "rec", "rr", "rush"])]
+    # anytime TD is a main market with no alternates
+    assert clean_and_stub == [("evt1", ["pass", "rec", "rr", "rush", "td"], ["pass", "rec", "rr", "rush"])]
     with SessionLocal() as s:
-        assert {m for (m,) in s.query(OddsLine.market).distinct()} == {"rush", "rec", "pass", "rr"}
+        assert {m for (m,) in s.query(OddsLine.market).distinct()} == {"rush", "rec", "pass", "rr", "td"}
         assert s.query(AltLine).filter(AltLine.game_id == GAME).count() == 4
         assert s.query(AltLine).first().over_link == "https://sportsbook.draftkings.com/?outcomes=A"
 
@@ -62,7 +63,7 @@ def test_all_mode_refetches_everything_and_replaces_old_alternates(clean_and_stu
     pipeline.refresh_odds("missing", log=lambda m: None)
     clean_and_stub.clear()
     pipeline.refresh_odds("all", log=lambda m: None)
-    assert len(clean_and_stub) == 1 and clean_and_stub[0][1] == ["pass", "rec", "rr", "rush"]
+    assert len(clean_and_stub) == 1 and clean_and_stub[0][1] == ["pass", "rec", "rr", "rush", "td"]
     with SessionLocal() as s:
         assert s.query(AltLine).filter(AltLine.game_id == GAME).count() == 4  # replaced, not doubled
 

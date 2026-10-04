@@ -219,3 +219,10 @@ def test_hosted_postgres_urls_are_pointed_at_the_installed_driver():
     assert config.normalize_db_url("postgres://u:p@h/db") == "postgresql+psycopg://u:p@h/db"
     assert config.normalize_db_url("postgresql://u:p@h/db?sslmode=require") == "postgresql+psycopg://u:p@h/db?sslmode=require"
     assert config.normalize_db_url("sqlite:///x.db") == "sqlite:///x.db"
+
+
+def test_a_kind_can_be_excluded_from_picks_and_projections(client):
+    assert client.get("/api/projections", params={"exclude_kind": "rush"}).json() == []
+    assert len(client.get("/api/projections", params={"exclude_kind": "td"}).json()) == 2
+    assert client.get("/api/picks", params={"min_ev": -1, "exclude_kind": "rush"}).json() == []
+    assert client.get("/api/picks", params={"min_ev": -1, "exclude_kind": "td"}).json()

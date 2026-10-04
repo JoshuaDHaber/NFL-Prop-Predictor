@@ -2,7 +2,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel
 
-Kind = Literal["rush", "rec", "pass", "rr"]
+Kind = Literal["rush", "rec", "pass", "rr", "td"]
 
 
 class RunInfo(BaseModel):
@@ -13,11 +13,19 @@ class RunInfo(BaseModel):
     excluded: list[str]
 
 
+class CalibrationBin(BaseModel):
+    predicted: float
+    actual: float
+    n: int
+
+
 class BacktestStat(BaseModel):
     n: int
-    mae_model: float
-    mae_naive: float
+    mae_model: float   # mean absolute error in yards; for anytime TD, the Brier score
+    mae_naive: float   # same measure for the naive baseline
     bias: float
+    metric: str = "mae"  # "mae" or "brier"
+    calibration: list[CalibrationBin] = []
 
 
 class OddsInfo(BaseModel):
