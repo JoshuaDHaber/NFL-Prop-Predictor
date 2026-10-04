@@ -2,6 +2,8 @@
 import hmac
 import os
 import threading
+import time
+from urllib.parse import unquote
 from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import lru_cache
@@ -41,22 +43,52 @@ app = FastAPI(title="NFL Prop Predictor", version="1.0", lifespan=lifespan)
 LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
 
-def is_admin(request: Request) -> bool:
-    """May this request change data or spend API credits? Yes from this machine, or with the ADMIN_TOKEN."""
+# Failed password guesses per client, to slow brute-forcing of a human-chosen admin password.
+_FAILS: dict[str, list[float]] = {}
+MAX_FAILS, FAIL_WINDOW = 5, 60.0  # more than this many wrong guesses in a minute are refused with 429
+
+
+def client_key(request: Request) -> str:
+    """Who is asking. Behind a host's proxy the real client is the last X-Forwarded-For entry (the one the proxy added)."""
+    fwd = request.headers.get("x-forwarded-for", "")
+    return fwd.split(",")[-1].strip() if fwd else (request.client.host if request.client else "")
+
+
+def check_admin(request: Request) -> str:
+    """'ok' (may change data / spend API credits), 'no', or 'throttled' (too many wrong guesses lately).
+
+    Allowed from this machine, or with the admin password sent as a Bearer token. The right password always
+    works, so a stranger's guesses can never lock the owner out; only wrong guesses are slowed.
+    """
     host = request.client.host if request.client else ""
     if host in LOCAL_HOSTS:
-        return True
-    token = config.ADMIN_TOKEN()
+        return "ok"
+    password = config.ADMIN_TOKEN()
     given = request.headers.get("authorization", "")
-    return bool(token) and given.startswith("Bearer ") and hmac.compare_digest(given[7:], token)
+    if not (password and given.startswith("Bearer ")):
+        return "no"
+    if hmac.compare_digest(unquote(given[7:]).encode(), password.encode()):
+        return "ok"
+    key, now = client_key(request), time.time()
+    recent = [t for t in _FAILS.get(key, []) if now - t < FAIL_WINDOW]
+    _FAILS[key] = recent + [now]
+    return "throttled" if len(recent) >= MAX_FAILS else "no"
+
+
+def is_admin(request: Request) -> bool:
+    return check_admin(request) == "ok"
 
 
 @app.middleware("http")
 async def admin_writes_only(request: Request, call_next):
     """The app can be served beyond this machine (LAN, Tailscale, a host). Writes are POSTs, and those
     (refreshes, alt-line fetches) spend API credits, so they need to come from here or carry the admin token."""
-    if request.method not in ("GET", "HEAD", "OPTIONS") and not is_admin(request):
-        return JSONResponse({"detail": "Admin only"}, status_code=403)
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        verdict = check_admin(request)
+        if verdict == "throttled":
+            return JSONResponse({"detail": "Too many wrong passwords. Wait a minute."}, status_code=429)
+        if verdict != "ok":
+            return JSONResponse({"detail": "Admin only"}, status_code=403)
     return await call_next(request)
 
 

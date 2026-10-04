@@ -122,7 +122,7 @@ Requires Python 3.9+ and Node 20+. Everything goes through one script:
 
 ## Going live: Render API + GitHub Pages site
 
-The React app is served from GitHub Pages and calls the API hosted on Render, so the public site is the real, working app. Anyone can browse; refreshing data and fetching alternate lines (which spend Odds API credits) need your **admin token**.
+The React app is served from GitHub Pages and calls the API hosted on Render, so the public site is the real, working app. Anyone can browse; refreshing data and fetching alternate lines (which spend Odds API credits) need your **admin password**. It's the `ADMIN_TOKEN` environment variable on Render: Render generates a random one, but you can replace it with a password only you know (Environment tab → edit `ADMIN_TOKEN` → Save; use 12+ characters). Repeated wrong guesses from one client are slowed down (429), and the right password always works.
 
 ```
 GitHub Pages (React)  ──HTTPS──▶  Render (FastAPI)  ──▶  Neon Postgres (free)
@@ -137,9 +137,9 @@ GitHub Pages (React)  ──HTTPS──▶  Render (FastAPI)  ──▶  Neon Po
    ```bash
    DATABASE_URL='postgresql://…' ./run.sh push-data
    ```
-3. **Render:** New → Blueprint → pick this repo (it reads `render.yaml`). When asked, set `DATABASE_URL` (the Neon string) and `ODDS_API_KEY`. After the deploy, copy the service URL (`https://nfl-prop-predictor-api.onrender.com`) and, from the service's Environment tab, the generated `ADMIN_TOKEN`.
+3. **Render:** New → Blueprint → pick this repo (it reads `render.yaml`). When asked, set `DATABASE_URL` (the Neon string) and `ODDS_API_KEY`. After the deploy, copy the service URL (`https://nfl-prop-predictor-api.onrender.com`). Then, in the service's Environment tab, set `ADMIN_TOKEN` to your own password.
 4. **GitHub:** Settings → Secrets and variables → Actions → **Variables** → new variable `API_URL` = the Render URL. Settings → Pages → Source: **GitHub Actions**. Merge to `main` (or run the "Deploy demo to GitHub Pages" workflow). If your GitHub user isn't `JoshuaDHaber`, change `CORS_ORIGINS` in Render to your Pages origin.
-5. **Open the site, click Admin, paste the admin token.** Refresh controls appear for you only (the token stays in that browser).
+5. **Open the site, click Admin, enter the admin password.** Refresh controls appear for you only (it stays in that browser).
 
 **Each week:** `DATABASE_URL='postgresql://…' ./run.sh refresh` runs the model and stores projections straight into Neon; then use *Fetch odds* on the site (or the same command with `--odds missing`) to pull lines.
 

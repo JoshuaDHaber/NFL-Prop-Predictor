@@ -15,7 +15,7 @@ services:
         sync: false
       - key: ODDS_API_KEY        # set in the Render dashboard
         sync: false
-      - key: ADMIN_TOKEN         # generated for you; paste it into the app's Admin box to refresh data
+      - key: ADMIN_TOKEN         # your admin PASSWORD: replace this generated value with one you choose (Environment tab)
         generateValue: true
       - key: CORS_ORIGINS        # the GitHub Pages origin
         value: https://joshuadhaber.github.io

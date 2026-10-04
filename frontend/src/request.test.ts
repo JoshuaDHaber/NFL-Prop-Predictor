@@ -53,6 +53,18 @@ describe("request against a hosted API", () => {
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer s3cret");
   });
 
+  it("percent-encodes a password with symbols or accents so the header is always valid", async () => {
+    const { request, setToken } = await load("https://api.example.com");
+    setToken("my p@ss/w0rd 100%! é");
+    const fetchMock = vi.fn().mockResolvedValue(res(200));
+    vi.stubGlobal("fetch", fetchMock);
+    await request("/api/meta");
+    const header = fetchMock.mock.calls[0][1].headers.Authorization as string;
+    expect(header).toBe(`Bearer ${encodeURIComponent("my p@ss/w0rd 100%! é")}`);
+    expect(decodeURIComponent(header.slice(7))).toBe("my p@ss/w0rd 100%! é"); // the server reverses exactly this
+    expect(/^[\x20-\x7e]*$/.test(header)).toBe(true); // plain ASCII, so fetch accepts it
+  });
+
   it("gives up after the wake window instead of retrying forever", async () => {
     const { request } = await load("https://api.example.com");
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));

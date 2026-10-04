@@ -244,3 +244,45 @@ def test_old_runs_with_only_gamma_parameters_still_price(client):
     assert main._dists(run) == {}  # legacy [a, b] lists are ignored, so pricing falls back to the gamma curve
     run.variance = {"rush": dict(mu=[1.0], sd=[1.0], z=[0.0]), "td": [1.0, 0.0]}
     assert list(main._dists(run)) == ["rush"]
+
+
+# ---------- a human-chosen admin password ----------
+def _post(client, password):
+    return client.post("/api/refresh", json={"odds": "none"}, headers={"Authorization": f"Bearer {password}"})
+
+
+def test_a_password_with_symbols_works_when_the_browser_percent_encodes_it(monkeypatch):
+    from urllib.parse import quote
+    monkeypatch.setenv("ADMIN_TOKEN", "my p@ss/w0rd 100%!")
+    monkeypatch.setattr(main.pipeline, "run_projections", lambda log=print: None)
+    monkeypatch.setattr(main.pipeline, "refresh_odds", lambda mode, log=print: None)
+    with TestClient(main.app, client=("203.0.113.20", 4000)) as remote:
+        assert _post(remote, quote("my p@ss/w0rd 100%!", safe="")).status_code == 202
+        main._job.update(state="idle")
+
+
+def test_repeated_wrong_guesses_are_throttled_but_the_right_password_still_works(monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", "correct-horse")
+    monkeypatch.setattr(main.pipeline, "run_projections", lambda log=print: None)
+    monkeypatch.setattr(main.pipeline, "refresh_odds", lambda mode, log=print: None)
+    main._FAILS.clear()
+    with TestClient(main.app, client=("203.0.113.21", 4000)) as attacker:
+        assert [_post(attacker, f"guess{i}").status_code for i in range(main.MAX_FAILS)] == [403] * main.MAX_FAILS
+        assert _post(attacker, "one-more-guess").status_code == 429       # slowed down
+        assert _post(attacker, "correct-horse").status_code == 202        # but the owner is never locked out
+        main._job.update(state="idle")
+    with TestClient(main.app, client=("203.0.113.22", 4000)) as other:
+        assert _post(other, "nope").status_code == 403                   # throttling is per client
+    main._FAILS.clear()
+
+
+def test_behind_a_proxy_throttling_follows_the_forwarded_client_not_the_proxy(monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", "correct-horse")
+    main._FAILS.clear()
+    with TestClient(main.app, client=("10.0.0.9", 4000)) as proxy:  # every request arrives from the proxy
+        for i in range(main.MAX_FAILS + 1):
+            proxy.post("/api/refresh", json={"odds": "none"}, headers={"Authorization": f"Bearer bad{i}", "X-Forwarded-For": "198.51.100.7"})
+        blocked = proxy.post("/api/refresh", json={"odds": "none"}, headers={"Authorization": "Bearer bad", "X-Forwarded-For": "198.51.100.7"})
+        innocent = proxy.post("/api/refresh", json={"odds": "none"}, headers={"Authorization": "Bearer bad", "X-Forwarded-For": "198.51.100.8"})
+    assert blocked.status_code == 429 and innocent.status_code == 403
+    main._FAILS.clear()

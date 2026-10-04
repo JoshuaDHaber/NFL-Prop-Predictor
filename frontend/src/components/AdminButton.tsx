@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { setToken, useToken } from "../auth";
 
-/** Unlocks refreshes and alternate-line fetches on a hosted API. Everyone else gets the read-only app. */
+/** Unlocks refreshes and alternate-line fetches on a hosted API with the owner's password. Everyone else gets the read-only app. */
 export default function AdminButton({ canWrite }: { canWrite: boolean }) {
   const qc = useQueryClient();
   const token = useToken();
@@ -15,7 +15,7 @@ export default function AdminButton({ canWrite }: { canWrite: boolean }) {
   return (
     <div className="admin">
       <button className="link" onClick={() => setOpen(!open)} aria-expanded={open}>
-        {canWrite ? "Admin ✓" : token ? "Admin (token rejected)" : "Admin"}
+        {canWrite ? "Admin ✓" : token ? "Admin (wrong password)" : "Admin"}
       </button>
       {open && (
         <div className="admin-pop">
@@ -26,8 +26,8 @@ export default function AdminButton({ canWrite }: { canWrite: boolean }) {
             </>
           ) : (
             <>
-              <p className="mut">Enter the admin token to refresh data on this site. Visitors without it can browse but not spend API credits.</p>
-              <input type="password" value={draft} placeholder="Admin token" autoComplete="off"
+              <p className="mut">Enter the admin password to refresh data on this site. Visitors without it can browse but can't spend API credits. Repeated wrong guesses are slowed down.</p>
+              <input type="password" value={draft} placeholder="Admin password" autoComplete="off"
                 onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && draft && save()} />
               <button className="primary" disabled={!draft} onClick={save}>Unlock</button>
             </>

@@ -45,6 +45,7 @@ export default function RefreshButton({ meta }: { meta: Meta }) {
           </button>
         </div>
       )}
+      {start.error && <div className="job"><div className="err">{(start.error as Error).message}</div></div>}
       {(running || job.state === "error") && (
         <div className="job" aria-live="polite">
           {job.log.slice(-3).map((l, i) => <div key={i}>{l}</div>)}
