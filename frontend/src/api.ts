@@ -77,12 +77,12 @@ async function get<T>(path: string, params: Record<string, string | number | boo
   return res.json();
 }
 
-export interface Filters { kind: Kind | "all"; game: string; book: string; q: string; minEv: number; marketWeight: number; flagged: boolean }
+export interface Filters { kind: Kind | "all"; side: "all" | "Over" | "Under"; game: string; book: string; q: string; minEv: number; marketWeight: number; flagged: boolean }
 
 const liveApi = {
   meta: () => get<Meta>("meta"),
   picks: (f: Filters) =>
-    get<Pick[]>("picks", { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, game_id: f.game, book: f.book, q: f.q, min_ev: f.minEv, market_weight: f.marketWeight,
+    get<Pick[]>("picks", { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, side: f.side, game_id: f.game, book: f.book, q: f.q, min_ev: f.minEv, market_weight: f.marketWeight,
       include_flagged: f.flagged, limit: 300 }),
   projections: (f: Filters) => get<Projection[]>("projections", { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, game_id: f.game, q: f.q }),
   player: (id: string, marketWeight: number) => get<PlayerDetail>(`players/${id}`, { market_weight: marketWeight }),
@@ -125,7 +125,7 @@ const staticApi: typeof liveApi = {
     const all = await file<Pick[]>(`picks/${f.book === "all" ? "all" : slug(f.book)}.json`);
     const q = f.q.toLowerCase();
     return all
-      .filter((p) => p.ev >= f.minEv && (f.flagged || !p.flagged) && (f.kind === "all" ? p.kind !== "td" : p.kind === f.kind)
+      .filter((p) => p.ev >= f.minEv && (f.flagged || !p.flagged) && (f.side === "all" || p.side === f.side) && (f.kind === "all" ? p.kind !== "td" : p.kind === f.kind)
         && (f.game === "all" || p.game_id === f.game) && (!q || p.name.toLowerCase().includes(q)))
       .sort((a, b) => b.ev - a.ev)
       .slice(0, 300);

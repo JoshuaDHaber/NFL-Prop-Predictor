@@ -5,7 +5,7 @@ import threading
 from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import lru_cache
-from typing import Optional
+from typing import Literal, Optional
 
 import numpy as np
 import pandas as pd
@@ -218,8 +218,8 @@ def projections(kind: Optional[Kind] = None, exclude_kind: Optional[Kind] = None
 
 
 @app.get("/api/picks", response_model=list[PickOut])
-def picks(kind: Optional[Kind] = None, exclude_kind: Optional[Kind] = None, game_id: Optional[str] = None, q: Optional[str] = None,
-          book: Optional[str] = None,
+def picks(kind: Optional[Kind] = None, exclude_kind: Optional[Kind] = None, side: Optional[Literal["Over", "Under"]] = None,
+          game_id: Optional[str] = None, q: Optional[str] = None, book: Optional[str] = None,
           min_ev: float = Query(0.03, ge=-1, le=1), market_weight: float = Query(0.35, ge=0, le=1),
           include_flagged: bool = False, limit: int = Query(200, ge=1, le=1000), db: Session = Depends(get_db)):
     run = latest_run(db)
@@ -235,6 +235,8 @@ def picks(kind: Optional[Kind] = None, exclude_kind: Optional[Kind] = None, game
         df = df[df.kind == kind]
     if exclude_kind:
         df = df[df.kind != exclude_kind]
+    if side:
+        df = df[df.side == side]
     if game_id:
         df = df[df.game_id == game_id]
     if q:

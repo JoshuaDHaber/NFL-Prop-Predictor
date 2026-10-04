@@ -21,7 +21,7 @@ const TABS: [Tab, string][] = [["picks", "Best props"], ["projections", "Project
 export default function App() {
   const waking = useWaking();
   const [tab, setTab] = useState<Tab>("picks");
-  const [filters, setFilters] = useState<Filters>({ kind: "all", game: "all", book: "all", q: "", minEv: 0.03, marketWeight: 0.35, flagged: false });
+  const [filters, setFilters] = useState<Filters>({ kind: "all", side: "all", game: "all", book: "all", q: "", minEv: 0.03, marketWeight: 0.35, flagged: false });
   const [selected, setSelected] = useState<{ id: string; kind: Kind } | null>(null);
   const debounced = useDebounced(filters, 250);
 

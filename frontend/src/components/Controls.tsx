@@ -24,6 +24,16 @@ export default function Controls({ filters, onChange, games, books, showPickCont
           </button>
         ))}
       </div>
+      {showPickControls && (
+        <div className="seg" role="tablist" aria-label="Over or under">
+          {(["all", "Over", "Under"] as const).map((s) => (
+            <button key={s} role="tab" aria-selected={filters.side === s} className={filters.side === s ? "on" : ""}
+              onClick={() => set({ side: s })}>
+              {s === "all" ? "Overs & unders" : filters.kind === "td" ? (s === "Over" ? "Anytime TD" : "No TD") : `${s}s`}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="row">
         <select value={filters.game} onChange={(e) => set({ game: e.target.value })} aria-label="Game">
           <option value="all">All games</option>
@@ -39,9 +49,9 @@ export default function Controls({ filters, onChange, games, books, showPickCont
           aria-label="Search player" />
         {showPickControls && (
           <>
-            <label className="slider" title="Minimum expected value per $1 staked">
+            <label className="slider" title="Minimum expected value per $1 staked. Slide below 0 to see the closest plays that are not yet positive">
               <span>Min EV <b>{signedPct(filters.minEv)}</b></span>
-              <input type="range" min={0} max={0.2} step={0.01} value={filters.minEv}
+              <input type="range" min={-0.1} max={0.2} step={0.01} value={filters.minEv}
                 onChange={(e) => set({ minEv: Number(e.target.value) })} />
             </label>
             <label className="slider" title={IS_STATIC ? "Fixed at 35% in the demo snapshot" : "How much to blend the market's no-vig probability into the model's"}>

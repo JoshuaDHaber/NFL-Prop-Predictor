@@ -226,3 +226,13 @@ def test_a_kind_can_be_excluded_from_picks_and_projections(client):
     assert len(client.get("/api/projections", params={"exclude_kind": "td"}).json()) == 2
     assert client.get("/api/picks", params={"min_ev": -1, "exclude_kind": "rush"}).json() == []
     assert client.get("/api/picks", params={"min_ev": -1, "exclude_kind": "td"}).json()
+
+
+def test_picks_can_be_limited_to_overs_or_unders(client):
+    both = client.get("/api/picks", params={"min_ev": -1}).json()
+    assert {p["side"] for p in both} == {"Over", "Under"}
+    overs = client.get("/api/picks", params={"min_ev": -1, "side": "Over"}).json()
+    unders = client.get("/api/picks", params={"min_ev": -1, "side": "Under"}).json()
+    assert overs and unders and {p["side"] for p in overs} == {"Over"} and {p["side"] for p in unders} == {"Under"}
+    assert len(overs) + len(unders) == len(both)
+    assert client.get("/api/picks", params={"side": "Sideways"}).status_code == 422

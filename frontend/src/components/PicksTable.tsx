@@ -8,7 +8,7 @@ export default function PicksTable({ picks, onSelect }: { picks: Pick[]; onSelec
   const th = (key: string, label: string, title?: string) => (
     <th scope="col" onClick={() => toggle(key)} title={title} aria-sort="none" className="sortable">{label}{arrow(key)}</th>
   );
-  if (!picks.length) return <div className="card empty">No plays clear the current filters.</div>;
+  if (!picks.length) return <div className="card empty">No plays clear the current filters. Try lowering Min EV (it can go below 0) to see the closest ones.</div>;
   return (
     <div className="card scroll">
       <table>
