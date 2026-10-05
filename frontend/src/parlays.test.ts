@@ -105,6 +105,12 @@ describe("ladder rungs", () => {
     expect(rungs.map((r) => [r.line, r.odds])).toEqual([[30.5, -250]]); // best price per line; -900 too short, +120 too unlikely, FanDuel skipped
     expect(rungs[0]).toMatchObject({ side: "Over", alt: true, link: "https://sportsbook.draftkings.com/?outcomes=30.5" });
   });
+  it("drops rungs without a usable betslip link", () => {
+    const noLink = rung(25.5, -200, 0.75, { over: { odds: -200, prob: 0.75, ev: 0, link: null } });
+    const template = rung(35.5, -200, 0.75, { over: { odds: -200, prob: 0.75, ev: 0, link: "https://{state}.betrivers.com/?coupon={pickType}|1|{wagerAmount}" } });
+    const needsState = rung(45.5, -200, 0.75, { over: { odds: -200, prob: 0.75, ev: 0, link: "https://sports.{state}.betmgm.com/en/sports?options=6:1-2-3&type=Single" } });
+    expect(ladderRungs(over(), ladder(noLink, template, needsState, rung(55.5, -200, 0.75)), "DraftKings").map((r) => r.line)).toEqual([45.5, 55.5]);
+  });
   it("blends the model's probability with the book's price", () => {
     const [r] = ladderRungs(over(), ladder(rung(30.5, -200, 0.9)), "DraftKings");
     expect(r.prob).toBeCloseTo(0.65 * 0.9 + 0.35 * (1 / 1.5));
@@ -159,6 +165,14 @@ describe("ladder parlays", () => {
     const [p] = buildLadderParlays([entry("a", rung(30.5, -200, 0.72)), entry("b", rung(40.5, -150, 0.66))], "DraftKings");
     expect(p.decimal).toBeCloseTo(toDecimal(-200) * toDecimal(-150));
     expect(p.american).toBe(toAmerican(p.decimal));
+  });
+
+  it("gives every leg of every ladder parlay a betslip link", () => {
+    const entries = [entry("a", rung(30.5, -200, 0.72), rung(35.5, -200, 0.72, { over: { odds: -100, prob: 0.9, ev: 0, link: null } })),
+      entry("b", rung(40.5, -150, 0.66)), entry("c", rung(20.5, -300, 0.78))];
+    const parlays = buildLadderParlays(entries, "DraftKings");
+    expect(parlays.length).toBeGreaterThan(0);
+    for (const p of parlays) for (const l of p.legs) expect(pickToLeg(l).link).toBeTruthy();
   });
 
   it("carries rung links onto the betslip leg", () => {

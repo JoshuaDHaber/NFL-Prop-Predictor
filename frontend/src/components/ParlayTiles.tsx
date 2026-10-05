@@ -65,7 +65,7 @@ export default function ParlayTiles({ books, book, onBook, parlays, ladders, lad
       <h2 className="parlay-h">Ladders <small>rushing and receiving overs stacked to +100 to +300</small></h2>
       {ladders.length
         ? <section className="parlays" aria-label="Ladder parlays">{ladders.map((p, i) => <ParlayCard key={p.key} p={p} lead={i === 0} />)}</section>
-        : <div className="card empty">{laddersLoading ? "Loading alternate lines…" : `No rushing or receiving over combinations at ${book ?? "this sportsbook"} land between +100 and +300. Try another book.`}</div>}
+        : <div className="card empty">{laddersLoading ? "Loading alternate lines…" : `No rushing or receiving over combinations with betslip links at ${book ?? "this sportsbook"} land between +100 and +300. Not every book publishes links for alternate lines; try another book.`}</div>}
 
       <p className="td-note">Hit chance multiplies each leg's win probability (the model blended with the book's price). Models miss context and parlays compound that: expect these to lose most of the time. Not betting advice.</p>
     </>

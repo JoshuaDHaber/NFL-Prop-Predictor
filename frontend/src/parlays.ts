@@ -1,5 +1,5 @@
 import type { Ladder, Pick } from "./api";
-import { legId, toAmerican, toDecimal, type Leg } from "./slip";
+import { legId, linkStatus, toAmerican, toDecimal, type Leg } from "./slip";
 
 /** Shortest price allowed on a leg: heavier chalk adds hit chance but almost no payout. */
 export const MIN_LEG_ODDS = -300;
@@ -135,12 +135,13 @@ export function ladderTargets(picks: Pick[], n = LADDER_PLAYERS): Pick[] {
   return out;
 }
 
-/** Likely overs at this book for one player, one per line: the main line and every alternate rung. */
+/** Likely overs at this book for one player, one per line. Only rungs with a usable betslip link count, so every ladder leg can be added at the book
+ *  (main lines have none, and some books publish no links or templates the slip can't fill). */
 export function ladderRungs(base: Pick, ladder: Ladder | undefined, book: string): ParlayLeg[] {
   const byLine = new Map<number, ParlayLeg>();
   for (const r of ladder?.quotes ?? []) {
     const q = r.over;
-    if (r.book !== book || !q || q.odds < LADDER_MIN_ODDS) continue;
+    if (r.book !== book || !q || q.odds < LADDER_MIN_ODDS || linkStatus({ link: q.link }, "xx") !== "direct") continue;
     const dec = toDecimal(q.odds);
     const prob = (1 - LADDER_MARKET_WEIGHT) * q.prob + LADDER_MARKET_WEIGHT / dec;
     if (prob < LADDER_MIN_PROB) continue;
