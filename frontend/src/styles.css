@@ -213,3 +213,5 @@ tr.clickable:hover td:last-child { border-top-right-radius: 10px; border-bottom-
 .leg-odds { text-align: right; font-weight: 600; white-space: nowrap; }
 .parlay-note { margin: 0; } .parlay button.primary { margin-top: auto; } .parlay button.primary:disabled { opacity: .6; cursor: default; }
 @media (max-width: 420px) { .tabs { gap: 2px; padding: 4px; } .tabs button { padding: 8px 7px; font-size: 12px; } }
+.parlay-h { font-size: 15px; margin: 18px 0 10px; } .parlay-h small { font-weight: 400; color: var(--mut); font-size: 12px; margin-left: 6px; }
+.parlay-books { margin-bottom: 4px; }

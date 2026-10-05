@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { Pick } from "./api";
-import { bestBook, candidates, parlaysByBook, pickToLeg, priceParlay, recommendParlays } from "./parlays";
+import type { Ladder, LadderRow, Pick } from "./api";
+import { bestBook, buildLadderParlays, candidates, defaultBook, ladderRungs, ladderTargets, parlaysByBook, pickToLeg, priceParlay, recommendParlays } from "./parlays";
+import { toAmerican, toDecimal } from "./slip";
 
 const pick = (o: Partial<Pick> = {}): Pick => ({
   player_id: "p1", name: "Test Back", pos: "RB", team: "AAA", opp: "BBB", home: true, kind: "rush", mu: 60, sd: 20, status: "",
@@ -89,5 +90,87 @@ describe("pickToLeg", () => {
     const leg = pickToLeg(p);
     expect(leg.id).toBe("p1|rush|Over|54.5|DraftKings");
     expect(leg).toMatchObject({ playerId: "p1", side: "Over", line: 54.5, odds: -120, book: "DraftKings", gameId: "g1", link: null });
+  });
+});
+
+const rung = (line: number, odds: number, prob: number, o: Partial<LadderRow> = {}): LadderRow =>
+  ({ line, book: "DraftKings", alt: true, event_link: null, over: { odds, prob, ev: 0, link: `https://sportsbook.draftkings.com/?outcomes=${line}` }, under: null, ...o });
+const ladder = (...quotes: LadderRow[]): Ladder => ({ kind: "rush", mu: 60, sd: 20, game_id: "g1", alt_fetched_at: null, quotes });
+const over = (o: Partial<Pick> = {}) => pick({ side: "Over", p_model: 0.8, ...o });
+
+describe("ladder rungs", () => {
+  it("keeps this book's likely overs at sane prices, with the rung's own link", () => {
+    const l = ladder(rung(30.5, -250, 0.75), rung(30.5, -300, 0.75), rung(20.5, -900, 0.9), rung(60.5, 120, 0.4), rung(40.5, -200, 0.7, { book: "FanDuel" }));
+    const rungs = ladderRungs(over(), l, "DraftKings");
+    expect(rungs.map((r) => [r.line, r.odds])).toEqual([[30.5, -250]]); // best price per line; -900 too short, +120 too unlikely, FanDuel skipped
+    expect(rungs[0]).toMatchObject({ side: "Over", alt: true, link: "https://sportsbook.draftkings.com/?outcomes=30.5" });
+  });
+  it("blends the model's probability with the book's price", () => {
+    const [r] = ladderRungs(over(), ladder(rung(30.5, -200, 0.9)), "DraftKings");
+    expect(r.prob).toBeCloseTo(0.65 * 0.9 + 0.35 * (1 / 1.5));
+  });
+});
+
+describe("ladder targets", () => {
+  it("takes one likely, unflagged rush/receiving over per player", () => {
+    const rows = [over({ player_id: "a", p_model: 0.6 }), over({ player_id: "a", kind: "rec", p_model: 0.9 }), over({ player_id: "b", p_model: 0.7 }),
+      over({ player_id: "c", flagged: true }), pick({ player_id: "d", side: "Under" }), over({ player_id: "e", kind: "pass" }), over({ player_id: "f", kind: "td" })];
+    expect(ladderTargets(rows).map((p) => p.player_id)).toEqual(["a", "b"]);
+    expect(ladderTargets(rows, 1)).toHaveLength(1);
+  });
+});
+
+describe("ladder parlays", () => {
+  const entry = (id: string, ...quotes: LadderRow[]) => ({ base: over({ player_id: id, name: id, game_id: "g1" }), ladder: ladder(...quotes) });
+
+  it("lands each parlay in its price band using different players, even from one game", () => {
+    const entries = [entry("a", rung(30.5, -200, 0.72)), entry("b", rung(40.5, -150, 0.66)), entry("c", rung(50.5, -180, 0.7)), entry("d", rung(20.5, -300, 0.78))];
+    const parlays = buildLadderParlays(entries, "DraftKings");
+    expect(parlays.length).toBeGreaterThan(0);
+    for (const p of parlays) {
+      expect(p.american).toBeGreaterThanOrEqual(100);
+      expect(p.american).toBeLessThanOrEqual(300);
+      expect(new Set(p.legs.map((l) => l.player_id)).size).toBe(p.legs.length);
+      expect(p.legs.length).toBeGreaterThanOrEqual(2);
+      expect(p.sameGame).toBe(true);
+      expect(p.book).toBe("DraftKings");
+    }
+    expect(parlays[0].key).toBe("ladder-1");
+  });
+
+  it("picks the likeliest combination in a band", () => {
+    // a+b and a+c both land in +100..+150; b is likelier than c
+    const entries = [entry("a", rung(30.5, -200, 0.7)), entry("b", rung(30.5, -180, 0.75)), entry("c", rung(30.5, -180, 0.6))];
+    const [first] = buildLadderParlays(entries, "DraftKings");
+    expect(first.legs.map((l) => l.player_id).sort()).toEqual(["a", "b"]);
+  });
+
+  it("can choose between several rungs of one player but never uses two", () => {
+    const entries = [entry("a", rung(20.5, -400, 0.8), rung(30.5, -250, 0.7), rung(40.5, -150, 0.62)), entry("b", rung(30.5, -200, 0.7))];
+    for (const p of buildLadderParlays(entries, "DraftKings")) expect(p.legs.filter((l) => l.player_id === "a").length).toBeLessThanOrEqual(1);
+  });
+
+  it("returns nothing when no combination reaches +100, and only reads the chosen book", () => {
+    expect(buildLadderParlays([entry("a", rung(10.5, -400, 0.85)), entry("b", rung(10.5, -400, 0.85))], "DraftKings")).toEqual([]);
+    expect(buildLadderParlays([entry("a", rung(30.5, -150, 0.7)), entry("b", rung(30.5, -150, 0.7))], "FanDuel")).toEqual([]);
+  });
+
+  it("prices the combined odds from the rung prices", () => {
+    const [p] = buildLadderParlays([entry("a", rung(30.5, -200, 0.72)), entry("b", rung(40.5, -150, 0.66))], "DraftKings");
+    expect(p.decimal).toBeCloseTo(toDecimal(-200) * toDecimal(-150));
+    expect(p.american).toBe(toAmerican(p.decimal));
+  });
+
+  it("carries rung links onto the betslip leg", () => {
+    const [p] = buildLadderParlays([entry("a", rung(30.5, -200, 0.72)), entry("b", rung(40.5, -150, 0.66))], "DraftKings");
+    expect(pickToLeg(p.legs[0])).toMatchObject({ alt: true, link: expect.stringContaining("draftkings.com") });
+  });
+});
+
+describe("defaultBook", () => {
+  it("falls back to the book with the most overs when no standard parlay exists", () => {
+    const picksByBook = { A: [over()], B: [over({ player_id: "x" }), over({ player_id: "y" })], C: [] };
+    expect(defaultBook({}, picksByBook)).toBe("B");
+    expect(defaultBook({}, {})).toBeNull();
   });
 });

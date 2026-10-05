@@ -1,4 +1,4 @@
-import type { Pick } from "./api";
+import type { Ladder, Pick } from "./api";
 import { legId, toAmerican, toDecimal, type Leg } from "./slip";
 
 /** Shortest price allowed on a leg: heavier chalk adds hit chance but almost no payout. */
@@ -6,12 +6,17 @@ export const MIN_LEG_ODDS = -300;
 /** Lowest win probability a leg needs to be considered "high probability". */
 export const MIN_LEG_PROB = 0.6;
 
+/** A parlay leg: a priced pick, plus the betslip link when it came from a line ladder. */
+export interface ParlayLeg extends Pick { link?: string | null; eventLink?: string | null; alt?: boolean }
+
 export interface Parlay {
   key: string;
   title: string;
   blurb: string;
-  legs: Pick[];
-  /** Chance every leg hits, treating legs as independent (they come from different games, so that's reasonable). */
+  legs: ParlayLeg[];
+  /** True when two legs share a game. Their correlation isn't modelled, so the hit chance is only approximate. */
+  sameGame: boolean;
+  /** Chance every leg hits, treating legs as independent (exact enough for different games). */
   prob: number;
   decimal: number;
   american: number;
@@ -45,7 +50,8 @@ export function priceParlay(legs: Pick[]): Omit<Parlay, "key" | "title" | "blurb
   if (new Set(legs.map((l) => l.book)).size > 1) throw new Error("A parlay's legs must all be at one sportsbook");
   const decimal = legs.reduce((d, l) => d * toDecimal(l.odds), 1);
   const prob = legs.reduce((q, l) => q * l.prob, 1);
-  return { prob, decimal, american: toAmerican(decimal), ev: prob * decimal - 1, book: legs[0].book };
+  return { prob, decimal, american: toAmerican(decimal), ev: prob * decimal - 1, book: legs[0].book,
+    sameGame: new Set(legs.map((l) => l.game_id)).size < legs.length };
 }
 
 const byProb = (a: Pick, b: Pick) => b.prob - a.prob || b.ev - a.ev;
@@ -92,9 +98,103 @@ export function bestBook(byBook: Record<string, Parlay[]>): string | null {
   return books.sort((a, b) => byBook[b][0].ev - byBook[a][0].ev)[0] ?? null;
 }
 
+/** The book to show first: the best lead parlay, else the book with the most overs to ladder from. */
+export function defaultBook(byBook: Record<string, Parlay[]>, picksByBook: Record<string, Pick[]>): string | null {
+  const best = bestBook(byBook);
+  if (best) return best;
+  const overs = (b: string) => (picksByBook[b] ?? []).filter((p) => p.side === "Over" && (p.kind === "rush" || p.kind === "rec")).length;
+  return Object.keys(picksByBook).sort((a, b) => overs(b) - overs(a) || a.localeCompare(b))[0] ?? null;
+}
+
+// ---------- ladder parlays: likely rushing / receiving overs that stack to a modest price ----------
+export const LADDER_MIN_PROB = 0.6;
+/** Shortest price on a rung: heavier chalk can't help a parlay reach +100. */
+export const LADDER_MIN_ODDS = -400;
+/** Share of each rung's probability taken from the book's price: alternate lines are one-sided, so there is no no-vig price to blend with. */
+export const LADDER_MARKET_WEIGHT = 0.35;
+export const LADDER_MAX_LEGS = 4;
+export const LADDER_PLAYERS = 12;
+/** Combined-price bands, as decimal odds: +100 to +150, +150 to +225, +225 to +300. */
+export const LADDER_BANDS = [
+  { key: "ladder-1", title: "Ladder +100 to +150", lo: 2, hi: 2.5 },
+  { key: "ladder-2", title: "Ladder +150 to +225", lo: 2.5, hi: 3.25 },
+  { key: "ladder-3", title: "Ladder +225 to +300", lo: 3.25, hi: 4.0001 },
+];
+
+/** The players worth pulling a line ladder for: those whose main-line over looks likeliest (flagged plays are left out). */
+export function ladderTargets(picks: Pick[], n = LADDER_PLAYERS): Pick[] {
+  const seen = new Set<string>();
+  const out: Pick[] = [];
+  const overs = picks.filter((p) => p.side === "Over" && (p.kind === "rush" || p.kind === "rec") && !p.flagged);
+  for (const p of overs.sort((a, b) => b.p_model - a.p_model)) {
+    if (seen.has(p.player_id)) continue;
+    seen.add(p.player_id);
+    out.push(p);
+    if (out.length === n) break;
+  }
+  return out;
+}
+
+/** Likely overs at this book for one player, one per line: the main line and every alternate rung. */
+export function ladderRungs(base: Pick, ladder: Ladder | undefined, book: string): ParlayLeg[] {
+  const byLine = new Map<number, ParlayLeg>();
+  for (const r of ladder?.quotes ?? []) {
+    const q = r.over;
+    if (r.book !== book || !q || q.odds < LADDER_MIN_ODDS) continue;
+    const dec = toDecimal(q.odds);
+    const prob = (1 - LADDER_MARKET_WEIGHT) * q.prob + LADDER_MARKET_WEIGHT / dec;
+    if (prob < LADDER_MIN_PROB) continue;
+    const cur = byLine.get(r.line);
+    if (cur && cur.odds >= q.odds) continue;
+    byLine.set(r.line, { ...base, side: "Over", line: r.line, odds: q.odds, book, p_model: q.prob, p_mkt: 1 / dec, prob, ev: prob * dec - 1,
+      link: q.link, eventLink: r.event_link, alt: r.alt });
+  }
+  return [...byLine.values()].sort((a, b) => a.line - b.line);
+}
+
+/**
+ * Ladder parlays at one book: 2-4 different players' overs whose combined price lands in each band, picking the likeliest combo per band.
+ * Games may repeat (it's meant to work on a thin slate), so same-game legs are flagged on the result.
+ */
+export function buildLadderParlays(entries: { base: Pick; ladder: Ladder | undefined }[], book: string): Parlay[] {
+  const players = entries.map((e) => ladderRungs(e.base, e.ladder, book)).filter((r) => r.length);
+  const best: (ParlayLeg[] | null)[] = LADDER_BANDS.map(() => null);
+  const bestProb = LADDER_BANDS.map(() => 0);
+  const top = LADDER_BANDS[LADDER_BANDS.length - 1].hi;
+  const dfs = (from: number, chosen: ParlayLeg[], dec: number, prob: number) => {
+    if (chosen.length >= 2) {
+      const b = LADDER_BANDS.findIndex((x) => dec >= x.lo && dec < x.hi);
+      if (b >= 0 && prob > bestProb[b]) { best[b] = [...chosen]; bestProb[b] = prob; }
+    }
+    if (chosen.length === LADDER_MAX_LEGS) return;
+    for (let i = from; i < players.length; i++) {
+      for (const leg of players[i]) {
+        const next = dec * toDecimal(leg.odds);
+        if (next >= top) continue; // prices only grow as legs are added
+        chosen.push(leg);
+        dfs(i + 1, chosen, next, prob * leg.prob);
+        chosen.pop();
+      }
+    }
+  };
+  dfs(0, [], 1, 1);
+  const seen = new Set<string>();
+  const out: Parlay[] = [];
+  LADDER_BANDS.forEach((band, i) => {
+    const legs = best[i];
+    if (!legs) return;
+    const sig = legs.map(pickKey).sort().join("&");
+    if (seen.has(sig)) return;
+    seen.add(sig);
+    out.push({ key: band.key, title: band.title, blurb: "Likely rushing and receiving overs, on alternate lines where needed, stacked to a modest price.",
+      legs, ...priceParlay(legs) });
+  });
+  return out;
+}
+
 /** A pick as a betslip leg. Links aren't part of a pick; the slip's "Get links" and book switcher fill those in. */
-export function pickToLeg(p: Pick): Leg {
+export function pickToLeg(p: ParlayLeg): Leg {
   const base = { playerId: p.player_id, kind: p.kind, side: p.side, line: p.line, book: p.book };
   return { id: legId(base), ...base, name: p.name, team: p.team, opp: p.opp, home: p.home, odds: p.odds,
-    link: null, eventLink: null, alt: false, prob: p.prob, ev: p.ev, gameId: p.game_id };
+    link: p.link ?? null, eventLink: p.eventLink ?? null, alt: p.alt ?? false, prob: p.prob, ev: p.ev, gameId: p.game_id };
 }
