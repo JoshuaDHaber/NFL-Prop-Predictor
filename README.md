@@ -71,7 +71,14 @@ Yards = **volume x efficiency**:
 - **Recency weighting:** exponential decay (5-game half-life) across seasons, so recent games dominate while last year anchors small samples.
 - **Shrinkage:** efficiency is pulled toward the position mean with a pseudo-count prior, because yards per attempt is noisy. Volume is shrunk only lightly (and not at all for most quarterback volume), since roles are stable.
 - **Opponent and game script:** a shrunk yards-allowed factor for the defense, and a point-spread nudge (favorites run more, underdogs pass more).
+- **Injured teammates:** see "Injury redistribution" below.
 - **Availability:** the active roster decides a player's team. Injured reserve, Out/Doubtful, players with no practice and no game status, and offseason arrivals with no games for their new team are excluded.
+
+### Injury redistribution (rushing)
+
+When a regular is out, his volume goes to his teammates and the books price that in. For each team-game the model finds absent regulars (ruled Out or Doubtful, sat out practice with no game status, or no longer on the active roster, and projected at 8+ carries), takes the volume they would have had, subtracts the part teammates' recent history already reflects (the longer someone has been out, the more of that is already in), and hands a fitted share of the rest to the active teammates **in the same position group** in proportion to their own projected carries. The share is fitted in the backtest (about 62% of the missing carries) and then shrunk by 35% (to about 40%), because the fit on volume overshoots once volume becomes yards; held-out weeks and a replay of past weeks both put the best share at 50-75% of the fit.
+
+It was tested on held-out weeks, market by market, and only rushing is switched on. In the backtest, rushing teammates of an absent back were under-projected by about 8 yards (+25%, ~3.5 standard errors); with redistribution that bias is about 0 to +1 yard on held-out weeks and in the replay, and average error is no worse (23.2 to 22.9 held out, unchanged in the replay; neither difference is statistically meaningful at ~200 games). Receiving (targets) and passing (attempts) were tried the same way and made held-out error worse (overshooting), so they're off. The Model check tab shows the numbers for the current run.
 
 ### Anytime touchdown
 
@@ -186,7 +193,7 @@ frontend/src/      App, components (picks table, player drawer, line ladder, bet
 ## Limitations
 
 - **The backtest has no historical odds,** so it validates accuracy, not profitability. Sportsbook prop markets are efficient; a large apparent edge usually means the model is missing context.
-- **No teammate redistribution:** when a starter is out, his volume is not moved to backups, so backups are under-projected. This is the biggest known accuracy gap.
+- **Teammate redistribution covers carries only:** when a back is out his carries move to his teammates, but a missing receiver's targets or quarterback's attempts are not redistributed (tested, and it made held-out error worse). Backups at those positions are still under-projected.
 - **Heuristic adjustments:** opponent and game-script effects are reasonable but untuned.
 - **Rush + Rec** treats its two parts as independent, though they are often negatively correlated.
 - **Early-season samples are small;** projections lean on last season until enough of this one is played.
@@ -195,7 +202,7 @@ frontend/src/      App, components (picks table, player drawer, line ladder, bet
 
 ## Roadmap
 
-- Redistribute volume to teammates when a starter is out.
+- Redistribute targets and attempts too, if a better allocation than "same position group" can be shown to help on held-out weeks.
 - Model team-level pass/run volume explicitly, then split it among players.
 - Weather, pace and offensive-line context.
 - Store pick history and track closing-line value as an out-of-sample test.

@@ -117,15 +117,71 @@ def actual_hist(df, kind):
     return df["rushing_yards"].fillna(0) + df["receiving_yards"].fillna(0) if kind == "rr" else df[CFG[kind]["yds"]]
 
 
-def walk_forward(df, priors, sched, start_t, td_priors=None):
+def _lift_members(members, lost, rho, records=None, t=None, affected=None, only=None):
+    """Hand lost volume to active teammates of the same position group (in place on each member's comp).
+
+    members: dicts with pid, pos, comp (and row, for fitting). only: pids allowed to receive (default: all).
+    With records, collect (role, expected extra volume, observed extra volume, t) to fit rho."""
+    from . import redistribute as rd
+    receivers = [c for c in members if only is None or c["pid"] in only]
+    active_vol = {}
+    for c in receivers:
+        for kind in rd.ROLES:
+            if kind in c["comp"]:
+                key = (kind, rd.group(kind, c["pos"]))
+                active_vol[key] = active_vol.get(key, 0.0) + c["comp"][kind][1]
+    for c in receivers:
+        for kind, col in rd.ROLES.items():
+            key = (kind, rd.group(kind, c["pos"]))
+            if kind not in c["comp"] or lost.get(key, 0) <= 0 or active_vol.get(key, 0) <= 0:
+                continue
+            if affected is not None:
+                affected.add((c["pid"], t))
+            vol = c["comp"][kind][1]
+            if records is not None:
+                records.append((kind, lost[key] * vol / active_vol[key], float(c["row"][col]) - vol, t))
+            if rho is not None and rho.get(kind, 0.0) > 0:
+                f = rd.lift(kind, rho[kind], lost[key], active_vol[key])
+                mu, v, eff = c["comp"][kind]
+                c["comp"][kind] = (mu * f, v * f, eff)
+
+
+def _apply_redistribution(ctx, logs, priors, opp_cache, spread_map, rho, records):
+    """Backtest: move absent regulars' volume to their active teammates in every team-game."""
+    from . import redistribute as rd
+    groups = {}
+    for c in ctx:
+        groups.setdefault((c["team"], c["t"]), []).append(c)
+    affected = set()
+    for (team, t), members in groups.items():
+        opp_team, sp = members[0]["opp"], members[0]["sp"]
+        absent = rd.find_absent(logs, team, t, logs.active_at.get(t, set()))
+        if not absent:
+            continue
+
+        def comp_fn(hist, _opp=opp_team, _sp=sp):
+            hist = hist.copy()
+            hist.attrs["opp"] = _opp
+            return components(hist, hist.position.iat[-1], priors, opp_cache[t], _sp)
+
+        lost = rd.lost_volume(absent, comp_fn)
+        if lost:
+            _lift_members(members, lost, rho, records, t, affected)
+    return affected
+
+
+def walk_forward(df, priors, sched, start_t, td_priors=None, rho=None, records=None):
     """Project every historical player-game from t >= start_t using only prior data.
 
     With td_priors, anytime-TD rows are added too (kind "td": mu = unscaled P(>=1 TD), actual = 0/1).
+    With rho (per-role redistribution shares), absent regulars' volume is handed to their teammates.
+    With records (a list), the data to fit rho is collected instead/as well. Rows carry an `affected` flag:
+    True when a teammate was absent in that game (computed only when rho or records is given).
     """
     spread_map = _spread_lookup(sched)
     implied_map = tdm.implied_points(sched)
-    rows = []
     opp_cache = {t: opp_table(df, t) for t in sorted(df[df.t >= start_t].t.unique())}
+    ctx = []
     for pid, g in df.groupby("player_id"):
         g = g.reset_index(drop=True)
         for i in range(3, len(g)):
@@ -135,16 +191,26 @@ def walk_forward(df, priors, sched, start_t, td_priors=None):
             hist = g.iloc[:i].copy()
             hist.attrs["opp"] = r.opponent_team
             sp = spread_map.get((r.season, r.week, r.team), 0.0)
-            comp = components(hist, r.position, priors, opp_cache[r.t], sp)
-            for kind, (mu, vol, eff) in all_kinds(hist, r.position, priors, opp_cache[r.t], sp, comp).items():
-                rows.append((pid, r.player_display_name, kind, r.t, mu, float(actual_hist(g.iloc[[i]], kind).iloc[0]),
-                             float(actual_hist(hist, kind).tail(5).mean())))
-            if td_priors is not None:
-                res = tdm.project_td(hist, comp, r.position, td_priors, implied_map.get((r.season, r.week, r.team)))
-                if res:
-                    rows.append((pid, r.player_display_name, "td", r.t, res[0], float(tdm.td_count(g.iloc[[i]]).iloc[0] >= 1),
-                                 float((tdm.td_count(hist).tail(8) >= 1).mean())))
-    return pd.DataFrame(rows, columns=["player_id", "name", "kind", "t", "mu", "actual", "naive5"])
+            ctx.append(dict(pid=pid, name=r.player_display_name, pos=r.position, team=r.team, opp=r.opponent_team, season=r.season,
+                            week=r.week, t=r.t, hist=hist, sp=sp, row=r, one=g.iloc[[i]],
+                            comp=components(hist, r.position, priors, opp_cache[r.t], sp)))
+    affected = set()
+    if rho is not None or records is not None:
+        from . import redistribute as rd
+        affected = _apply_redistribution(ctx, rd.Logs(df), priors, opp_cache, spread_map, rho, records)
+    rows = []
+    for c in ctx:
+        pid, hist, one, r = c["pid"], c["hist"], c["one"], c["row"]
+        aff = (pid, c["t"]) in affected
+        for kind, (mu, vol, eff) in all_kinds(hist, c["pos"], priors, opp_cache[c["t"]], c["sp"], c["comp"]).items():
+            rows.append((pid, c["name"], kind, c["t"], mu, float(actual_hist(one, kind).iloc[0]),
+                         float(actual_hist(hist, kind).tail(5).mean()), aff))
+        if td_priors is not None:
+            res = tdm.project_td(hist, c["comp"], c["pos"], td_priors, implied_map.get((c["season"], c["week"], c["team"])))
+            if res:
+                rows.append((pid, c["name"], "td", c["t"], res[0], float(tdm.td_count(one).iloc[0] >= 1),
+                             float((tdm.td_count(hist).tail(8) >= 1).mean()), aff))
+    return pd.DataFrame(rows, columns=["player_id", "name", "kind", "t", "mu", "actual", "naive5", "affected"])
 
 
 Z_PROBS = np.linspace(0, 1, 41)
@@ -220,14 +286,21 @@ def prob_over_under(mu, line, var):
     return float(d.sf(line)), float(d.cdf(line))
 
 
-def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_priors=None, td_scale=1.0):
-    """Project all active players for games not yet played in the target week."""
+def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_priors=None, td_scale=1.0, rho=None, absent_ids=()):
+    """Project all active players for games not yet played in the target week.
+
+    With rho, volume from absent regulars (ruled out/doubtful via absent_ids, or no longer on the active roster)
+    is handed to their teammates in the same position group."""
     season, week = divmod(week_t, 100)
     games = sched[(sched.season == season) & (sched.week == week) & sched.home_score.isna()]
     opp = opp_table(df, week_t)
     implied_map = tdm.implied_points(sched)
     latest = df.sort_values("t").groupby("player_id").tail(1).set_index("player_id")
     by_player = {pid: g for pid, g in df.groupby("player_id")}
+    logs = None
+    if rho and any(v > 0 for v in rho.values()):
+        from . import redistribute as rd
+        logs = rd.Logs(df)
     rows = []
     for _, gm in games.iterrows():
         for team, other, sp in ((gm.home_team, gm.away_team, gm.spread_line), (gm.away_team, gm.home_team, -gm.spread_line)):
@@ -235,13 +308,31 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
             on_team = latest[latest.index.map(lambda i: roster.get(i) == team) & (latest.t >= (season - 1) * 100)]
             # skip offseason arrivals with no games for the new team: their old role doesn't carry over
             on_team = on_team[on_team.team == team]
+            members = []
             for pid, p in on_team.iterrows():
                 hist = by_player[pid]
                 if len(hist) < 2:
                     continue
                 hist = hist.copy()
                 hist.attrs["opp"] = other
-                comp = components(hist, p.position, priors, opp, sp)
+                members.append(dict(pid=pid, p=p, hist=hist, pos=p.position, comp=components(hist, p.position, priors, opp, sp)))
+            if rho and any(v > 0 for v in rho.values()):
+                from . import redistribute as rd
+                # not absent: healthy members, and anyone active on another team's roster (traded away, not missing)
+                active = {pid for pid, tm in roster.items() if not (tm == team and pid in absent_ids)}
+                receivers = {c["pid"] for c in members if c["pid"] not in absent_ids}
+                absent = rd.find_absent(logs, team, week_t, active)
+                if absent:
+                    def comp_fn(h, _other=other, _sp=sp):
+                        h = h.copy()
+                        h.attrs["opp"] = _other
+                        return components(h, h.position.iat[-1], priors, opp, _sp)
+
+                    lost = rd.lost_volume(absent, comp_fn)
+                    if lost:
+                        _lift_members(members, lost, rho, only=receivers)
+            for c in members:
+                pid, p, hist, comp = c["pid"], c["p"], c["hist"], c["comp"]
                 if td_priors is not None:
                     res = tdm.project_td(hist, comp, p.position, td_priors, implied_map.get((season, week, team)), td_scale)
                     if res:  # kind "td": mu = P(>=1 TD), vol = expected touches, eff = expected TDs

@@ -2,6 +2,33 @@ import type { Meta } from "../api";
 import { KIND_LABEL, signed, timeAgo } from "../format";
 import type { Kind } from "../api";
 
+function RedistributionCard({ r }: { r: NonNullable<Meta["redistribution"]> }) {
+  const rush = r.by_kind.rush;
+  const off = Object.keys(r.rho).filter((k) => !r.active_roles.includes(k));
+  const label: Record<string, string> = { rush: "carries", rec: "targets", pass: "pass attempts" };
+  return (
+    <div className="card prose">
+      <h3>Injury redistribution</h3>
+      <p>
+        When a regular is out, his volume goes to teammates in the same position group. The share handed over is fitted on the
+        backtest{r.rho.rush ? ` (carries: ${(r.rho.rush * 100).toFixed(0)}% of the missing volume)` : ""}.
+      </p>
+      {rush && (
+        <p>
+          Rushing teammates of an absent regular were projected <b>{rush.bias_before.toFixed(1)} yds too low on average</b> before
+          this ({rush.n} backtested games); with it the bias is {rush.bias_after >= 0 ? "+" : ""}{rush.bias_after.toFixed(1)} yds and the
+          average miss moves from {rush.mae_before.toFixed(1)} to {rush.mae_after.toFixed(1)} yds.
+        </p>
+      )}
+      {off.length > 0 && (
+        <p className="mut">
+          Switched off for {off.map((k) => label[k] ?? k).join(" and ")}: on held-out weeks it overshot and made projections less accurate.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function ModelCheck({ meta }: { meta: Meta }) {
   const kinds = Object.keys(meta.backtest) as Kind[];
   return (
@@ -34,6 +61,7 @@ export default function ModelCheck({ meta }: { meta: Meta }) {
           );
         })}
       </div>
+      {meta.redistribution && <RedistributionCard r={meta.redistribution} />}
       <div className="card prose">
         <h3>How to read this</h3>
         <p>

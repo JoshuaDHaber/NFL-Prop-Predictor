@@ -148,7 +148,7 @@ _pick_cache: dict = {}
 
 def _dists(run: Run) -> dict:
     """Per-kind error tables from the run's backtest (older runs stored only gamma parameters: those are skipped)."""
-    return {k: v for k, v in (run.variance or {}).items() if isinstance(v, dict)}
+    return {k: v for k, v in (run.variance or {}).items() if isinstance(v, dict) and not k.startswith("_")}
 
 
 def all_picks(db: Session, run: Run, w: float, book: Optional[str] = None) -> pd.DataFrame:
@@ -213,7 +213,8 @@ def build_meta(db: Session, lan_url: Optional[str] = None) -> Meta:
         games = [Game(game_id=g, label=game_label(g), gameday=d, gametime=t)
                  for g, d, t in sorted(rows, key=lambda r: (r[1], r[2], r[0]))]
         backtest = run.backtest
-    return Meta(run=None if not run else RunInfo(id=run.id, season=run.season, week=run.week,
+    return Meta(redistribution=(run.variance or {}).get("_redistribution") if run else None,
+                run=None if not run else RunInfo(id=run.id, season=run.season, week=run.week,
                                                   created_at=run.created_at.isoformat(), excluded=run.excluded),
                 backtest=backtest, odds=_odds_info(db), games=games, has_odds_key=bool(config.ODDS_API_KEY()),
                 job=JobStatus(**_job), lan_url=lan_url,

@@ -5,6 +5,15 @@ export type Kind = "rush" | "rec" | "pass" | "rr" | "td";
 
 export interface CalibrationBin { predicted: number; actual: number; n: number }
 /** Yardage kinds report mean absolute error in yards; anytime TD reports Brier scores (metric: "brier"). */
+/** What moving an absent regular's volume to his teammates did in the backtest. */
+export interface Redistribution {
+  rho: Record<string, number>;       // shares actually applied (0 = that role is switched off)
+  rho_fit: Record<string, number>;   // shares the data suggested for every role
+  active_roles: string[];
+  by_kind: Record<string, { n: number; bias_before: number; bias_after: number; mae_before: number; mae_after: number }>;
+  summary: string;
+}
+
 export interface BacktestStat { n: number; mae_model: number; mae_naive: number; bias: number; metric?: "mae" | "brier"; calibration?: CalibrationBin[] }
 export interface Game { game_id: string; label: string; gameday: string; gametime: string }
 export interface JobStatus {
@@ -21,6 +30,7 @@ export interface Meta {
   lan_url: string | null;
   books: string[];
   snapshot_at?: string | null;
+  redistribution?: Redistribution | null;
   can_write: boolean;
   can_run_projections: boolean;
 }

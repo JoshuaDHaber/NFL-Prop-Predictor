@@ -10,6 +10,7 @@ import pandas as pd
 from . import config
 from .db import AltLine, OddsLine, Projection, Run, SessionLocal
 from .engine import data, model, odds
+from .engine import redistribute as rd
 from .engine import td as tdm
 
 Log = Callable[[str], None]
@@ -28,33 +29,44 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
 
     stats = model.prep(data.load_stats([season - 2, season - 1, season]))
     priors = model.league_priors(stats)
-    log("Walk-forward backtest (fits variance, checks accuracy)...")
-    td_pri = tdm.td_priors(stats)
-    bt = model.walk_forward(stats, priors, played, start_t=(season - 1) * 100 + 6, td_priors=td_pri)
-    bt = bt[bt.t < week_t]
-    bt_td, bt = bt[bt.kind == "td"], bt[bt.kind != "td"]
-    bt_sum, var_params = model.backtest_summary(bt), model.fit_dist(bt)
-    lam = -np.log1p(-np.clip(bt_td.mu.to_numpy(), 0, 1 - 1e-9))
-    td_scale = tdm.fit_scale(lam, bt_td.actual.to_numpy()) if len(bt_td) else 1.0
-    bt_sum["td"] = tdm.summary(bt_td, td_scale)
-    var_params["td"] = [td_scale, 0.0]  # anytime TD: (scale on expected TDs, unused); yardage kinds hold their error tables
-
-    log("Projecting upcoming games...")
-    proj = model.upcoming_projections(stats, sched, priors, var_params, week_t, data.load_roster(season),
-                                      td_priors=td_pri, td_scale=td_scale)
-
+    # who is out this week (injury report + your --exclude list): their volume goes to teammates, and they are dropped below
     inj = data.load_injuries(season)
     status = {}
     if not inj.empty:
         cur_inj = inj[inj.week == week]
         dnp = cur_inj.practice_status.fillna("").str.startswith("Did Not") & cur_inj.report_status.isna()
         status = dict(zip(cur_inj.gsis_id, cur_inj.report_status.where(~dnp, "DNP")))
-    proj["status"] = proj.player_id.map(status).fillna("")
-    manual = proj["name"].map(odds.norm).isin([odds.norm(n) for n in exclude])
-    proj.loc[manual, "status"] = "Out"
     drop = {"Out", "Doubtful"} | (set() if keep_dnp else {"DNP"})
+    names = {odds.norm(n) for n in exclude}
+    manual_ids = set(stats[stats.player_display_name.map(odds.norm).isin(names)].player_id) if names else set()
+    absent_ids = {pid for pid, s_ in status.items() if s_ in drop} | manual_ids
+
+    log("Walk-forward backtest (fits variance, checks accuracy)...")
+    td_pri = tdm.td_priors(stats)
+    start_t = (season - 1) * 100 + 6
+    records = []
+    base = model.walk_forward(stats, priors, played, start_t=start_t, td_priors=td_pri, records=records)  # also gathers data to fit rho
+    rho_fit = rd.fit_rho([x for x in records if x[3] < week_t])
+    rho = rd.applied(rho_fit)
+    bt = model.walk_forward(stats, priors, played, start_t=start_t, td_priors=td_pri, rho=rho)
+    bt, base = bt[bt.t < week_t], base[base.t < week_t]
+    bt_td, bt = bt[bt.kind == "td"], bt[bt.kind != "td"]
+    bt_sum, var_params = model.backtest_summary(bt), model.fit_dist(bt)
+    lam = -np.log1p(-np.clip(bt_td.mu.to_numpy(), 0, 1 - 1e-9))
+    td_scale = tdm.fit_scale(lam, bt_td.actual.to_numpy()) if len(bt_td) else 1.0
+    bt_sum["td"] = tdm.summary(bt_td, td_scale)
+    var_params["td"] = [td_scale, 0.0]  # anytime TD: (scale on expected TDs, unused); yardage kinds hold their error tables
+    var_params["_redistribution"] = _redistribution_summary(base, bt, rho_fit, rho)
+    log(f"Redistribution: {var_params['_redistribution']['summary']}")
+
+    log("Projecting upcoming games...")
+    proj = model.upcoming_projections(stats, sched, priors, var_params, week_t, data.load_roster(season),
+                                      td_priors=td_pri, td_scale=td_scale, rho=rho, absent_ids=absent_ids)
+
+    proj["status"] = proj.player_id.map(status).fillna("")
+    proj.loc[proj.player_id.isin(manual_ids), "status"] = "Out"
     gone = proj[proj.status.isin(drop)]
-    excluded = sorted({f"{n} ({s})" for n, s in zip(gone["name"], gone.status)})
+    excluded = sorted({f"{n} ({s_})" for n, s_ in zip(gone["name"], gone.status)})
     proj = proj[~proj.status.isin(drop)]
 
     with SessionLocal() as s:
@@ -70,6 +82,27 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
         s.commit()
         log(f"Stored run {run.id}: {len(run.projections)} projections, {len(excluded)} players excluded")
         return run.id
+
+
+def _redistribution_summary(base: pd.DataFrame, bt: pd.DataFrame, rho_fit: dict, rho: dict) -> dict:
+    """What redistribution did in the backtest (in-sample): bias on teammates of absent regulars, before and after."""
+    out = dict(rho_fit={k: round(v, 3) for k, v in rho_fit.items()}, rho={k: round(v, 3) for k, v in rho.items()},
+               active_roles=list(rd.ACTIVE_ROLES), by_kind={})
+    key = ["player_id", "t", "kind"]
+    b = base[base.kind != "td"].set_index(key)
+    n = bt[bt.kind != "td"].set_index(key)
+    idx = b.index.intersection(n.index)
+    for kind in rd.ROLES:
+        sel = (idx.get_level_values("kind") == kind) & b.loc[idx, "affected"].to_numpy()
+        if sel.sum() < 10:
+            continue
+        eb, en = (b.loc[idx, "actual"] - b.loc[idx, "mu"])[sel], (n.loc[idx, "actual"] - n.loc[idx, "mu"])[sel]
+        out["by_kind"][kind] = dict(n=int(sel.sum()), bias_before=float(eb.mean()), bias_after=float(en.mean()),
+                                    mae_before=float(eb.abs().mean()), mae_after=float(en.abs().mean()))
+    r = out["by_kind"].get("rush")
+    out["summary"] = ("rushing teammates of an absent regular: bias %+.1f -> %+.1f yds over %d games" % (r["bias_before"], r["bias_after"], r["n"])
+                      if r else "no affected games")
+    return out
 
 
 def _s(v):
