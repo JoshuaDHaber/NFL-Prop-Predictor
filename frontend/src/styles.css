@@ -194,7 +194,7 @@ tr.clickable:hover td:last-child { border-top-right-radius: 10px; border-bottom-
 
 /* ---------- theme toggle ---------- */
 .wrap { padding-top: 64px; }
-.theme-toggle { position: fixed; top: 14px; right: 16px; z-index: 30; padding: 3px; gap: 2px; border: 1px solid var(--line); background: color-mix(in srgb, var(--card) 80%, transparent); backdrop-filter: blur(14px); border-radius: 999px; box-shadow: 0 6px 18px -8px rgba(0,0,0,.35); }
+.theme-toggle { position: fixed; top: 14px; right: 16px; z-index: 9; padding: 3px; gap: 2px; border: 1px solid var(--line); background: color-mix(in srgb, var(--card) 80%, transparent); backdrop-filter: blur(14px); border-radius: 999px; box-shadow: 0 6px 18px -8px rgba(0,0,0,.35); }
 .theme-toggle button { border-radius: 999px; padding: 5px 10px; font-size: 12px; }
 .theme-toggle button.on { background: linear-gradient(135deg, var(--acc), var(--acc2)); color: #fff; }
 .theme-toggle .ico { filter: none; }
@@ -215,3 +215,10 @@ tr.clickable:hover td:last-child { border-top-right-radius: 10px; border-bottom-
 @media (max-width: 420px) { .tabs { gap: 2px; padding: 4px; } .tabs button { padding: 8px 7px; font-size: 12px; } }
 .parlay-h { font-size: 15px; margin: 18px 0 10px; } .parlay-h small { font-weight: 400; color: var(--mut); font-size: 12px; margin-left: 6px; }
 .parlay-books { margin-bottom: 4px; }
+
+/* ---------- small screens: popovers stay on screen ---------- */
+@media (max-width: 600px) {
+  .admin-pop, .menu { position: fixed; left: 16px; right: 16px; top: 64px; width: auto; min-width: 0; max-width: none; }
+  .admin-pop input { font-size: 16px; padding: 10px 12px; } /* 16px stops iOS zooming the page on focus */
+  .head-actions { width: 100%; justify-content: flex-end; }
+}
