@@ -1,9 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
-import { Suspense, lazy, useState } from "react";
+import { useQueries, useQuery } from "@tanstack/react-query";
+import { Suspense, lazy, useMemo, useState } from "react";
 import { api, type Filters, type Kind } from "./api";
 import BetSlip from "./components/BetSlip";
 import Controls from "./components/Controls";
 import ModelCheck from "./components/ModelCheck";
+import ParlayTiles from "./components/ParlayTiles";
 import PicksTable from "./components/PicksTable";
 import ProjectionsTable from "./components/ProjectionsTable";
 import RefreshButton from "./components/RefreshButton";
@@ -13,12 +14,15 @@ import { API_URL, IS_STATIC } from "./env";
 import { KIND_LABEL, americanOdds, fmtProj, matchup, playLabel, signedPct, timeAgo } from "./format";
 import ThemeToggle from "./components/ThemeToggle";
 import TopTiles, { type Tile } from "./components/TopTiles";
+import { bestBook, parlaysByBook } from "./parlays";
 import { useDebounced } from "./useDebounced";
 
 const PlayerDrawer = lazy(() => import("./components/PlayerDrawer")); // keeps the charting library out of the first load
 
-type Tab = "picks" | "projections" | "model";
-const TABS: [Tab, string][] = [["picks", "Best props"], ["projections", "Projections"], ["model", "Model check"]];
+type Tab = "picks" | "parlays" | "projections" | "model";
+const TABS: [Tab, string][] = [["picks", "Best props"], ["parlays", "Parlays"], ["projections", "Projections"], ["model", "Model check"]];
+// Parlays rank by win probability, not EV, so they price every play (any EV) at the default market weight
+const PARLAY_FILTERS: Filters = { kind: "all", side: "all", game: "all", book: "all", q: "", minEv: -1, marketWeight: 0.35, flagged: false };
 
 export default function App() {
   const waking = useWaking();
@@ -29,6 +33,16 @@ export default function App() {
 
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
   const picks = useQuery({ queryKey: ["picks", debounced], queryFn: () => api.picks(debounced), enabled: tab === "picks", placeholderData: (p) => p });
+  // one pricing per sportsbook, so every parlay's legs sit at a single book
+  const books = meta.data?.books ?? [];
+  const parlayQueries = useQueries({
+    queries: books.map((book) => ({ queryKey: ["parlay-picks", book], queryFn: () => api.picks({ ...PARLAY_FILTERS, book }, 1000), enabled: tab === "parlays" })),
+  });
+  const parlaysLoading = parlayQueries.some((q) => q.isLoading);
+  const byBook = useMemo(() => parlaysByBook(Object.fromEntries(books.map((b, i) => [b, parlayQueries[i]?.data ?? []]))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [books.join(), parlayQueries.map((q) => q.dataUpdatedAt).join()]);
+  const [parlayBook, setParlayBook] = useState<string | null>(null);
   const projections = useQuery({ queryKey: ["projections", debounced], queryFn: () => api.projections(debounced), enabled: tab === "projections", placeholderData: (p) => p });
 
   if (meta.isLoading) return (
@@ -48,6 +62,7 @@ export default function App() {
       value: <>{playLabel(p.kind, p.side, p.line)} <em>{signedPct(p.ev)} EV</em></>, caption: `${americanOdds(p.odds)} at ${p.book}`,
       onClick: () => setSelected({ id: p.player_id, kind: p.kind }),
     }))
+    : tab === "parlays" ? []
     : tab === "projections"
       ? (filters.kind === "all" ? (["pass", "rush", "rec", "rr"] as Kind[]).map((k) => (projections.data ?? []).filter((p) => p.kind === k).sort((a, b) => b.mu - a.mu)[0])
         : [...(projections.data ?? [])].sort((a, b) => b.mu - a.mu).slice(0, 3)).filter(Boolean).map((p) => ({
@@ -95,7 +110,7 @@ export default function App() {
       )}
 
       {!IS_STATIC && !m.run && <div className="banner">No projections yet. Click <b>Refresh data</b> to run the model (takes about a minute).</div>}
-      {!IS_STATIC && m.run && !hasOdds && tab === "picks" && (
+      {!IS_STATIC && m.run && !hasOdds && (tab === "picks" || tab === "parlays") && (
         <div className="banner">No sportsbook lines are loaded, so there are no picks. Add an <code>ODDS_API_KEY</code> and refresh.</div>
       )}
 
@@ -107,10 +122,12 @@ export default function App() {
 
       <TopTiles tiles={tiles} />
 
-      {tab !== "model" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
+      {tab !== "model" && tab !== "parlays" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
 
       {tab === "picks" && (picks.isLoading ? <p className="mut">Pricing plays…</p> :
         <PicksTable picks={picks.data ?? []} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
+      {tab === "parlays" && (parlaysLoading ? <p className="mut">Building parlays…</p> :
+        <ParlayTiles byBook={byBook} book={parlayBook && byBook[parlayBook] ? parlayBook : bestBook(byBook)} onBook={setParlayBook} />)}
       {tab === "projections" && (projections.isLoading ? <p className="mut">Loading…</p> :
         <ProjectionsTable rows={projections.data ?? []} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
       {tab === "model" && <ModelCheck meta={m} />}

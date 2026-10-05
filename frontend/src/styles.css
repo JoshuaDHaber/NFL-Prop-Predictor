@@ -198,3 +198,18 @@ tr.clickable:hover td:last-child { border-top-right-radius: 10px; border-bottom-
 .theme-toggle button { border-radius: 999px; padding: 5px 10px; font-size: 12px; }
 .theme-toggle button.on { background: linear-gradient(135deg, var(--acc), var(--acc2)); color: #fff; }
 .theme-toggle .ico { filter: none; }
+
+/* ---------- recommended parlays ---------- */
+.parlays { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.parlay { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 1px 2px rgba(20,20,60,.05), 0 8px 24px -12px rgba(20,20,60,.12); }
+.parlay.lead { border-color: var(--acc); }
+.parlay header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.parlay-odds { font-size: 34px; font-weight: 800; line-height: 1; } .parlay-odds small { display: block; font-size: 12px; font-weight: 400; color: var(--mut); margin-top: 4px; }
+.parlay-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; }
+.parlay-stats div { background: var(--chip); border-radius: 10px; padding: 6px 8px; } .parlay-stats dt { font-size: 11px; color: var(--mut); } .parlay-stats dd { margin: 0; font-weight: 700; }
+.parlay-legs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.parlay-legs li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.leg-main { flex: 1; min-width: 0; } .leg-main small, .leg-odds small { display: block; color: var(--mut); font-size: 11px; }
+.leg-odds { text-align: right; font-weight: 600; white-space: nowrap; }
+.parlay-note { margin: 0; } .parlay button.primary { margin-top: auto; } .parlay button.primary:disabled { opacity: .6; cursor: default; }
+@media (max-width: 420px) { .tabs { gap: 2px; padding: 4px; } .tabs button { padding: 8px 7px; font-size: 12px; } }

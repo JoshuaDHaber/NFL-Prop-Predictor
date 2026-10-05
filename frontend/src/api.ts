@@ -91,9 +91,9 @@ export interface Filters { kind: Kind | "all"; side: "all" | "Over" | "Under"; g
 
 const liveApi = {
   meta: () => get<Meta>("meta"),
-  picks: (f: Filters) =>
+  picks: (f: Filters, limit = 300) =>
     get<Pick[]>("picks", { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, side: f.side, game_id: f.game, book: f.book, q: f.q, min_ev: f.minEv, market_weight: f.marketWeight,
-      include_flagged: f.flagged, limit: 300 }),
+      include_flagged: f.flagged, limit }),
   projections: (f: Filters) => get<Projection[]>("projections", { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, game_id: f.game, q: f.q }),
   player: (id: string, marketWeight: number) => get<PlayerDetail>(`players/${id}`, { market_weight: marketWeight }),
   /** oddsRange hides prices outside -N..+N (American); 0 shows everything. */
@@ -131,14 +131,14 @@ export function limitOdds(quotes: LadderRow[], range: number, kind?: Kind): Ladd
 
 const staticApi: typeof liveApi = {
   meta: () => file<Meta>("meta.json"),
-  picks: async (f) => {
+  picks: async (f, limit = 300) => {
     const all = await file<Pick[]>(`picks/${f.book === "all" ? "all" : slug(f.book)}.json`);
     const q = f.q.toLowerCase();
     return all
       .filter((p) => p.ev >= f.minEv && (f.flagged || !p.flagged) && (f.side === "all" || p.side === f.side) && (f.kind === "all" ? p.kind !== "td" : p.kind === f.kind)
         && (f.game === "all" || p.game_id === f.game) && (!q || p.name.toLowerCase().includes(q)))
       .sort((a, b) => b.ev - a.ev)
-      .slice(0, 300);
+      .slice(0, limit);
   },
   projections: async (f) => {
     const q = f.q.toLowerCase();
