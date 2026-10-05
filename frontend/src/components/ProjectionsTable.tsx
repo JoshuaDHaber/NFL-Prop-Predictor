@@ -2,6 +2,7 @@ import type { Projection } from "../api";
 import { KIND_LABEL, fmtProj, matchup, signed } from "../format";
 import { useSort } from "../useSort";
 import Avatar from "./Avatar";
+import SortBar from "./SortBar";
 import Spark from "./Spark";
 
 export default function ProjectionsTable({ rows, onSelect }: { rows: Projection[]; onSelect: (p: Projection) => void }) {
@@ -11,8 +12,10 @@ export default function ProjectionsTable({ rows, onSelect }: { rows: Projection[
   );
   if (!rows.length) return <div className="card empty">No projections match the current filters.</div>;
   return (
-    <div className="card scroll">
-      <table>
+    <>
+    <SortBar toggle={toggle} arrow={arrow} options={[["mu", "Proj"], ["vol", "Volume"], ["eff", "Efficiency"], ["spread", "Spread"], ["name", "Name"]]} />
+    <div className="card scroll cards">
+      <table className="t-proj">
         <thead>
           <tr>
             {th("name", "Player")}<th scope="col">Market</th><th scope="col">Game</th>
@@ -32,16 +35,17 @@ export default function ProjectionsTable({ rows, onSelect }: { rows: Projection[
               </td>
               <td>{KIND_LABEL[p.kind]}</td>
               <td>{matchup(p.opp, p.home)}</td>
-              <td><b>{fmtProj(p.kind, p.mu)}</b></td>
-              <td>{p.kind === "td" ? "–" : `±${p.sd.toFixed(0)}`}</td>
-              <td>{p.vol.toFixed(1)}</td>
-              <td>{p.eff.toFixed(2)}</td>
-              <td>{signed(p.spread)}</td>
-              <td><Spark values={p.last5} /></td>
+              <td data-label="Proj"><b>{fmtProj(p.kind, p.mu)}</b></td>
+              <td data-label="SD">{p.kind === "td" ? "–" : `±${p.sd.toFixed(0)}`}</td>
+              <td data-label="Volume">{p.vol.toFixed(1)}</td>
+              <td data-label="Yds/att · E[TD]">{p.eff.toFixed(2)}</td>
+              <td data-label="Spread">{signed(p.spread)}</td>
+              <td data-label="Last 5"><Spark values={p.last5} /></td>
             </tr>
           ))}
         </tbody>
       </table>
     </div>
+    </>
   );
 }

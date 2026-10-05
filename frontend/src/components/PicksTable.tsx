@@ -2,6 +2,7 @@ import type { Pick } from "../api";
 import { KIND_LABEL, americanOdds, fmtEdge, fmtProj, kickoff, matchup, pct, playLabel, signedPct } from "../format";
 import { useSort } from "../useSort";
 import Avatar from "./Avatar";
+import SortBar from "./SortBar";
 import Spark from "./Spark";
 
 export default function PicksTable({ picks, onSelect }: { picks: Pick[]; onSelect: (p: Pick) => void }) {
@@ -11,8 +12,10 @@ export default function PicksTable({ picks, onSelect }: { picks: Pick[]; onSelec
   );
   if (!picks.length) return <div className="card empty">No plays clear the current filters. Try lowering Min EV (it can go below 0) to see the closest ones.</div>;
   return (
-    <div className="card scroll">
-      <table>
+    <>
+    <SortBar toggle={toggle} arrow={arrow} options={[["ev", "EV"], ["prob", "Win prob"], ["edge_yds", "Edge"], ["mu", "Proj"], ["name", "Name"]]} />
+    <div className="card scroll cards">
+      <table className="t-picks">
         <thead>
           <tr>
             {th("name", "Player")}<th scope="col">Market</th><th scope="col">Pick</th>
@@ -36,20 +39,21 @@ export default function PicksTable({ picks, onSelect }: { picks: Pick[]; onSelec
                   </div>
                 </div>
               </td>
-              <td>{KIND_LABEL[p.kind]}</td>
+              <td className="c-market">{KIND_LABEL[p.kind]}</td>
               <td>
                 <span className={`side-pill ${p.side === "Over" ? "over" : "under"}`}>{playLabel(p.kind, p.side, p.line)}</span><br /><span className="mut">{americanOdds(p.odds)} · {p.book}</span>
               </td>
-              <td>{fmtProj(p.kind, p.mu)}{p.kind !== "td" && <><br /><span className="mut">±{p.sd.toFixed(0)}</span></>}</td>
-              <td>{fmtEdge(p.kind, p.edge_yds)}</td>
-              <td><b>{pct(p.prob)}</b><span className="meter" aria-hidden><i style={{ width: `${Math.min(100, p.prob * 100)}%` }} /></span><span className="mut">model {pct(p.p_model, 0)} · mkt {pct(p.p_mkt, 0)}</span></td>
-              <td><span className="ev-pill">{signedPct(p.ev)}</span></td>
-              <td>{pct(p.kelly)}</td>
-              <td><Spark values={p.last5} /></td>
+              <td data-label="Proj">{fmtProj(p.kind, p.mu)}{p.kind !== "td" && <><br /><span className="mut">±{p.sd.toFixed(0)}</span></>}</td>
+              <td data-label="Edge">{fmtEdge(p.kind, p.edge_yds)}</td>
+              <td data-label="Win prob"><b>{pct(p.prob)}</b><span className="meter" aria-hidden><i style={{ width: `${Math.min(100, p.prob * 100)}%` }} /></span><span className="mut">model {pct(p.p_model, 0)} · mkt {pct(p.p_mkt, 0)}</span></td>
+              <td className="c-ev"><span className="ev-pill">{signedPct(p.ev)}</span></td>
+              <td data-label="¼ Kelly">{pct(p.kelly)}</td>
+              <td data-label="Last 5"><Spark values={p.last5} /></td>
             </tr>
           ))}
         </tbody>
       </table>
     </div>
+    </>
   );
 }
