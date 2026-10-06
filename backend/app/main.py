@@ -175,7 +175,8 @@ def records(df: pd.DataFrame) -> list[dict]:
 
 
 # ---------- job runner ----------
-_job = {"state": "idle", "started_at": None, "finished_at": None, "log": [], "error": None}
+_job = {"state": "idle", "started_at": None, "finished_at": None, "log": [], "error": None,
+        "stage": None, "step": 0, "steps": 0, "detail": None, "progress": None}
 _lock = threading.Lock()
 
 
@@ -192,17 +193,28 @@ def _release_memory():
         pass  # not glibc (e.g. macOS): nothing to trim
 
 
-def _run_job(odds_mode: str):
+def _run_job(odds_mode: str, full: bool = False):
+    run_model = config.PROJECTIONS_ON_SERVER()
+    steps = int(run_model) + int(odds_mode != "none")
+    _job.update(steps=steps, step=0, stage=None, detail=None, progress=None)
+
     def log(msg):
         _job["log"].append(msg)
+        _job["detail"] = msg.strip()
+
+    def odds_progress(done: int, total: int):
+        _job.update(progress=(done / total) if total else 1.0, detail=f"game {min(done + 1, total)} of {total}")
 
     try:
-        if config.PROJECTIONS_ON_SERVER():
-            pipeline.run_projections(log=log)
+        if run_model:
+            _job.update(step=1, stage="Running the model" + (" (full recalibration)" if full else ""), progress=None)
+            pipeline.run_projections(log=log, full=full)
         else:
             log("Projections run off-server on this host; fetching odds only")
-        pipeline.refresh_odds(odds_mode, log=log)
-        _job["state"] = "done"
+        if odds_mode != "none":
+            _job.update(step=steps, stage="Fetching odds", detail=None, progress=0.0)
+            pipeline.refresh_odds(odds_mode, log=log, progress=odds_progress)
+        _job.update(state="done", stage="Done", detail=None, progress=1.0)
     except Exception as e:  # surfaced to the UI
         _job["state"], _job["error"] = "error", f"{type(e).__name__}: {e}"
     finally:
@@ -228,6 +240,7 @@ def build_meta(db: Session, lan_url: Optional[str] = None) -> Meta:
                  for g, d, t in sorted(rows, key=lambda r: (r[1], r[2], r[0]))]
         backtest = run.backtest
     return Meta(redistribution=(run.variance or {}).get("_redistribution") if run else None,
+                calibration=(run.variance or {}).get("_calibration") if run else None,
                 run=None if not run else RunInfo(id=run.id, season=run.season, week=run.week,
                                                   created_at=run.created_at.isoformat(), excluded=run.excluded),
                 backtest=backtest, odds=_odds_info(db), games=games, has_odds_key=bool(config.ODDS_API_KEY()),
@@ -399,13 +412,14 @@ def refresh(req: RefreshRequest, bg: BackgroundTasks):
     with _lock:
         if _job["state"] == "running":
             raise HTTPException(409, "A refresh is already running")
-        _job.update(state="running", started_at=datetime.utcnow().isoformat(), finished_at=None, log=[], error=None)
-    bg.add_task(_run_job, req.odds)
+        _job.update(state="running", started_at=datetime.utcnow().isoformat(), finished_at=None, log=[], error=None,
+                    stage="Starting", step=0, steps=0, detail=None, progress=None)
+    bg.add_task(_run_job, req.odds, req.full)
     return JobStatus(**_job)
 
 
 @app.get("/api/refresh/plan", response_model=SyncPlan)
-def refresh_plan(request: Request, odds: Literal["none", "missing", "all"] = "missing"):
+def refresh_plan(request: Request, odds: Literal["none", "missing", "thin", "all"] = "missing", full: bool = False):
     """What a sync would do right now, and what it would cost: for the confirm step in the admin UI."""
     if not is_admin(request):
         raise HTTPException(403, "Admin only")
@@ -417,7 +431,13 @@ def refresh_plan(request: Request, odds: Literal["none", "missing", "all"] = "mi
             plan = pipeline.sync_plan(s, games, odds)
     if len(games):
         plan["season"], plan["week"] = int(games.iloc[0].season), int(games.iloc[0].week)
-    return SyncPlan(**plan, will_run_projections=config.PROJECTIONS_ON_SERVER(), has_odds_key=bool(config.ODDS_API_KEY()))
+    with SessionLocal() as s:
+        run = latest_run(s)
+        cal = (run.variance or {}).get("_calibration") if run else None
+    season = plan.get("season")
+    will_recalibrate = bool(full) or season is None or pipeline.reusable_calibration(season) is None
+    return SyncPlan(**plan, will_run_projections=config.PROJECTIONS_ON_SERVER(), has_odds_key=bool(config.ODDS_API_KEY()),
+                    will_recalibrate=will_recalibrate, calibration=cal)
 
 
 @app.get("/healthz", include_in_schema=False)

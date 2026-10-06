@@ -135,3 +135,47 @@ def test_the_plan_prices_a_sync_before_it_runs(clean_and_stub):
         covered = pipeline.sync_plan(s, TWO.iloc[[0]], "missing")
         assert covered["games"] == [] and covered["credits"] == 0   # nothing left to buy for game 1
         assert pipeline.sync_plan(s, TWO.iloc[[0]], "all")["credits"] == 9
+
+
+# ---------- thin games and progress ----------
+def age_everything(hours):
+    from datetime import datetime, timedelta
+    with SessionLocal() as s:
+        for model_ in (OddsLine, AltLine):
+            s.query(model_).update({"fetched_at": datetime.utcnow() - timedelta(hours=hours)})
+        s.commit()
+
+
+def test_games_with_few_old_quotes_are_topped_up_in_thin_mode_only(clean_and_stub, monkeypatch):
+    monkeypatch.setattr(pipeline, "upcoming_games", lambda: TWO)
+    pipeline.refresh_odds("missing", log=lambda m: None)         # both games stored, 9 quotes each: thin
+    with SessionLocal() as s:
+        fresh = pipeline.sync_plan(s, TWO, "thin")
+        assert fresh["games"] == []                              # just fetched: lines may still be arriving, don't re-buy yet
+    age_everything(5)
+    with SessionLocal() as s:
+        assert pipeline.sync_plan(s, TWO, "missing")["games"] == []          # 'missing' never re-buys a covered game
+        thin = pipeline.sync_plan(s, TWO, "thin")
+    assert [g["reason"] for g in thin["games"]] == ["thin", "thin"]
+    assert [g["stored_quotes"] for g in thin["games"]] == [9, 9] and thin["credits"] == 18
+    monkeypatch.setattr(pipeline, "THIN_MIN_QUOTES", 5)           # a game with plenty of lines isn't thin
+    with SessionLocal() as s:
+        assert pipeline.sync_plan(s, TWO, "thin")["games"] == []
+
+
+def test_thin_mode_refetches_those_games_in_full_and_buys_missing_ones_too(clean_and_stub, monkeypatch):
+    monkeypatch.setattr(pipeline, "upcoming_games", lambda: TWO.iloc[[0]])
+    pipeline.refresh_odds("missing", log=lambda m: None)         # game 1 only, early in the week
+    age_everything(5)
+    clean_and_stub.clear()
+    monkeypatch.setattr(pipeline, "upcoming_games", lambda: TWO)  # now game 2 exists too
+    pipeline.refresh_odds("thin", log=lambda m: None)
+    assert [c[0] for c in clean_and_stub] == ["evt1", "evt2"]     # game 1 topped up, game 2 fetched for the first time
+    assert all(c[1] == ["pass", "rec", "rr", "rush", "td"] and c[2] == ["pass", "rec", "rr", "rush"] for c in clean_and_stub)
+
+
+def test_progress_is_reported_game_by_game(clean_and_stub, monkeypatch):
+    monkeypatch.setattr(pipeline, "upcoming_games", lambda: TWO)
+    seen = []
+    pipeline.refresh_odds("missing", log=lambda m: None, progress=lambda done, total: seen.append((done, total)))
+    assert seen == [(0, 2), (1, 2), (2, 2)]

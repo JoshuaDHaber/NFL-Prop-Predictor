@@ -61,6 +61,12 @@ export default function ModelCheck({ meta }: { meta: Meta }) {
           );
         })}
       </div>
+      {meta.calibration && (
+        <p className="mut">
+          Calibration (error tables, TD scale, redistribution share) was last fitted for week {meta.calibration.week}, {new Date(meta.calibration.at + "Z").toLocaleDateString()}
+          {meta.calibration.reused_from_run ? "; later syncs reuse it until it is recalibrated." : "."}
+        </p>
+      )}
       {meta.redistribution && <RedistributionCard r={meta.redistribution} />}
       <div className="card prose">
         <h3>How to read this</h3>

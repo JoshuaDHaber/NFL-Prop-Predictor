@@ -71,8 +71,8 @@ def test_unknown_player_is_a_404(client):
 
 
 def test_refresh_runs_once_at_a_time(client, monkeypatch):
-    monkeypatch.setattr(main.pipeline, "run_projections", lambda log=print: log("fake run"))
-    monkeypatch.setattr(main.pipeline, "refresh_odds", lambda mode, log=print: None)
+    monkeypatch.setattr(main.pipeline, "run_projections", lambda log=print, **kw: log("fake run"))
+    monkeypatch.setattr(main.pipeline, "refresh_odds", lambda mode, log=print, **kw: None)
     main._job.update(state="running")
     assert client.post("/api/refresh", json={"odds": "none"}).status_code == 409
     main._job.update(state="idle")
@@ -167,8 +167,8 @@ def test_app_url_override_wins_for_sharing(client, monkeypatch):
 # ---------- hosted-deployment behaviour: admin token, CORS, health, database URL ----------
 def test_remote_writes_need_the_admin_token(monkeypatch):
     monkeypatch.setenv("ADMIN_TOKEN", "s3cret")
-    monkeypatch.setattr(main.pipeline, "run_projections", lambda log=print: None)
-    monkeypatch.setattr(main.pipeline, "refresh_odds", lambda mode, log=print: None)
+    monkeypatch.setattr(main.pipeline, "run_projections", lambda log=print, **kw: None)
+    monkeypatch.setattr(main.pipeline, "refresh_odds", lambda mode, log=print, **kw: None)
     with TestClient(main.app, client=("203.0.113.9", 4000)) as remote:
         assert remote.post("/api/refresh", json={"odds": "none"}).status_code == 403
         bad = remote.post("/api/refresh", json={"odds": "none"}, headers={"Authorization": "Bearer nope"})
@@ -206,8 +206,8 @@ def test_health_check(client):
 def test_projection_refresh_can_be_turned_off_for_small_hosts(client, monkeypatch):
     calls = []
     monkeypatch.setenv("PROJECTIONS_ON_SERVER", "0")
-    monkeypatch.setattr(main.pipeline, "run_projections", lambda log=print: calls.append("projections"))
-    monkeypatch.setattr(main.pipeline, "refresh_odds", lambda mode, log=print: calls.append(f"odds:{mode}"))
+    monkeypatch.setattr(main.pipeline, "run_projections", lambda log=print, **kw: calls.append("projections"))
+    monkeypatch.setattr(main.pipeline, "refresh_odds", lambda mode, log=print, **kw: calls.append(f"odds:{mode}"))
     assert client.get("/api/meta").json()["can_run_projections"] is False
     client.post("/api/refresh", json={"odds": "missing"})
     assert calls == ["odds:missing"]
@@ -254,8 +254,8 @@ def _post(client, password):
 def test_a_password_with_symbols_works_when_the_browser_percent_encodes_it(monkeypatch):
     from urllib.parse import quote
     monkeypatch.setenv("ADMIN_TOKEN", "my p@ss/w0rd 100%!")
-    monkeypatch.setattr(main.pipeline, "run_projections", lambda log=print: None)
-    monkeypatch.setattr(main.pipeline, "refresh_odds", lambda mode, log=print: None)
+    monkeypatch.setattr(main.pipeline, "run_projections", lambda log=print, **kw: None)
+    monkeypatch.setattr(main.pipeline, "refresh_odds", lambda mode, log=print, **kw: None)
     with TestClient(main.app, client=("203.0.113.20", 4000)) as remote:
         assert _post(remote, quote("my p@ss/w0rd 100%!", safe="")).status_code == 202
         main._job.update(state="idle")
@@ -263,8 +263,8 @@ def test_a_password_with_symbols_works_when_the_browser_percent_encodes_it(monke
 
 def test_repeated_wrong_guesses_are_throttled_but_the_right_password_still_works(monkeypatch):
     monkeypatch.setenv("ADMIN_TOKEN", "correct-horse")
-    monkeypatch.setattr(main.pipeline, "run_projections", lambda log=print: None)
-    monkeypatch.setattr(main.pipeline, "refresh_odds", lambda mode, log=print: None)
+    monkeypatch.setattr(main.pipeline, "run_projections", lambda log=print, **kw: None)
+    monkeypatch.setattr(main.pipeline, "refresh_odds", lambda mode, log=print, **kw: None)
     main._FAILS.clear()
     with TestClient(main.app, client=("203.0.113.21", 4000)) as attacker:
         assert [_post(attacker, f"guess{i}").status_code for i in range(main.MAX_FAILS)] == [403] * main.MAX_FAILS
@@ -319,3 +319,50 @@ def test_a_finished_sync_drops_the_caches_the_new_data_outdates():
     main._pick_cache["stale"] = object()
     main._release_memory()
     assert main._pick_cache == {}
+
+
+# ---------- progress and options of the weekly sync ----------
+def test_a_running_sync_reports_its_step_stage_and_odds_progress(client, monkeypatch):
+    seen = {}
+
+    def fake_model(log=print, full=False, **kw):
+        seen["full"] = full
+        seen["during_model"] = dict(main._job)
+        log("Using the saved calibration from week 4 (run 3): skipping the backtest")
+
+    def fake_odds(mode, log=print, progress=None, **kw):
+        seen["mode"] = mode
+        seen["during_odds_start"] = dict(main._job)
+        progress(0, 2); seen["half"] = main._job["progress"], main._job["detail"]
+        progress(2, 2)
+
+    monkeypatch.setattr(main.pipeline, "run_projections", fake_model)
+    monkeypatch.setattr(main.pipeline, "refresh_odds", fake_odds)
+    assert client.post("/api/refresh", json={"odds": "thin", "full": True}).status_code == 202
+    assert seen["full"] is True and seen["mode"] == "thin"
+    m = seen["during_model"]
+    assert (m["step"], m["steps"]) == (1, 2) and m["stage"] == "Running the model (full recalibration)"
+    o = seen["during_odds_start"]
+    assert (o["step"], o["stage"]) == (2, "Fetching odds")
+    assert seen["half"] == (0.0, "game 1 of 2")
+    done = client.get("/api/refresh/status").json()
+    assert done["state"] == "done" and done["stage"] == "Done" and done["progress"] == 1.0 and done["steps"] == 2
+    assert "Using the saved calibration" in done["log"][0]
+
+
+def test_a_model_only_sync_has_one_step(client, monkeypatch):
+    monkeypatch.setattr(main.pipeline, "run_projections", lambda log=print, **kw: None)
+    monkeypatch.setattr(main.pipeline, "refresh_odds", lambda mode, log=print, **kw: None)
+    client.post("/api/refresh", json={"odds": "none"})
+    assert client.get("/api/refresh/status").json()["steps"] == 1
+
+
+def test_the_plan_says_whether_the_model_will_refit_and_what_calibration_it_has(client, monkeypatch):
+    monkeypatch.setattr(main.pipeline, "upcoming_games", _two_games)
+    monkeypatch.setattr(main.pipeline, "reusable_calibration", lambda season: dict(variance={}, backtest={}, run_id=3))
+    assert client.get("/api/refresh/plan").json()["will_recalibrate"] is False           # a fresh calibration exists: fast
+    assert client.get("/api/refresh/plan", params={"full": True}).json()["will_recalibrate"] is True
+    monkeypatch.setattr(main.pipeline, "reusable_calibration", lambda season: None)
+    assert client.get("/api/refresh/plan").json()["will_recalibrate"] is True            # nothing to reuse: it must refit
+    thin = client.get("/api/refresh/plan", params={"odds": "thin"}).json()
+    assert thin["games"] and all(g["reason"] in ("missing", "thin") for g in thin["games"])

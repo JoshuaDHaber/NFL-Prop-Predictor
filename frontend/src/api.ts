@@ -14,11 +14,13 @@ export interface Redistribution {
   summary: string;
 }
 
-export interface PlanGame { game_id: string; label: string; gameday: string; need_main: string[]; need_alt: boolean; credits: number }
+export interface PlanGame { game_id: string; label: string; gameday: string; need_main: string[]; need_alt: boolean; credits: number; reason?: string; stored_quotes?: number }
 /** What a sync would do right now and what it would cost (admin only). */
 export interface SyncPlan {
   season: number | null; week: number | null; total_games: number; games: PlanGame[]; credits: number;
   will_run_projections: boolean; has_odds_key: boolean;
+  will_recalibrate?: boolean;   // true: the model run refits its calibration (slow); false: reuses the saved one
+  calibration?: { at: string; season: number; week: number } | null;
 }
 
 export interface BacktestStat { n: number; mae_model: number; mae_naive: number; bias: number; metric?: "mae" | "brier"; calibration?: CalibrationBin[] }
@@ -26,6 +28,10 @@ export interface Game { game_id: string; label: string; gameday: string; gametim
 export interface JobStatus {
   state: "idle" | "running" | "done" | "error";
   started_at: string | null; finished_at: string | null; log: string[]; error: string | null;
+  stage?: string | null;      // what it is doing now
+  step?: number; steps?: number;
+  detail?: string | null;     // latest sub-step, e.g. "game 3 of 15"
+  progress?: number | null;   // 0..1 through the odds step
 }
 export interface Meta {
   run: { id: number; season: number; week: number; created_at: string; excluded: string[] } | null;
@@ -38,6 +44,7 @@ export interface Meta {
   books: string[];
   snapshot_at?: string | null;
   redistribution?: Redistribution | null;
+  calibration?: { at: string; season: number; week: number; reused_from_run?: number } | null;
   can_write: boolean;
   can_run_projections: boolean;
 }
@@ -110,14 +117,14 @@ const liveApi = {
     if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail);
     return res.json();
   },
-  refreshPlan: async (odds: "none" | "missing" | "all"): Promise<SyncPlan> => {
-    const res = await request(`/api/refresh/plan?odds=${odds}`); // not get(): that helper drops the value "all"
+  refreshPlan: async (odds: "none" | "missing" | "thin" | "all", full = false): Promise<SyncPlan> => {
+    const res = await request(`/api/refresh/plan?odds=${odds}&full=${full}`); // not get(): that helper drops the value "all"
     if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail);
     return res.json();
   },
-  refresh: async (odds: "none" | "missing" | "all"): Promise<JobStatus> => {
+  refresh: async ({ odds, full = false }: { odds: "none" | "missing" | "thin" | "all"; full?: boolean }): Promise<JobStatus> => {
     const res = await request("/api/refresh", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ odds }) });
+      body: JSON.stringify({ odds, full }) });
     if (!res.ok) throw new Error(await res.text());
     return res.json();
   },

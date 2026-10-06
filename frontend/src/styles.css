@@ -271,3 +271,6 @@ tr.clickable:hover td:last-child { border-top-right-radius: 10px; border-bottom-
 .sync-actions { display: flex; align-items: center; gap: 14px; margin-top: 4px; }
 .job.done { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
 .refresh { z-index: 60; } .sync-panel, .menu { z-index: 61; }
+.job.progress { display: flex; flex-direction: column; gap: 4px; align-items: stretch; min-width: 260px; }
+.job .bar { height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; } .job .bar i { display: block; height: 100%; background: var(--acc); transition: width .4s; }
+.menu-note { padding: 8px 12px; font-size: 11px; border-top: 1px solid var(--line); }

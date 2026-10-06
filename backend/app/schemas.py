@@ -46,6 +46,11 @@ class JobStatus(BaseModel):
     finished_at: Optional[str] = None
     log: list[str] = []
     error: Optional[str] = None
+    stage: Optional[str] = None      # what it is doing now, e.g. "Running the model"
+    step: int = 0                    # which step (1-based) of `steps`
+    steps: int = 0
+    detail: Optional[str] = None     # the latest sub-step message, e.g. "game 3 of 15"
+    progress: Optional[float] = None # 0..1 within the odds step (None while the model runs)
 
 
 class Meta(BaseModel):
@@ -58,6 +63,7 @@ class Meta(BaseModel):
     lan_url: Optional[str] = None
     books: list[str] = []
     snapshot_at: Optional[str] = None  # set only in the static demo export
+    calibration: Optional[dict] = None  # when/for which week the error tables were last fitted
     redistribution: Optional[dict] = None  # what teammate redistribution did in the backtest (see engine/redistribute.py)
     can_write: bool = False  # this client may refresh data / fetch alt lines (local, or sent the admin token)
     can_run_projections: bool = True  # False on small hosts that only fetch odds
@@ -131,7 +137,8 @@ class PlayerDetail(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    odds: Literal["none", "missing", "all"] = "missing"
+    odds: Literal["none", "missing", "thin", "all"] = "missing"
+    full: bool = False  # refit the model's calibration instead of reusing the saved one
 
 
 class QuoteSide(BaseModel):
@@ -173,6 +180,8 @@ class PlanGame(BaseModel):
     need_main: list[str]
     need_alt: bool
     credits: int
+    reason: str = "missing"       # missing | thin | all
+    stored_quotes: int = 0
 
 
 class SyncPlan(BaseModel):
@@ -183,3 +192,5 @@ class SyncPlan(BaseModel):
     credits: int
     will_run_projections: bool
     has_odds_key: bool
+    will_recalibrate: bool = False  # True: the model run refits its calibration (slow); False: it reuses the saved one
+    calibration: Optional[dict] = None

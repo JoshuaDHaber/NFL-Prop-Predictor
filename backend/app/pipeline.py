@@ -1,4 +1,5 @@
 """Pipeline: nflverse data -> backtest -> projections -> DB; and odds refresh -> DB."""
+import copy
 import os
 import time
 from datetime import datetime
@@ -18,8 +19,33 @@ ALL_MARKETS = set(odds.MARKETS.values())
 ALT_KINDS = set(odds.ALT_MARKETS.values())  # anytime TD has no alternate market
 
 
-def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log = print) -> int:
-    """Compute projections for the next unplayed week and store them. Returns the run id."""
+CALIBRATION_MAX_AGE_DAYS = 21   # a saved calibration older than this is refit, whatever the caller asked
+
+
+def reusable_calibration(season: int, now: datetime = None):
+    """The latest run, if it carries a calibration (error tables, TD scale, redistribution shares) that is still
+    fresh enough to reuse for this season. Reusing it skips the backtest, which is almost all of a run's time."""
+    now = now or datetime.utcnow()
+    with SessionLocal() as s:
+        run = s.query(Run).order_by(Run.id.desc()).first()
+        if not run or not run.variance:
+            return None
+        v = run.variance
+        cal, red = v.get("_calibration"), v.get("_redistribution") or {}
+        if not cal or cal.get("season") != season or "rho" not in red or not isinstance(v.get("td"), list):
+            return None
+        if not all(isinstance(v.get(k), dict) for k in ("rush", "rec", "pass", "rr")):
+            return None
+        if (now - datetime.fromisoformat(cal["at"])).days > CALIBRATION_MAX_AGE_DAYS:
+            return None
+        return dict(variance=copy.deepcopy(v), backtest=copy.deepcopy(run.backtest), run_id=run.id)
+
+
+def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log = print, full: bool = False) -> int:
+    """Compute projections for the next unplayed week and store them. Returns the run id.
+
+    By default the previous run's calibration is reused when it is recent (seconds instead of minutes on a small
+    server); full=True, or no usable calibration, refits it with the walk-forward backtest."""
     sched = data.load_schedule()
     played = sched[sched.home_score.notna()]
     cur = sched[sched.home_score.isna()].sort_values(["season", "week"]).iloc[0]
@@ -29,6 +55,7 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
 
     stats = model.prep(data.load_stats([season - 2, season - 1, season], usecols=data.PIPELINE_COLUMNS))
     priors = model.league_priors(stats)
+    td_pri = tdm.td_priors(stats)
     # who is out this week (injury report + your --exclude list): their volume goes to teammates, and they are dropped below
     inj = data.load_injuries(season)
     status = {}
@@ -41,23 +68,32 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
     manual_ids = set(stats[stats.player_display_name.map(odds.norm).isin(names)].player_id) if names else set()
     absent_ids = {pid for pid, s_ in status.items() if s_ in drop} | manual_ids
 
-    log("Walk-forward backtest (fits variance, checks accuracy)...")
-    td_pri = tdm.td_priors(stats)
-    start_t = (season - 1) * 100 + 6
-    records = []
-    base = model.walk_forward(stats, priors, played, start_t=start_t, td_priors=td_pri, records=records)  # also gathers data to fit rho
-    rho_fit = rd.fit_rho([x for x in records if x[3] < week_t])
-    rho = rd.applied(rho_fit)
-    bt = model.walk_forward(stats, priors, played, start_t=start_t, td_priors=td_pri, rho=rho)
-    bt, base = bt[bt.t < week_t], base[base.t < week_t]
-    bt_td, bt = bt[bt.kind == "td"], bt[bt.kind != "td"]
-    bt_sum, var_params = model.backtest_summary(bt), model.fit_dist(bt)
-    lam = -np.log1p(-np.clip(bt_td.mu.to_numpy(), 0, 1 - 1e-9))
-    td_scale = tdm.fit_scale(lam, bt_td.actual.to_numpy()) if len(bt_td) else 1.0
-    bt_sum["td"] = tdm.summary(bt_td, td_scale)
-    var_params["td"] = [td_scale, 0.0]  # anytime TD: (scale on expected TDs, unused); yardage kinds hold their error tables
-    var_params["_redistribution"] = _redistribution_summary(base, bt, rho_fit, rho)
-    log(f"Redistribution: {var_params['_redistribution']['summary']}")
+    saved = None if full else reusable_calibration(season)
+    if saved:
+        var_params, bt_sum = saved["variance"], saved["backtest"]
+        cal = dict(var_params.get("_calibration"), reused_from_run=saved["run_id"])
+        var_params["_calibration"] = cal
+        td_scale = var_params["td"][0]
+        rho = {k: float(v) for k, v in var_params["_redistribution"]["rho"].items()}
+        log(f"Using the saved calibration from week {cal['week']} (run {saved['run_id']}): skipping the backtest")
+    else:
+        log("Walk-forward backtest (fits variance, checks accuracy)...")
+        start_t = (season - 1) * 100 + 6
+        records = []
+        base = model.walk_forward(stats, priors, played, start_t=start_t, td_priors=td_pri, records=records)  # also gathers data to fit rho
+        rho_fit = rd.fit_rho([x for x in records if x[3] < week_t])
+        rho = rd.applied(rho_fit)
+        bt = model.walk_forward(stats, priors, played, start_t=start_t, td_priors=td_pri, rho=rho)
+        bt, base = bt[bt.t < week_t], base[base.t < week_t]
+        bt_td, bt = bt[bt.kind == "td"], bt[bt.kind != "td"]
+        bt_sum, var_params = model.backtest_summary(bt), model.fit_dist(bt)
+        lam = -np.log1p(-np.clip(bt_td.mu.to_numpy(), 0, 1 - 1e-9))
+        td_scale = tdm.fit_scale(lam, bt_td.actual.to_numpy()) if len(bt_td) else 1.0
+        bt_sum["td"] = tdm.summary(bt_td, td_scale)
+        var_params["td"] = [td_scale, 0.0]  # anytime TD: (scale on expected TDs, unused); yardage kinds hold their error tables
+        var_params["_redistribution"] = _redistribution_summary(base, bt, rho_fit, rho)
+        var_params["_calibration"] = dict(at=datetime.utcnow().isoformat(), season=season, week=week)
+        log(f"Redistribution: {var_params['_redistribution']['summary']}")
 
     log("Projecting upcoming games...")
     proj = model.upcoming_projections(stats, sched, priors, var_params, week_t, data.load_roster(season),
@@ -86,7 +122,8 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
 
 def _redistribution_summary(base: pd.DataFrame, bt: pd.DataFrame, rho_fit: dict, rho: dict) -> dict:
     """What redistribution did in the backtest (in-sample): bias on teammates of absent regulars, before and after."""
-    out = dict(rho_fit={k: round(v, 3) for k, v in rho_fit.items()}, rho={k: round(v, 3) for k, v in rho.items()},
+    # full precision: a later sync reuses `rho` as-is, and rounding it would shift projections slightly
+    out = dict(rho_fit={k: float(v) for k, v in rho_fit.items()}, rho={k: float(v) for k, v in rho.items()},
                active_roles=list(rd.ACTIVE_ROLES), by_kind={})
     key = ["player_id", "t", "kind"]
     b = base[base.kind != "td"].set_index(key)
@@ -140,32 +177,57 @@ def upcoming_games() -> pd.DataFrame:
     return todo[(todo.season == first.season) & (todo.week == first.week)]
 
 
-def sync_plan(session, games: pd.DataFrame, mode: str = "missing") -> dict:
-    """What a sync would fetch, game by game: the main markets with no stored lines for that game, and whether
-    its alternate lines are missing. mode 'all' means everything for every game. Costs one credit per market."""
-    have_main = {}
+THIN_MIN_QUOTES = 100       # a game with fewer stored quotes than this had its lines fetched early (books post gradually)
+THIN_MIN_AGE_HOURS = 3      # ...and "thin" games are only topped up if their lines are at least this old
+
+
+def sync_plan(session, games: pd.DataFrame, mode: str = "missing", now: datetime = None) -> dict:
+    """What a sync would fetch, game by game. Costs one credit per market.
+
+    'missing': the main markets with no stored lines for a game, and its alternates if it has none.
+    'thin':    'missing', plus a full re-fetch of games whose stored lines are few and old (lines post gradually
+               through the week, so an early fetch leaves some games sparse).
+    'all':     everything for every game."""
+    from sqlalchemy import func
+    now = now or datetime.utcnow()
+    have_main, stored, last = {}, {}, {}
     for gid, market in session.query(OddsLine.game_id, OddsLine.market).distinct():
         have_main.setdefault(gid, set()).add(market)
+    for model_, in ((OddsLine,), (AltLine,)):
+        for gid, n, t in session.query(model_.game_id, func.count(), func.max(model_.fetched_at)).group_by(model_.game_id):
+            stored[gid] = stored.get(gid, 0) + n
+            last[gid] = max(last[gid], t) if gid in last else t
     have_alt = {g for (g,) in session.query(AltLine.game_id).distinct()}
     out = []
     for g in games.itertuples():
-        need_main = sorted(ALL_MARKETS if mode == "all" else ALL_MARKETS - have_main.get(g.game_id, set()))
-        need_alt = mode == "all" or g.game_id not in have_alt
-        if need_main or need_alt:
-            out.append(dict(game_id=g.game_id, away=g.away_team, home=g.home_team, label=f"{g.away_team} @ {g.home_team}",
-                            gameday=str(getattr(g, "gameday", "")), need_main=need_main, need_alt=need_alt,
-                            credits=len(need_main) + (len(ALT_KINDS) if need_alt else 0)))
+        gid = g.game_id
+        reason = None
+        if mode == "all":
+            need_main, need_alt, reason = sorted(ALL_MARKETS), True, "all"
+        else:
+            need_main = sorted(ALL_MARKETS - have_main.get(gid, set()))
+            need_alt = gid not in have_alt
+            if need_main or need_alt:
+                reason = "missing"
+            elif mode == "thin" and stored.get(gid, 0) < THIN_MIN_QUOTES and gid in last \
+                    and (now - last[gid]).total_seconds() >= THIN_MIN_AGE_HOURS * 3600:
+                need_main, need_alt, reason = sorted(ALL_MARKETS), True, "thin"
+        if reason:
+            out.append(dict(game_id=gid, away=g.away_team, home=g.home_team, label=f"{g.away_team} @ {g.home_team}",
+                            gameday=str(getattr(g, "gameday", "")), need_main=need_main, need_alt=need_alt, reason=reason,
+                            stored_quotes=int(stored.get(gid, 0)), credits=len(need_main) + (len(ALT_KINDS) if need_alt else 0)))
     first = games.iloc[0] if len(games) else None
     has = first is not None and "season" in games.columns and "week" in games.columns
     return dict(season=int(first.season) if has else None, week=int(first.week) if has else None,
                 total_games=len(games), games=out, credits=sum(g["credits"] for g in out))
 
 
-def refresh_odds(mode: str = "missing", log: Log = print) -> None:
+def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[int, int], None] = None) -> None:
     """Fetch prop lines, main and alternate, for the upcoming week's games (one API call per game).
 
     'missing' fetches only what each game lacks (so a new week is fetched in full and a repeat costs nothing);
-    'all' refetches everything for the week; 'none' skips. Costs one credit per market per game.
+    'thin' also tops up games whose stored lines are few and old; 'all' refetches everything for the week; 'none'
+    skips. Costs one credit per market per game. progress(done, total) is called after each game.
     """
     if mode == "none":
         return
@@ -184,7 +246,9 @@ def refresh_odds(mode: str = "missing", log: Log = print) -> None:
         cost = sum(g["credits"] for g, e in todo if e)
         log(f"Fetching odds for {len(todo)} games (about {cost} API credits)...")
         mains, alts = [], []
-        for g, event_id in todo:
+        for i, (g, event_id) in enumerate(todo, 1):
+            if progress:
+                progress(i - 1, len(todo))
             if not event_id:
                 log(f"  no sportsbook event yet for {g['label']}")
                 continue
@@ -194,6 +258,8 @@ def refresh_odds(mode: str = "missing", log: Log = print) -> None:
             mains.append(paired[~is_alt].assign(game_id=g["game_id"]))
             alts.append(paired[is_alt].assign(game_id=g["game_id"]))
             log(f"  {g['label']}: {len(paired)} quotes (credits left: {remaining})")
+        if progress:
+            progress(len(todo), len(todo))
         now = datetime.utcnow()
         main_df = pd.concat([m for m in mains if not m.empty], ignore_index=True) if any(not m.empty for m in mains) else pd.DataFrame()
         if not main_df.empty:
