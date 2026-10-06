@@ -14,6 +14,13 @@ export interface Redistribution {
   summary: string;
 }
 
+export interface PlanGame { game_id: string; label: string; gameday: string; need_main: string[]; need_alt: boolean; credits: number }
+/** What a sync would do right now and what it would cost (admin only). */
+export interface SyncPlan {
+  season: number | null; week: number | null; total_games: number; games: PlanGame[]; credits: number;
+  will_run_projections: boolean; has_odds_key: boolean;
+}
+
 export interface BacktestStat { n: number; mae_model: number; mae_naive: number; bias: number; metric?: "mae" | "brier"; calibration?: CalibrationBin[] }
 export interface Game { game_id: string; label: string; gameday: string; gametime: string }
 export interface JobStatus {
@@ -103,6 +110,11 @@ const liveApi = {
     if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail);
     return res.json();
   },
+  refreshPlan: async (odds: "none" | "missing" | "all"): Promise<SyncPlan> => {
+    const res = await request(`/api/refresh/plan?odds=${odds}`); // not get(): that helper drops the value "all"
+    if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail);
+    return res.json();
+  },
   refresh: async (odds: "none" | "missing" | "all"): Promise<JobStatus> => {
     const res = await request("/api/refresh", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ odds }) });
@@ -152,6 +164,7 @@ const staticApi: typeof liveApi = {
   },
   fetchAlt: async () => unavailable(),
   refresh: async () => unavailable(),
+  refreshPlan: async () => unavailable(),
   status: async () => ({ state: "idle", started_at: null, finished_at: null, log: [], error: null }),
 };
 

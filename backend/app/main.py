@@ -27,7 +27,7 @@ from .db import AltLine, OddsLine, Projection, Run, SessionLocal, current_lines
 from .engine import data, model, odds
 from .engine.ladder import build_ladder
 from .engine.picks import build_picks
-from .schemas import (AltFetchResult, GameLogEntry, LadderOut, Game, JobStatus, Kind, Meta, OddsInfo, PickOut, PlayerDetail, ProjectionOut,
+from .schemas import (AltFetchResult, SyncPlan, GameLogEntry, LadderOut, Game, JobStatus, Kind, Meta, OddsInfo, PickOut, PlayerDetail, ProjectionOut,
                       RefreshRequest, RunInfo)
 
 @asynccontextmanager
@@ -179,6 +179,19 @@ _job = {"state": "idle", "started_at": None, "finished_at": None, "log": [], "er
 _lock = threading.Lock()
 
 
+def _release_memory():
+    """Hand a finished job's memory back to the OS (matters on a 512 MB host) and drop caches the new data outdates."""
+    import gc
+    _stats.cache_clear()   # game logs in the player drawer come from the stats files, which a sync just refreshed
+    _pick_cache.clear()
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):
+        pass  # not glibc (e.g. macOS): nothing to trim
+
+
 def _run_job(odds_mode: str):
     def log(msg):
         _job["log"].append(msg)
@@ -194,6 +207,7 @@ def _run_job(odds_mode: str):
         _job["state"], _job["error"] = "error", f"{type(e).__name__}: {e}"
     finally:
         _job["finished_at"] = datetime.utcnow().isoformat()
+        _release_memory()
 
 
 # ---------- routes ----------
@@ -230,11 +244,10 @@ def _lan_url(request: Request) -> Optional[str]:
 
 
 def _odds_info(db: Session) -> dict:
-    latest = {m: t for m, t in db.execute(select(OddsLine.market, func.max(OddsLine.fetched_at))
-                                          .group_by(OddsLine.market)).all()}
-    return {m: OddsInfo(fetched_at=t.isoformat(),
-                        lines=db.scalar(select(func.count()).where(OddsLine.market == m, OddsLine.fetched_at == t)))
-            for m, t in latest.items()}
+    """Per market: when its newest quotes were fetched and how many quotes are current (across all games)."""
+    fetched = {m: t for m, t in db.execute(select(OddsLine.market, func.max(OddsLine.fetched_at)).group_by(OddsLine.market)).all()}
+    counts = current_lines(db).groupby("market").size().to_dict()
+    return {m: OddsInfo(fetched_at=t.isoformat(), lines=int(counts.get(m, 0))) for m, t in fetched.items()}
 
 
 @app.get("/api/projections", response_model=list[ProjectionOut])
@@ -322,7 +335,7 @@ def player_lines(player_id: str, kind: Kind, odds_range: int = Query(300, ge=0, 
 def build_ladder_out(db: Session, p: Projection, odds_range: int = 0) -> LadderOut:
     key, kind = odds.norm(p.name), p.kind
     main = current_lines(db)
-    main = main[(main.market == kind) & (main.player.map(odds.norm) == key)].assign(alt=False)
+    main = main[(main.market == kind) & (main.player.map(odds.norm) == key) & (main.game_id == p.game_id)].assign(alt=False)
     alts = db.scalars(select(AltLine).where(AltLine.game_id == p.game_id, AltLine.market == kind)).all()
     alt_df = pd.DataFrame([dict(player=r.player, market=r.market, line=r.line, over_odds=r.over_odds,
                                 under_odds=r.under_odds, book=r.book, over_link=r.over_link, under_link=r.under_link,
@@ -389,6 +402,22 @@ def refresh(req: RefreshRequest, bg: BackgroundTasks):
         _job.update(state="running", started_at=datetime.utcnow().isoformat(), finished_at=None, log=[], error=None)
     bg.add_task(_run_job, req.odds)
     return JobStatus(**_job)
+
+
+@app.get("/api/refresh/plan", response_model=SyncPlan)
+def refresh_plan(request: Request, odds: Literal["none", "missing", "all"] = "missing"):
+    """What a sync would do right now, and what it would cost: for the confirm step in the admin UI."""
+    if not is_admin(request):
+        raise HTTPException(403, "Admin only")
+    games = pipeline.upcoming_games()
+    if odds == "none":
+        plan = dict(total_games=len(games), games=[], credits=0)
+    else:
+        with SessionLocal() as s:
+            plan = pipeline.sync_plan(s, games, odds)
+    if len(games):
+        plan["season"], plan["week"] = int(games.iloc[0].season), int(games.iloc[0].week)
+    return SyncPlan(**plan, will_run_projections=config.PROJECTIONS_ON_SERVER(), has_odds_key=bool(config.ODDS_API_KEY()))
 
 
 @app.get("/healthz", include_in_schema=False)

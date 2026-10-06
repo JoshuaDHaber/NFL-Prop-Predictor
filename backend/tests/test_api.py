@@ -19,8 +19,8 @@ def client():
                 gametime="13:00", last5=[50.0, 60.0, 70.0, 80.0, 90.0]))
         s.add(run)
         t = datetime(2026, 10, 3, 12)
-        s.add_all([OddsLine(fetched_at=t, player="Alpha Back", market="rush", line=60.5, over_odds=-110, under_odds=-110, book="X"),
-                   OddsLine(fetched_at=t, player="Beta Back", market="rush", line=40.5, over_odds=-110, under_odds=-110, book="X")])
+        s.add_all([OddsLine(fetched_at=t, player="Alpha Back", market="rush", line=60.5, over_odds=-110, under_odds=-110, book="X", game_id="2026_04_BBB_AAA"),
+                   OddsLine(fetched_at=t, player="Beta Back", market="rush", line=40.5, over_odds=-110, under_odds=-110, book="X", game_id="2026_04_BBB_AAA")])
         s.commit()
     with TestClient(main.app) as c:
         yield c
@@ -286,3 +286,36 @@ def test_behind_a_proxy_throttling_follows_the_forwarded_client_not_the_proxy(mo
         innocent = proxy.post("/api/refresh", json={"odds": "none"}, headers={"Authorization": "Bearer bad", "X-Forwarded-For": "198.51.100.8"})
     assert blocked.status_code == 429 and innocent.status_code == 403
     main._FAILS.clear()
+
+
+# ---------- the weekly sync from the admin UI ----------
+def _two_games():
+    import pandas as pd
+    return pd.DataFrame([dict(game_id="2026_05_AAA_BBB", away_team="AAA", home_team="BBB", season=2026, week=5, gameday="2026-10-11"),
+                         dict(game_id="2026_05_CCC_DDD", away_team="CCC", home_team="DDD", season=2026, week=5, gameday="2026-10-12")])
+
+
+def test_the_sync_plan_says_what_would_run_and_what_it_costs(client, monkeypatch):
+    monkeypatch.setattr(main.pipeline, "upcoming_games", _two_games)
+    p = client.get("/api/refresh/plan").json()
+    assert p["season"] == 2026 and p["week"] == 5 and p["total_games"] == 2
+    assert [g["label"] for g in p["games"]] == ["AAA @ BBB", "CCC @ DDD"]
+    assert p["games"][0]["need_main"] == ["pass", "rec", "rr", "rush", "td"] and p["games"][0]["need_alt"] is True
+    assert p["credits"] == 18 and p["will_run_projections"] is True
+    none = client.get("/api/refresh/plan", params={"odds": "none"}).json()
+    assert none["credits"] == 0 and none["games"] == [] and none["week"] == 5
+
+
+def test_only_the_admin_can_ask_for_a_sync_plan(monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", "pw-for-tests")
+    monkeypatch.setattr(main.pipeline, "upcoming_games", _two_games)
+    with TestClient(main.app, client=("203.0.113.30", 4000)) as remote:
+        assert remote.get("/api/refresh/plan").status_code == 403
+        assert remote.get("/api/refresh/plan", headers={"Authorization": "Bearer pw-for-tests"}).status_code == 200
+    main._FAILS.clear()
+
+
+def test_a_finished_sync_drops_the_caches_the_new_data_outdates():
+    main._pick_cache["stale"] = object()
+    main._release_memory()
+    assert main._pick_cache == {}

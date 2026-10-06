@@ -88,3 +88,15 @@ def test_picks_use_the_backtest_error_table_when_the_run_has_one():
 def test_a_missing_kind_in_the_tables_falls_back_to_the_gamma_curve():
     ln = lines([("Test Back", "rush", 80.5, -110, -110, "A")])
     assert build_picks(proj(mu=80), ln, dists={"pass": dict(mu=[1.0], sd=[1.0], z=[0.0])}).p_model.notna().all()
+
+
+def test_a_quote_is_only_priced_against_the_game_it_belongs_to():
+    base = [("Test Back", "rush", 60.5, -110, -110, "A")]
+    own = lines(base).assign(game_id="2026_04_BBB_AAA")
+    other_week = lines(base).assign(game_id="2026_03_ZZZ_AAA")     # last week's quote for the same player
+    legacy = lines(base).assign(game_id=None)                        # stored before games were tracked
+    assert len(build_picks(proj(mu=90), own)) == 2
+    assert build_picks(proj(mu=90), other_week).empty
+    assert build_picks(proj(mu=90), legacy).empty
+    mixed = pd.concat([own, other_week.assign(book="Old")], ignore_index=True)
+    assert set(build_picks(proj(mu=90), mixed).book) == {"A"}       # the stale quote doesn't leak into the market view either

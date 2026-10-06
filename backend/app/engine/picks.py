@@ -25,6 +25,11 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
     lines["key"] = lines.player.map(odds.norm)
     proj = proj.copy()
     proj["key"] = proj["name"].map(odds.norm)
+    if "game_id" in lines:
+        # a line belongs to one game: last week's quote for a player is never priced against this week's projection
+        lines = lines[lines.game_id == lines.key.map(dict(zip(proj.key, proj.game_id)))]
+        if lines.empty:
+            return pd.DataFrame(columns=PICK_COLUMNS)
     pm = {(r.key, r.kind): r for r in proj.itertuples()}
 
     # market no-vig consensus per player/market

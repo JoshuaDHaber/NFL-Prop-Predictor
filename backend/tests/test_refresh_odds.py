@@ -16,17 +16,18 @@ def clean_and_stub(monkeypatch):
     monkeypatch.setattr(pipeline.config, "ODDS_API_KEY", lambda: "test-key")
     games = pd.DataFrame([dict(game_id=GAME, away_team="AWY", home_team="HOM")])
     monkeypatch.setattr(pipeline, "upcoming_games", lambda: games)
-    monkeypatch.setattr(pipeline.odds, "list_events", lambda key: [dict(id="evt1", away="AWY", home="HOM")])
+    monkeypatch.setattr(pipeline.odds, "list_events", lambda key: [dict(id="evt1", away="AWY", home="HOM"), dict(id="evt2", away="CCC", home="DDD")])
     calls = []
 
     def fake_fetch(key, event_id, main_kinds, alt_kinds=()):
         calls.append((event_id, sorted(main_kinds), sorted(alt_kinds)))
         rows = []
+        player = {"evt1": "Test Back", "evt2": "Other Back"}[event_id]
         for kind in main_kinds:
             for side, odds in (("over", -110), ("under", -110)):
-                rows.append(dict(player="Test Back", market=kind, alt=False, side=side, line=60.5, odds=odds, book="X", link=None, event_link="https://sportsbook.draftkings.com/event/1"))
+                rows.append(dict(player=player, market=kind, alt=False, side=side, line=60.5, odds=odds, book="X", link=None, event_link="https://sportsbook.draftkings.com/event/1"))
         for kind in alt_kinds:
-            rows.append(dict(player="Test Back", market=kind, alt=True, side="over", line=80.5, odds=250, book="X", link="https://sportsbook.draftkings.com/?outcomes=A", event_link=None))
+            rows.append(dict(player=player, market=kind, alt=True, side="over", line=80.5, odds=250, book="X", link="https://sportsbook.draftkings.com/?outcomes=A", event_link=None))
         return pd.DataFrame(rows), "400"
 
     monkeypatch.setattr(pipeline.odds, "fetch_game_odds", fake_fetch)
@@ -73,3 +74,64 @@ def test_none_mode_and_missing_key_do_nothing(clean_and_stub, monkeypatch):
     monkeypatch.setattr(pipeline.config, "ODDS_API_KEY", lambda: None)
     pipeline.refresh_odds("missing", log=lambda m: None)
     assert clean_and_stub == []
+
+
+# ---------- a new week, and games whose lines post at different times ----------
+GAME2 = "2026_99_CCC_DDD"
+TWO = pd.DataFrame([dict(game_id=GAME, away_team="AWY", home_team="HOM", season=2026, week=99, gameday="2026-10-11"),
+                    dict(game_id=GAME2, away_team="CCC", home_team="DDD", season=2026, week=99, gameday="2026-10-12")])
+
+
+def test_a_new_weeks_games_are_fetched_in_full_even_though_every_market_already_has_lines(clean_and_stub, monkeypatch):
+    pipeline.refresh_odds("missing", log=lambda m: None)            # last week: GAME
+    clean_and_stub.clear()
+    monkeypatch.setattr(pipeline, "upcoming_games", lambda: TWO.iloc[[1]])   # the next week's game is a different one
+    pipeline.refresh_odds("missing", log=lambda m: None)
+    assert clean_and_stub == [("evt2", ["pass", "rec", "rr", "rush", "td"], ["pass", "rec", "rr", "rush"])]  # main AND alternates
+    from app.db import current_lines
+    with SessionLocal() as s:
+        assert set(current_lines(s).player) == {"Test Back", "Other Back"}      # last week's lines are not hidden by the new fetch
+
+
+def test_lines_fetched_for_a_later_game_do_not_hide_the_earlier_ones(clean_and_stub, monkeypatch):
+    monkeypatch.setattr(pipeline, "upcoming_games", lambda: TWO.iloc[[0]])
+    pipeline.refresh_odds("missing", log=lambda m: None)            # Thursday: only game 1 has lines
+    clean_and_stub.clear()
+    monkeypatch.setattr(pipeline, "upcoming_games", lambda: TWO)
+    pipeline.refresh_odds("missing", log=lambda m: None)            # Sunday: game 1 is already covered, game 2 is not
+    assert [c[0] for c in clean_and_stub] == ["evt2"]
+    from app.db import current_lines
+    with SessionLocal() as s:
+        assert set(current_lines(s).player) == {"Test Back", "Other Back"}
+
+
+def test_only_the_markets_a_game_lacks_are_fetched(clean_and_stub, monkeypatch):
+    monkeypatch.setattr(pipeline, "upcoming_games", lambda: TWO.iloc[[0]])
+    pipeline.refresh_odds("missing", log=lambda m: None)
+    with SessionLocal() as s:
+        s.query(OddsLine).filter(OddsLine.market == "td").delete(); s.commit()          # TD lines vanished for this game
+    clean_and_stub.clear()
+    pipeline.refresh_odds("missing", log=lambda m: None)
+    assert clean_and_stub == [("evt1", ["td"], [])]
+
+
+def test_refetching_a_game_replaces_its_old_quotes_instead_of_piling_up(clean_and_stub, monkeypatch):
+    monkeypatch.setattr(pipeline, "upcoming_games", lambda: TWO.iloc[[0]])
+    pipeline.refresh_odds("missing", log=lambda m: None)
+    with SessionLocal() as s:
+        before = s.query(OddsLine).count()
+    pipeline.refresh_odds("all", log=lambda m: None)
+    with SessionLocal() as s:
+        assert s.query(OddsLine).count() == before
+
+
+def test_the_plan_prices_a_sync_before_it_runs(clean_and_stub):
+    with SessionLocal() as s:
+        plan = pipeline.sync_plan(s, TWO, "missing")
+        assert plan["week"] == 99 and plan["total_games"] == 2 and len(plan["games"]) == 2
+        assert plan["credits"] == 2 * (5 + 4)                       # five main markets + four alternate markets, per game
+        pipeline.refresh_odds("missing", log=lambda m: None)
+    with SessionLocal() as s:
+        covered = pipeline.sync_plan(s, TWO.iloc[[0]], "missing")
+        assert covered["games"] == [] and covered["credits"] == 0   # nothing left to buy for game 1
+        assert pipeline.sync_plan(s, TWO.iloc[[0]], "all")["credits"] == 9

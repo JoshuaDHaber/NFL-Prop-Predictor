@@ -27,7 +27,7 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
     week_t = season * 100 + week
     log(f"Target: {season} week {week}")
 
-    stats = model.prep(data.load_stats([season - 2, season - 1, season]))
+    stats = model.prep(data.load_stats([season - 2, season - 1, season], usecols=data.PIPELINE_COLUMNS))
     priors = model.league_priors(stats)
     # who is out this week (injury report + your --exclude list): their volume goes to teammates, and they are dropped below
     inj = data.load_injuries(season)
@@ -110,15 +110,24 @@ def _s(v):
 
 
 def store_lines(df: pd.DataFrame, session) -> int:
+    """Store main-market quotes. Each (market, game) is one snapshot: its older rows are replaced, so the table
+    holds only current lines and a later fetch for other games never hides the ones already stored."""
     fetched = df["fetched_at"] if "fetched_at" in df else pd.Series(time.time(), index=df.index)
-    for market, g in df.groupby("market"):
+    gid = df["game_id"] if "game_id" in df else pd.Series([None] * len(df), index=df.index)
+    df = df.assign(_gid=gid.where(gid.notna(), None))
+    for (market, game_id), g in df.groupby(["market", df["_gid"].fillna("")]):
+        game_id = game_id or None
         t = datetime.utcfromtimestamp(float(fetched[g.index].max()))
         session.add_all(OddsLine(fetched_at=t, player=r.player, market=market, line=float(r.line),
                                  over_odds=None if pd.isna(r.over_odds) else float(r.over_odds),
                                  under_odds=None if pd.isna(r.under_odds) else float(r.under_odds), book=r.book,
                                  over_link=_s(getattr(r, "over_link", None)), under_link=_s(getattr(r, "under_link", None)),
-                                 event_link=_s(getattr(r, "event_link", None)))
+                                 event_link=_s(getattr(r, "event_link", None)), game_id=game_id)
                         for r in g.itertuples())
+        session.flush()
+        if game_id:
+            session.query(OddsLine).filter(OddsLine.market == market, OddsLine.game_id == game_id,
+                                           OddsLine.fetched_at < t).delete()
     session.commit()
     return len(df)
 
@@ -131,43 +140,60 @@ def upcoming_games() -> pd.DataFrame:
     return todo[(todo.season == first.season) & (todo.week == first.week)]
 
 
+def sync_plan(session, games: pd.DataFrame, mode: str = "missing") -> dict:
+    """What a sync would fetch, game by game: the main markets with no stored lines for that game, and whether
+    its alternate lines are missing. mode 'all' means everything for every game. Costs one credit per market."""
+    have_main = {}
+    for gid, market in session.query(OddsLine.game_id, OddsLine.market).distinct():
+        have_main.setdefault(gid, set()).add(market)
+    have_alt = {g for (g,) in session.query(AltLine.game_id).distinct()}
+    out = []
+    for g in games.itertuples():
+        need_main = sorted(ALL_MARKETS if mode == "all" else ALL_MARKETS - have_main.get(g.game_id, set()))
+        need_alt = mode == "all" or g.game_id not in have_alt
+        if need_main or need_alt:
+            out.append(dict(game_id=g.game_id, away=g.away_team, home=g.home_team, label=f"{g.away_team} @ {g.home_team}",
+                            gameday=str(getattr(g, "gameday", "")), need_main=need_main, need_alt=need_alt,
+                            credits=len(need_main) + (len(ALT_KINDS) if need_alt else 0)))
+    first = games.iloc[0] if len(games) else None
+    has = first is not None and "season" in games.columns and "week" in games.columns
+    return dict(season=int(first.season) if has else None, week=int(first.week) if has else None,
+                total_games=len(games), games=out, credits=sum(g["credits"] for g in out))
+
+
 def refresh_odds(mode: str = "missing", log: Log = print) -> None:
     """Fetch prop lines, main and alternate, for the upcoming week's games (one API call per game).
 
-    mode 'all' refetches everything; 'missing' fetches only markets with no stored lines plus alternate
-    lines for games that have none; 'none' skips. Costs one credit per market per game.
+    'missing' fetches only what each game lacks (so a new week is fetched in full and a repeat costs nothing);
+    'all' refetches everything for the week; 'none' skips. Costs one credit per market per game.
     """
     if mode == "none":
         return
     key = config.ODDS_API_KEY()
     games = upcoming_games()
     with SessionLocal() as s:
-        have = {m for (m,) in s.query(OddsLine.market).distinct()}
-        have_alt = {g for (g,) in s.query(AltLine.game_id).distinct()}
-        need_main = ALL_MARKETS if mode == "all" else ALL_MARKETS - have
-        alt_games = set(games.game_id) if mode == "all" else set(games.game_id) - have_alt
-        if not need_main and not alt_games:
-            log("Odds already cover every market and game")
+        plan = sync_plan(s, games, mode)
+        if not plan["games"]:
+            log("Odds already cover every game")
             return
         if not key:
             log("No ODDS_API_KEY set; skipping odds fetch")
             return
         events = {(e["away"], e["home"]): e["id"] for e in odds.list_events(key)}
-        todo = [(g, events.get((g.away_team, g.home_team))) for g in games.itertuples()
-                if need_main or g.game_id in alt_games]
-        cost = sum(len(need_main) + (len(ALT_KINDS) if g.game_id in alt_games else 0) for g, e in todo if e)
+        todo = [(g, events.get((g["away"], g["home"]))) for g in plan["games"]]
+        cost = sum(g["credits"] for g, e in todo if e)
         log(f"Fetching odds for {len(todo)} games (about {cost} API credits)...")
         mains, alts = [], []
         for g, event_id in todo:
             if not event_id:
-                log(f"  no sportsbook event yet for {g.away_team} @ {g.home_team}")
+                log(f"  no sportsbook event yet for {g['label']}")
                 continue
-            long, remaining = odds.fetch_game_odds(key, event_id, need_main, ALT_KINDS if g.game_id in alt_games else ())
+            long, remaining = odds.fetch_game_odds(key, event_id, g["need_main"], ALT_KINDS if g["need_alt"] else ())
             paired = odds.pair_with_links(long)
             is_alt = paired.alt.astype(bool)
-            mains.append(paired[~is_alt])
-            alts.append(paired[is_alt].assign(game_id=g.game_id))
-            log(f"  {g.away_team} @ {g.home_team}: {len(paired)} quotes (credits left: {remaining})")
+            mains.append(paired[~is_alt].assign(game_id=g["game_id"]))
+            alts.append(paired[is_alt].assign(game_id=g["game_id"]))
+            log(f"  {g['label']}: {len(paired)} quotes (credits left: {remaining})")
         now = datetime.utcnow()
         main_df = pd.concat([m for m in mains if not m.empty], ignore_index=True) if any(not m.empty for m in mains) else pd.DataFrame()
         if not main_df.empty:

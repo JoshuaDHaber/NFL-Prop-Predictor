@@ -136,7 +136,7 @@ GitHub Pages (React)  ──HTTPS──▶  Render (FastAPI)  ──▶  Neon Po
                                           └──▶ The Odds API
 ```
 
-**Why these pieces.** Render's free web service has no persistent disk and sleeps after 15 idle minutes, so the database lives on Neon (free Postgres). The first visit after a sleep takes up to a minute; the app shows "Waking the server…" and retries by itself. The weekly model run needs ~400 MB, more than Render's 512 MB free tier allows next to the server, so you run it on your Mac against the same database (`PROJECTIONS_ON_SERVER=0`); the site can still fetch odds.
+**Why these pieces.** Render's free web service has no persistent disk and sleeps after 15 idle minutes, so the database lives on Neon (free Postgres). The first visit after a sleep takes up to a minute; the app shows "Waking the server…" and retries by itself. The model run peaked at about 380 MB with the server (measured on a Mac; Linux may differ) after trimming it to the 16 stat columns it uses, which fits Render's 512 MB free tier with some room. If the service ever runs out of memory, set `PROJECTIONS_ON_SERVER=0` in Render: the site then only fetches odds and you run the model on your Mac against the same database.
 
 **One-time setup** (accounts and secrets are yours to create):
 1. **Neon:** create a project at [neon.tech](https://neon.tech) and copy its connection string (`postgresql://…`).
@@ -148,7 +148,9 @@ GitHub Pages (React)  ──HTTPS──▶  Render (FastAPI)  ──▶  Neon Po
 4. **GitHub:** Settings → Secrets and variables → Actions → **Variables** → new variable `API_URL` = the Render URL. Settings → Pages → Source: **GitHub Actions**. Merge to `main` (or run the "Deploy demo to GitHub Pages" workflow). If your GitHub user isn't `JoshuaDHaber`, change `CORS_ORIGINS` in Render to your Pages origin.
 5. **Open the site, click Admin, enter the admin password.** Refresh controls appear for you only (it stays in that browser).
 
-**Each week:** `DATABASE_URL='postgresql://…' ./run.sh refresh` runs the model and stores projections straight into Neon; then use *Fetch odds* on the site (or the same command with `--odds missing`) to pull lines.
+**Syncing a new week from the site (no code or push needed).** Once the API has been deployed with `PROJECTIONS_ON_SERVER=1`, open the site, unlock **Admin**, and click **Sync next week**. It works out the next week with unplayed games, shows exactly what it will do and what it costs in Odds API credits (for example "15 of 15 games, about 135 credits"), and when you confirm it runs the model, stores the new projections in Neon, and fetches odds for every game that doesn't have them yet: main lines, anytime TD and alternate lines. A repeat costs nothing, because odds are stored per game and only the missing ones are bought. The menu also has "Model only" (no credits) and "Re-fetch all odds for the week". A sync takes a minute or so and the board updates when it finishes.
+
+**Each week, from your Mac instead (optional):** `DATABASE_URL='postgresql://…' ./run.sh refresh` runs the model and stores projections straight into Neon; then use *Fetch odds* on the site (or the same command with `--odds missing`) to pull lines.
 
 Without the `API_URL` variable the same workflow publishes the static snapshot demo described next.
 

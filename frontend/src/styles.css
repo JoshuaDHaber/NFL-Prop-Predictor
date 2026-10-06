@@ -264,3 +264,10 @@ tr.clickable:hover td:last-child { border-top-right-radius: 10px; border-bottom-
 
 /* phones: the toggle scrolls away with the header instead of covering the sticky nav */
 @media (max-width: 700px) { .theme-toggle { position: absolute; } }
+
+/* weekly sync confirm panel + result */
+.sync-panel { position: absolute; right: 0; top: 44px; z-index: 7; width: min(380px, 92vw); text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: 0 10px 28px rgba(0,0,0,.2); display: flex; flex-direction: column; gap: 8px; }
+.sync-panel ul { margin: 0; padding-left: 18px; } .sync-panel li { margin: 3px 0; } .sync-panel details { font-size: 12px; } .sync-panel summary { cursor: pointer; color: var(--mut); }
+.sync-actions { display: flex; align-items: center; gap: 14px; margin-top: 4px; }
+.job.done { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+.refresh { z-index: 60; } .sync-panel, .menu { z-index: 61; }

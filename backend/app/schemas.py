@@ -164,3 +164,22 @@ class AltFetchResult(BaseModel):
     alt_quotes: int
     linked: int
     credits_remaining: Optional[str] = None
+
+
+class PlanGame(BaseModel):
+    game_id: str
+    label: str
+    gameday: str
+    need_main: list[str]
+    need_alt: bool
+    credits: int
+
+
+class SyncPlan(BaseModel):
+    season: Optional[int] = None
+    week: Optional[int] = None
+    total_games: int
+    games: list[PlanGame]
+    credits: int
+    will_run_projections: bool
+    has_odds_key: bool

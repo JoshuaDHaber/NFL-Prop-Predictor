@@ -188,7 +188,7 @@ def walk_forward(df, priors, sched, start_t, td_priors=None, rho=None, records=N
             r = g.iloc[i]
             if r.t < start_t:
                 continue
-            hist = g.iloc[:i].copy()
+            hist = g.iloc[:i]  # a view: copying every player-game's history is what made full refreshes big
             hist.attrs["opp"] = r.opponent_team
             sp = spread_map.get((r.season, r.week, r.team), 0.0)
             ctx.append(dict(pid=pid, name=r.player_display_name, pos=r.position, team=r.team, opp=r.opponent_team, season=r.season,
@@ -313,7 +313,7 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
                 hist = by_player[pid]
                 if len(hist) < 2:
                     continue
-                hist = hist.copy()
+                hist = hist.iloc[:]  # a view of the player's rows; attrs are set per use
                 hist.attrs["opp"] = other
                 members.append(dict(pid=pid, p=p, hist=hist, pos=p.position, comp=components(hist, p.position, priors, opp, sp)))
             if rho and any(v > 0 for v in rho.values()):

@@ -19,7 +19,7 @@ services:
         generateValue: true
       - key: CORS_ORIGINS        # the GitHub Pages origin
         value: https://joshuadhaber.github.io
-      - key: PROJECTIONS_ON_SERVER   # the weekly model run needs ~400 MB; run it on your Mac instead
-        value: "0"
+      - key: PROJECTIONS_ON_SERVER   # "1": the admin "Sync next week" button runs the model here (peaks ~380 MB of the 512 MB);
+        value: "1"                   # set "0" to fetch odds only and run the model on your Mac instead
       - key: NFLPROPS_CACHE
         value: /tmp/nflprops-cache
