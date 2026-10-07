@@ -126,6 +126,9 @@ export const LADDER_MIN_ODDS = -400;
 export const LADDER_MARKET_WEIGHT = 0.35;
 export const LADDER_MAX_LEGS = 4;
 export const LADDER_PLAYERS = 12;
+export const LADDER_PLAYERS_PER_TEAM = 6;
+/** Lowest win probability for a single alternate prop to be listed on its own. */
+export const LADDER_PROP_MIN_PROB = 0.65;
 /** Combined-price bands, as decimal odds: +100 to +150, +150 to +225, +225 to +300. */
 export const LADDER_BANDS = [
   { key: "ladder-1", title: "Ladder +100 to +150", lo: 2, hi: 2.5 },
@@ -133,14 +136,18 @@ export const LADDER_BANDS = [
   { key: "ladder-3", title: "Ladder +225 to +300", lo: 3.25, hi: 4.0001 },
 ];
 
-/** The players worth pulling a line ladder for: those whose main-line over looks likeliest (flagged plays are left out). */
-export function ladderTargets(picks: Pick[], n = LADDER_PLAYERS): Pick[] {
+/** The players worth pulling a line ladder for: those whose main-line over looks likeliest (flagged plays are left out).
+ *  At most `perTeam` per team, so one team's players can't crowd the other side of a game out of the ladders. */
+export function ladderTargets(picks: Pick[], n = LADDER_PLAYERS, perTeam = LADDER_PLAYERS_PER_TEAM): Pick[] {
   const seen = new Set<string>();
+  const teams = new Map<string, number>();
   const out: Pick[] = [];
   const overs = picks.filter((p) => p.side === "Over" && (p.kind === "rush" || p.kind === "rec") && !p.flagged);
   for (const p of overs.sort((a, b) => b.p_model - a.p_model)) {
-    if (seen.has(p.player_id)) continue;
+    const team = `${p.game_id}|${p.team}`;
+    if (seen.has(p.player_id) || (teams.get(team) ?? 0) >= perTeam) continue;
     seen.add(p.player_id);
+    teams.set(team, (teams.get(team) ?? 0) + 1);
     out.push(p);
     if (out.length === n) break;
   }
@@ -165,19 +172,18 @@ export function ladderRungs(base: Pick, ladder: Ladder | undefined, book: string
   return [...byLine.values()].sort((a, b) => a.line - b.line);
 }
 
-/**
- * Ladder parlays at one book: 2-4 different players' overs whose combined price lands in each band, picking the likeliest combo per band.
- * Games may repeat (it's meant to work on a thin slate), so same-game legs are flagged on the result.
- */
-export function buildLadderParlays(entries: { base: Pick; ladder: Ladder | undefined }[], book: string): Parlay[] {
-  const players = entries.map((e) => ladderRungs(e.base, e.ladder, book)).filter((r) => r.length);
-  const best: (ParlayLeg[] | null)[] = LADDER_BANDS.map(() => null);
-  const bestProb = LADDER_BANDS.map(() => 0);
-  const top = LADDER_BANDS[LADDER_BANDS.length - 1].hi;
+type Band = { key: string; title: string; lo: number; hi: number };
+type LadderEntry = { base: Pick; ladder: Ladder | undefined };
+
+/** For each band, the likeliest combination of 2-4 different players' rungs (one rung each) whose combined price lands in it. */
+function searchLadders(players: ParlayLeg[][], bands: Band[], valid: (legs: ParlayLeg[]) => boolean = () => true): (ParlayLeg[] | null)[] {
+  const best: (ParlayLeg[] | null)[] = bands.map(() => null);
+  const bestProb = bands.map(() => 0);
+  const top = Math.max(...bands.map((b) => b.hi));
   const dfs = (from: number, chosen: ParlayLeg[], dec: number, prob: number) => {
     if (chosen.length >= 2) {
-      const b = LADDER_BANDS.findIndex((x) => dec >= x.lo && dec < x.hi);
-      if (b >= 0 && prob > bestProb[b]) { best[b] = [...chosen]; bestProb[b] = prob; }
+      const b = bands.findIndex((x) => dec >= x.lo && dec < x.hi);
+      if (b >= 0 && prob > bestProb[b] && valid(chosen)) { best[b] = [...chosen]; bestProb[b] = prob; }
     }
     if (chosen.length === LADDER_MAX_LEGS) return;
     for (let i = from; i < players.length; i++) {
@@ -191,6 +197,18 @@ export function buildLadderParlays(entries: { base: Pick; ladder: Ladder | undef
     }
   };
   dfs(0, [], 1, 1);
+  return best;
+}
+
+const LADDER_BLURB = "Likely rushing and receiving overs, on alternate lines where needed, stacked to a modest price.";
+
+/**
+ * Ladder parlays at one book: 2-4 different players' overs whose combined price lands in each band, picking the likeliest combo per band.
+ * Games may repeat (it's meant to work on a thin slate), so same-game legs are flagged on the result.
+ */
+export function buildLadderParlays(entries: LadderEntry[], book: string): Parlay[] {
+  const players = entries.map((e) => ladderRungs(e.base, e.ladder, book)).filter((r) => r.length);
+  const best = searchLadders(players, LADDER_BANDS);
   const seen = new Set<string>();
   const out: Parlay[] = [];
   LADDER_BANDS.forEach((band, i) => {
@@ -199,10 +217,46 @@ export function buildLadderParlays(entries: { base: Pick; ladder: Ladder | undef
     const sig = legs.map(pickKey).sort().join("&");
     if (seen.has(sig)) return;
     seen.add(sig);
-    out.push({ key: band.key, title: band.title, blurb: "Likely rushing and receiving overs, on alternate lines where needed, stacked to a modest price.",
-      legs, ...priceParlay(legs) });
+    out.push({ key: band.key, title: band.title, blurb: LADDER_BLURB, legs, ...priceParlay(legs) });
   });
   return out;
+}
+
+/** "2026_05_TB_DAL" -> "TB @ DAL" */
+export const gameLabel = (gameId: string) => { const [, , away, home] = gameId.split("_"); return `${away} @ ${home}`; };
+
+/**
+ * One ladder per game that uses both teams: the likeliest +100 to +300 combination with at least one leg from each side.
+ * Plain ladders go to whichever team the model likes; this shows the other team's props too. Skips games where a side has no usable rung,
+ * and any tile that repeats one in `existing`.
+ */
+export function buildBalancedLadders(entries: LadderEntry[], book: string, gameIds: string[], existing: Parlay[] = []): Parlay[] {
+  const seen = new Set(existing.map((p) => p.legs.map(pickKey).sort().join("&")));
+  const band: Band = { key: "", title: "", lo: LADDER_BANDS[0].lo, hi: LADDER_BANDS[LADDER_BANDS.length - 1].hi };
+  const out: Parlay[] = [];
+  for (const gameId of gameIds) {
+    const players = entries.filter((e) => e.base.game_id === gameId).map((e) => ladderRungs(e.base, e.ladder, book)).filter((r) => r.length);
+    const teams = [...new Set(players.map((r) => r[0].team))];
+    if (teams.length < 2) continue;
+    const [legs] = searchLadders(players, [band], (chosen) => teams.every((t) => chosen.some((l) => l.team === t)));
+    if (!legs) continue;
+    const sig = legs.map(pickKey).sort().join("&");
+    if (seen.has(sig)) continue;
+    seen.add(sig);
+    out.push({ key: `both-${gameId}`, title: `${gameLabel(gameId)}, both teams`, blurb: "The likeliest ladder with a player from each side of the game.",
+      legs, ...priceParlay(legs) });
+  }
+  return out;
+}
+
+/** The likeliest single alternate-line overs at this book (each player's best rung), for browsing and adding one at a time. */
+export function ladderProps(entries: LadderEntry[], book: string, minProb = LADDER_PROP_MIN_PROB, n = 12): ParlayLeg[] {
+  const out: ParlayLeg[] = [];
+  for (const e of entries) {
+    const rungs = ladderRungs(e.base, e.ladder, book).filter((r) => r.prob >= minProb);
+    if (rungs.length) out.push(rungs.reduce((a, b) => (b.prob > a.prob ? b : a)));
+  }
+  return out.sort((a, b) => b.prob - a.prob).slice(0, n);
 }
 
 /** A pick as a betslip leg. Links aren't part of a pick; the slip's "Get links" and book switcher fill those in. */

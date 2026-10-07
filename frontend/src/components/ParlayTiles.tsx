@@ -1,7 +1,7 @@
 import type { Game } from "../api";
 import { useBetSlip } from "../BetSlipContext";
 import { americanOdds, kickoff, pct, playLabel, signedPct, KIND_LABEL } from "../format";
-import { pickToLeg, type Parlay } from "../parlays";
+import { pickToLeg, type Parlay, type ParlayLeg } from "../parlays";
 import Avatar from "./Avatar";
 
 const STAKE = 10;
@@ -43,14 +43,38 @@ function ParlayCard({ p, lead }: { p: Parlay; lead: boolean }) {
   );
 }
 
+/** The likeliest single alternate-line overs, each with a button to put just that prop on the slip. */
+function AltProps({ props }: { props: ParlayLeg[] }) {
+  const slip = useBetSlip();
+  return (
+    <section className="card altprops" aria-label="Likely alternate props">
+      <ul className="parlay-legs">
+        {props.map((l) => {
+          const leg = pickToLeg(l);
+          const on = slip.has(leg.id);
+          return (
+            <li key={leg.id}>
+              <Avatar name={l.name} size={26} />
+              <span className="leg-main"><b>{l.name}</b> <span className="side-pill over">{playLabel(l.kind, l.side, l.line)}</span>{l.alt && <span className="alt">alt</span>}
+                <small>{KIND_LABEL[l.kind]} · {l.team} {l.home ? "vs" : "@"} {l.opp}</small></span>
+              <span className="leg-odds">{americanOdds(l.odds)}<small>{pct(l.prob, 0)} chance</small></span>
+              <button className={`add ${on ? "on" : ""}`} onClick={() => slip.toggle(leg)} aria-label={on ? "Remove from slip" : "Add to slip"} aria-pressed={on}>{on ? "✓" : "+"}</button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 interface Props {
   books: string[]; book: string | null; onBook: (b: string) => void;
   games: Game[]; selectedGames: string[]; onGames: (ids: string[]) => void;
-  parlays: Parlay[]; ladders: Parlay[]; laddersLoading: boolean;
+  parlays: Parlay[]; ladders: Parlay[]; altProps: ParlayLeg[]; laddersLoading: boolean;
 }
 
 /** Recommended parlays at one sportsbook: tiles of high-probability plays, then ladder-style tiles, each with the combined odds. */
-export default function ParlayTiles({ books, book, onBook, games, selectedGames, onGames, parlays, ladders, laddersLoading }: Props) {
+export default function ParlayTiles({ books, book, onBook, games, selectedGames, onGames, parlays, ladders, altProps, laddersLoading }: Props) {
   return (
     <>
       <div className="seg parlay-books" role="group" aria-label="Sportsbook">
@@ -84,6 +108,11 @@ export default function ParlayTiles({ books, book, onBook, games, selectedGames,
       {ladders.length
         ? <section className="parlays" aria-label="Ladder parlays">{ladders.map((p, i) => <ParlayCard key={p.key} p={p} lead={i === 0} />)}</section>
         : <div className="card empty">{laddersLoading ? "Loading alternate lines…" : `No rushing or receiving over combinations with betslip links at ${book ?? "this sportsbook"} land between +100 and +300. Not every book publishes links for alternate lines; try another book.`}</div>}
+
+      {altProps.length > 0 && <>
+        <h2 className="parlay-h">Likely alternate props <small>each player's likeliest linked over, on its own</small></h2>
+        <AltProps props={altProps} />
+      </>}
 
       <p className="td-note">Hit chance multiplies each leg's win probability (the model blended with the book's price). Models miss context and parlays compound that: expect these to lose most of the time. Not betting advice.</p>
     </>

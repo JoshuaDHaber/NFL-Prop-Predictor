@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Ladder, LadderRow, Pick } from "./api";
-import { bestBook, buildLadderParlays, candidates, defaultBook, filterGames, ladderRungs, ladderTargets, parlaysByBook, pickToLeg, priceParlay, recommendParlays } from "./parlays";
+import { bestBook, buildBalancedLadders, buildLadderParlays, ladderProps, candidates, defaultBook, filterGames, ladderRungs, ladderTargets, parlaysByBook, pickToLeg, priceParlay, recommendParlays } from "./parlays";
 import { toAmerican, toDecimal } from "./slip";
 
 const pick = (o: Partial<Pick> = {}): Pick => ({
@@ -214,5 +214,52 @@ describe("filterGames", () => {
     const ps = recommendParlays(filterGames({ A: slate(6) }, ["g2", "g3", "g4", "g5"]).A);
     for (const p of ps) for (const l of p.legs) expect(["g2", "g3", "g4", "g5"]).toContain(l.game_id);
     expect(recommendParlays(filterGames({ A: slate(6) }, ["g0", "g1"]).A)).toEqual([]); // two plays aren't enough for a 3-leg parlay
+  });
+});
+
+describe("balanced ladders", () => {
+  const e = (id: string, team: string, game: string, ...quotes: LadderRow[]) => ({ base: over({ player_id: id, name: id, team, game_id: game }), ladder: ladder(...quotes) });
+  // TB's rungs are likelier than DAL's, so the plain ladders are all TB
+  const G1 = "2026_05_TB_DAL", G2 = "2026_05_NE_BUF";
+  const entries = [
+    e("t1", "TB", G1, rung(20.5, -240, 0.8)), e("t2", "TB", G1, rung(20.5, -240, 0.78)), e("t3", "TB", G1, rung(25.5, -150, 0.72)),
+    e("d1", "DAL", G1, rung(60.5, -280, 0.7)), e("d2", "DAL", G1, rung(40.5, -330, 0.68)),
+    e("o1", "NE", G2, rung(30.5, -200, 0.8)), e("o2", "NE", G2, rung(30.5, -200, 0.8)),
+  ];
+  it("puts at least one player from each team in the game's ladder", () => {
+    const plain = buildLadderParlays(entries, "DraftKings");
+    expect(plain.some((p) => p.legs.every((l) => l.team === "TB"))).toBe(true);
+    const [both] = buildBalancedLadders(entries, "DraftKings", [G1], plain);
+    expect(both.key).toBe(`both-${G1}`);
+    expect(both.title).toBe("TB @ DAL, both teams");
+    expect(new Set(both.legs.map((l) => l.team))).toEqual(new Set(["TB", "DAL"]));
+    expect(both.american).toBeGreaterThanOrEqual(100);
+    expect(both.american).toBeLessThanOrEqual(300);
+  });
+  it("skips games where one side has nothing usable, and tiles that repeat an existing one", () => {
+    expect(buildBalancedLadders(entries, "DraftKings", [G2])).toEqual([]);
+    const [both] = buildBalancedLadders(entries, "DraftKings", [G1]);
+    expect(buildBalancedLadders(entries, "DraftKings", [G1], [both])).toEqual([]);
+  });
+});
+
+describe("ladder props", () => {
+  it("lists each player's likeliest linked rung at or above the bar, best first", () => {
+    const es = [{ base: over({ player_id: "a", name: "A" }), ladder: ladder(rung(59.5, -280, 0.74), rung(69.5, -182, 0.62)) },
+      { base: over({ player_id: "b", name: "B" }), ladder: ladder(rung(39.5, -330, 0.78)) },
+      { base: over({ player_id: "c", name: "C" }), ladder: ladder(rung(19.5, -150, 0.5)) }];
+    const props = ladderProps(es, "DraftKings");
+    expect(props.map((p) => [p.player_id, p.line])).toEqual([["b", 39.5], ["a", 59.5]]);
+    expect(ladderProps(es, "DraftKings", 0.65, 1)).toHaveLength(1);
+  });
+});
+
+describe("ladder targets per team", () => {
+  it("keeps one team's players from crowding out the other side", () => {
+    const rows = [...Array.from({ length: 8 }, (_, i) => over({ player_id: `t${i}`, team: "TB", p_model: 0.9 - i * 0.01 })),
+      ...Array.from({ length: 3 }, (_, i) => over({ player_id: `d${i}`, team: "DAL", p_model: 0.5 - i * 0.01 }))];
+    const ids = ladderTargets(rows, 12).map((p) => p.player_id);
+    expect(ids.filter((i) => i.startsWith("t"))).toHaveLength(6);
+    expect(ids.filter((i) => i.startsWith("d"))).toHaveLength(3);
   });
 });
