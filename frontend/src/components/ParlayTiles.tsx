@@ -70,11 +70,11 @@ function AltProps({ props }: { props: ParlayLeg[] }) {
 interface Props {
   books: string[]; book: string | null; onBook: (b: string) => void;
   games: Game[]; selectedGames: string[]; onGames: (ids: string[]) => void;
-  parlays: Parlay[]; ladders: Parlay[]; altProps: ParlayLeg[]; laddersLoading: boolean;
+  parlays: Parlay[]; tdParlays: Parlay[]; ladders: Parlay[]; altProps: ParlayLeg[]; laddersLoading: boolean;
 }
 
 /** Recommended parlays at one sportsbook: tiles of high-probability plays, then ladder-style tiles, each with the combined odds. */
-export default function ParlayTiles({ books, book, onBook, games, selectedGames, onGames, parlays, ladders, altProps, laddersLoading }: Props) {
+export default function ParlayTiles({ books, book, onBook, games, selectedGames, onGames, parlays, tdParlays, ladders, altProps, laddersLoading }: Props) {
   return (
     <>
       <div className="seg parlay-books" role="group" aria-label="Sportsbook">
@@ -103,6 +103,11 @@ export default function ParlayTiles({ books, book, onBook, games, selectedGames,
       {parlays.length
         ? <section className="parlays" aria-label="Recommended parlays">{parlays.map((p, i) => <ParlayCard key={p.key} p={p} lead={i === 0} />)}</section>
         : <div className="card empty">Not enough likely plays at {book ?? "one sportsbook"} to build one. These need at least three high-probability plays from different players{selectedGames.length ? " in the selected games" : ""}.</div>}
+
+      <h2 className="parlay-h">Touchdowns <small>the likeliest anytime scorers, parlayed</small></h2>
+      {tdParlays.length
+        ? <section className="parlays" aria-label="Touchdown parlays">{tdParlays.map((p, i) => <ParlayCard key={p.key} p={p} lead={i === 0} />)}</section>
+        : <div className="card empty">No anytime-TD plays at {book ?? "this sportsbook"} to parlay{selectedGames.length === 1 ? " for this game" : ""}. Load anytime-TD lines, or try another book.</div>}
 
       <h2 className="parlay-h">Ladders <small>rushing and receiving overs stacked to +100 to +300</small></h2>
       {ladders.length

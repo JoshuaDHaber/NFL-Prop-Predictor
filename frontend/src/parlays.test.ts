@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Ladder, LadderRow, Pick } from "./api";
-import { bestBook, buildBalancedLadders, buildLadderParlays, ladderProps, candidates, defaultBook, filterGames, ladderRungs, ladderTargets, parlaysByBook, pickToLeg, priceParlay, recommendParlays } from "./parlays";
+import { bestBook, buildBalancedLadders, buildTdParlays, buildLadderParlays, ladderProps, candidates, defaultBook, filterGames, ladderRungs, ladderTargets, parlaysByBook, pickToLeg, priceParlay, recommendParlays } from "./parlays";
 import { toAmerican, toDecimal } from "./slip";
 
 const pick = (o: Partial<Pick> = {}): Pick => ({
@@ -261,5 +261,49 @@ describe("ladder targets per team", () => {
     const ids = ladderTargets(rows, 12).map((p) => p.player_id);
     expect(ids.filter((i) => i.startsWith("t"))).toHaveLength(6);
     expect(ids.filter((i) => i.startsWith("d"))).toHaveLength(3);
+  });
+});
+
+describe("anytime TD parlays", () => {
+  const td = (id: string, game: string, team: string, prob: number, o: Partial<Pick> = {}) =>
+    pick({ player_id: id, name: id, game_id: game, team, kind: "td", side: "Over", line: 0.5, odds: 150, prob, ev: 0.1, ...o });
+  const A = "2026_05_TB_DAL", B = "2026_05_NE_BUF", C = "2026_05_GB_CHI";
+  const rows = [td("a1", A, "TB", 0.5), td("a2", A, "TB", 0.45), td("a3", A, "DAL", 0.42), td("a4", A, "DAL", 0.3),
+    td("b1", B, "NE", 0.4), td("b2", B, "BUF", 0.38), td("c1", C, "GB", 0.55), td("c2", C, "CHI", 0.2)];
+
+  it("parlays the likeliest scorer on each team for a chosen game", () => {
+    const [p] = buildTdParlays(rows, "DraftKings", [A]);
+    expect(p.key).toBe(`td-${A}`);
+    expect(p.title).toBe("TB @ DAL: top TD each team");
+    expect(p.legs.map((l) => l.player_id)).toEqual(["a1", "a3"]);
+    expect(p.sameGame).toBe(true);
+    expect(p.prob).toBeCloseTo(0.5 * 0.42);
+    expect(p.decimal).toBeCloseTo(2.5 * 2.5);
+  });
+
+  it("with several games chosen, adds the likeliest scorer from each game", () => {
+    const ps = buildTdParlays(rows, "DraftKings", [A, B]);
+    expect(ps.map((p) => p.key)).toEqual([`td-${A}`, `td-${B}`, "td-games"]);
+    const cross = ps[2];
+    expect(cross.legs.map((l) => l.player_id)).toEqual(["a1", "b1"]);
+    expect(cross.sameGame).toBe(false);
+  });
+
+  it("by default parlays the top scorer in every game, limited to the likeliest five", () => {
+    const [p] = buildTdParlays(rows, "DraftKings");
+    expect(p.key).toBe("td-games");
+    expect(p.legs.map((l) => l.player_id)).toEqual(["c1", "a1", "b1"]);
+    const many = Array.from({ length: 8 }, (_, i) => td(`x${i}`, `2026_05_A${i}_B${i}`, `A${i}`, 0.5 - i * 0.01));
+    expect(buildTdParlays(many, "DraftKings")[0].legs).toHaveLength(5);
+  });
+
+  it("ignores other books, flagged plays and under-sides, and needs two legs", () => {
+    const messy = [td("a1", A, "TB", 0.5, { book: "FanDuel" }), td("a3", A, "DAL", 0.42, { flagged: true }), td("a5", A, "DAL", 0.4, { side: "Under" })];
+    expect(buildTdParlays(messy, "DraftKings", [A])).toEqual([]);
+    expect(buildTdParlays([td("a1", A, "TB", 0.5)], "DraftKings", [A])).toEqual([]);
+  });
+
+  it("a single chosen game gets no cross-game tile", () => {
+    expect(buildTdParlays(rows, "DraftKings", [A]).map((p) => p.key)).toEqual([`td-${A}`]);
   });
 });

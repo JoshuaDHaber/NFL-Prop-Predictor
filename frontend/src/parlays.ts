@@ -259,6 +259,46 @@ export function ladderProps(entries: LadderEntry[], book: string, minProb = LADD
   return out.sort((a, b) => b.prob - a.prob).slice(0, n);
 }
 
+// ---------- anytime touchdown parlays ----------
+/** Most games' top scorers combined in one touchdown parlay; more than this is a lottery ticket. */
+export const TD_MAX_GAMES = 5;
+/** Most single-game "each team's top scorer" tiles shown at once. */
+export const TD_MAX_GAME_TILES = 4;
+
+const bestBy = <T,>(xs: T[], key: (x: T) => string, score: (x: T) => number): T[] => {
+  const best = new Map<string, T>();
+  for (const x of xs) {
+    const k = key(x), cur = best.get(k);
+    if (!cur || score(x) > score(cur)) best.set(k, x);
+  }
+  return [...best.values()];
+};
+
+/**
+ * Anytime-TD parlays at one book, from that book's TD picks:
+ *  - for each chosen game, the likeliest scorer on each team parlayed together (a same-game parlay);
+ *  - the likeliest scorer in each game parlayed across games: every game when none is chosen, else the chosen ones (two or more).
+ * The cross-game tile keeps the TD_MAX_GAMES most likely scorers. Flagged plays (model and market far apart) are left out.
+ */
+export function buildTdParlays(tdPicks: Pick[], book: string, gameIds: string[] = []): Parlay[] {
+  const pool = tdPicks.filter((p) => p.kind === "td" && p.side === "Over" && p.book === book && !p.flagged);
+  const inScope = gameIds.length ? pool.filter((p) => gameIds.includes(p.game_id)) : pool;
+  const out: Parlay[] = [];
+  const make = (key: string, title: string, blurb: string, legs: Pick[]) => out.push({ key, title, blurb, legs, ...priceParlay(legs) });
+
+  for (const gameId of gameIds.slice(0, TD_MAX_GAME_TILES)) {
+    const legs = bestBy(pool.filter((p) => p.game_id === gameId), (p) => p.team, (p) => p.prob).sort((a, b) => b.prob - a.prob);
+    if (legs.length >= 2) make(`td-${gameId}`, `${gameLabel(gameId)}: top TD each team`, "The likeliest anytime scorer on each side of the game.", legs);
+  }
+  const perGame = bestBy(inScope, (p) => p.game_id, (p) => p.prob).sort((a, b) => b.prob - a.prob);
+  if (perGame.length >= 2 && (gameIds.length === 0 || gameIds.length >= 2)) {
+    const legs = perGame.slice(0, TD_MAX_GAMES);
+    make("td-games", gameIds.length ? "Top TD from each selected game" : "Top TD from each game",
+      perGame.length > legs.length ? `The likeliest scorer in each game, limited to the ${legs.length} most likely.` : "The likeliest anytime scorer in each game.", legs);
+  }
+  return out;
+}
+
 /** A pick as a betslip leg. Links aren't part of a pick; the slip's "Get links" and book switcher fill those in. */
 export function pickToLeg(p: ParlayLeg): Leg {
   const base = { playerId: p.player_id, kind: p.kind, side: p.side, line: p.line, book: p.book };

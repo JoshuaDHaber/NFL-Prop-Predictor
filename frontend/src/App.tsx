@@ -14,7 +14,7 @@ import { API_URL, IS_STATIC } from "./env";
 import { KIND_LABEL, americanOdds, fmtProj, matchup, playLabel, signedPct, timeAgo } from "./format";
 import ThemeToggle from "./components/ThemeToggle";
 import TopTiles, { type Tile } from "./components/TopTiles";
-import { buildBalancedLadders, buildLadderParlays, defaultBook, filterGames, ladderProps, ladderTargets, parlaysByBook } from "./parlays";
+import { buildBalancedLadders, buildLadderParlays, buildTdParlays, defaultBook, filterGames, ladderProps, ladderTargets, parlaysByBook } from "./parlays";
 import { useDebounced } from "./useDebounced";
 
 const PlayerDrawer = lazy(() => import("./components/PlayerDrawer")); // keeps the charting library out of the first load
@@ -37,6 +37,10 @@ export default function App() {
   const books = meta.data?.books ?? [];
   const parlayQueries = useQueries({
     queries: books.map((book) => ({ queryKey: ["parlay-picks", book], queryFn: () => api.picks({ ...PARLAY_FILTERS, book }, 1000), enabled: tab === "parlays" })),
+  });
+  // anytime-TD picks per book (the plain picks above leave TDs out)
+  const tdQueries = useQueries({
+    queries: books.map((book) => ({ queryKey: ["parlay-td", book], queryFn: () => api.picks({ ...PARLAY_FILTERS, kind: "td", book }, 1000), enabled: tab === "parlays" })),
   });
   const parlaysLoading = parlayQueries.some((q) => q.isLoading);
   const [parlayBook, setParlayBook] = useState<string | null>(null);
@@ -63,6 +67,12 @@ export default function App() {
   // with games chosen, one more ladder per game that uses both teams
   const balancedLadders = useMemo(() => activeBook ? buildBalancedLadders(ladderEntries, activeBook, chosenGames.slice(0, 4), ladderParlays) : [],
     [activeBook, ladderEntries, chosenGames, ladderParlays]);
+  const tdStamp = tdQueries.map((q) => q.dataUpdatedAt).join();
+  const tdParlays = useMemo(() => {
+    const i = books.indexOf(activeBook ?? "");
+    return activeBook && i >= 0 ? buildTdParlays(tdQueries[i]?.data ?? [], activeBook, chosenGames) : [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBook, books, chosenGames, tdStamp]);
   const altProps = useMemo(() => activeBook ? ladderProps(ladderEntries, activeBook) : [], [activeBook, ladderEntries]);
   const projections = useQuery({ queryKey: ["projections", debounced], queryFn: () => api.projections(debounced), enabled: tab === "projections", placeholderData: (p) => p });
 
@@ -148,7 +158,7 @@ export default function App() {
       {tab === "picks" && (picks.isLoading ? <p className="mut">Pricing plays…</p> :
         <PicksTable picks={picks.data ?? []} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
       {tab === "parlays" && (parlaysLoading ? <p className="mut">Building parlays…</p> :
-        <ParlayTiles books={books} book={activeBook} onBook={setParlayBook} games={m.games} selectedGames={chosenGames} onGames={setParlayGames} parlays={(activeBook && byBook[activeBook]) || []}
+        <ParlayTiles books={books} book={activeBook} onBook={setParlayBook} games={m.games} selectedGames={chosenGames} onGames={setParlayGames} parlays={(activeBook && byBook[activeBook]) || []} tdParlays={tdParlays}
           ladders={[...ladderParlays, ...balancedLadders]} altProps={altProps} laddersLoading={ladderQueries.some((q) => q.isLoading)} />)}
       {tab === "projections" && (projections.isLoading ? <p className="mut">Loading…</p> :
         <ProjectionsTable rows={projections.data ?? []} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
