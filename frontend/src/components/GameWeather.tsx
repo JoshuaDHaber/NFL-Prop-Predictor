@@ -109,7 +109,9 @@ export default function GameWeather({ game, fit }: { game: Game; fit?: WeatherFi
         <dl className="gw-stats">
           <div><dt>Wind</dt><dd>{Math.round(w.wind)} mph{w.wind_dir != null && <> from the {compassPoint(w.wind_dir)}</>}</dd></div>
           <div><dt>Gusts</dt><dd>{w.gust != null ? `${Math.round(w.gust)} mph` : "–"}{gusty && " ⚠︎"}</dd></div>
-          <div><dt>Rain chance</dt><dd>{w.precip_prob != null ? `${Math.round(w.precip_prob)}%` : "–"}</dd></div>
+          {w.precip_prob != null || w.precip == null
+            ? <div><dt>Rain chance</dt><dd>{w.precip_prob != null ? `${Math.round(w.precip_prob)}%` : "–"}</dd></div>
+            : <div><dt>Rain</dt><dd>{w.precip < 0.01 ? "None" : `${w.precip.toFixed(2)}"`}</dd></div>}
           {(w.snow ?? 0) > 0.05 && <div><dt>Snow</dt><dd>{w.snow!.toFixed(1)}"</dd></div>}
         </dl>
       </div>

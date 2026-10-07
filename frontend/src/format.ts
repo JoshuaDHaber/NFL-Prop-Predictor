@@ -43,6 +43,7 @@ export function weatherText(w: GameWeather | null | undefined): string | null {
   const parts = [`${Math.round(w.temp)}°F`, `wind ${Math.round(w.wind)} mph${w.gust != null && w.gust >= w.wind + 5 ? ` (gusts ${Math.round(w.gust)})` : ""}`];
   if ((w.snow ?? 0) > 0.05) parts.push(`snow ${w.snow!.toFixed(1)}"`);
   else if ((w.precip_prob ?? 0) >= 30) parts.push(`${Math.round(w.precip_prob!)}% rain`);
+  else if (w.precip_prob == null && (w.precip ?? 0) >= 0.05) parts.push(`rain ${w.precip!.toFixed(2)}"`);
   return parts.join(" · ");
 }
 

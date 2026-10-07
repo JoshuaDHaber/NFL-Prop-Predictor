@@ -197,6 +197,58 @@ def test_an_international_game_is_located_by_its_stadium_name():
     out = wx.forecast(london, COEF, log=lambda m: None, today=date(2026, 10, 6), get=get)
     assert seen[0]["latitude"] == pytest.approx(51.6043)              # London, not Jacksonville
     assert out["2026_05_PHI_JAX"]["provider"] == "Open-Meteo"
-    get, calls = nws_get()
+    get, calls = met_get()
     out = wx.forecast(london, COEF, log=lambda m: None, today=date(2026, 10, 6), get=get)
-    assert out["2026_05_PHI_JAX"]["source"] == "none" and not any("weather.gov" in u for u in calls)   # the NWS is US-only
+    assert out["2026_05_PHI_JAX"]["provider"] == "MET Norway" and not any("weather.gov" in u for u in calls)   # the NWS is US-only
+
+
+def met_get():
+    """Open-Meteo refuses; MET Norway answers with readings every six hours (as it does beyond two days out)."""
+    calls = []
+
+    def reading(hour, temp_c, wind_ms, direction, symbol, rain_mm):
+        return {"time": f"2026-10-11T{hour:02d}:00:00Z", "data": {
+            "instant": {"details": {"air_temperature": temp_c, "wind_speed": wind_ms, "wind_from_direction": direction}},
+            "next_6_hours": {"summary": {"symbol_code": symbol}, "details": {"precipitation_amount": rain_mm}}}}
+
+    def get(url, params=None, headers=None, timeout=0):
+        calls.append(url)
+        if "open-meteo" in url:
+            return FakeResp({}, status=429)
+        assert "met.no" in url and headers["User-Agent"]
+        return FakeResp({"properties": {"timeseries": [reading(6, 10.0, 2.0, 270, "cloudy", 0.0),
+                                                       reading(12, 14.0, 4.0, 270, "lightrainshowers_day", 2.54),
+                                                       reading(18, 12.0, 10.0, 290, "rain", 5.0),
+                                                       reading(23, 9.0, 8.0, 300, "cloudy", 0.0)]}})
+    return get, calls
+
+
+def test_met_norway_interpolates_to_mid_window_and_reads_the_block_covering_kickoff():
+    get, _ = met_get()
+    london = pd.DataFrame([dict(game_id="g", gameday="2026-10-11", gametime="09:30", stadium_id="LON02",
+                                stadium="Tottenham Hotspur Stadium", roof="outdoors")])
+    w = wx.forecast(london, COEF, log=lambda m: None, today=date(2026, 10, 6), get=get)["g"]
+    # kickoff 09:30 EDT = 13:30 UTC; the window's middle (15:00) is halfway between the 12:00 and 18:00 readings
+    assert w["temp"] == pytest.approx(13.0 * 9 / 5 + 32) and w["wind"] == pytest.approx(7.0 * 2.23694)
+    assert 270 < w["wind_dir"] < 290
+    assert w["sky"] == "Light rain showers" and w["precip"] == pytest.approx(0.1)   # the 12:00 block covers kickoff
+    assert w["factors"]["pass"] == pytest.approx(1 - 0.02 * (7.0 * 2.23694 - 10))
+
+
+def test_met_norway_symbol_codes_read_as_plain_words():
+    assert wx.met_sky("clearsky_night") == "Clear"
+    assert wx.met_sky("heavysnowshowers_day") == "Heavy snow showers"
+    assert wx.met_sky("rainandthunder") == "Thunderstorms"
+    assert wx.met_sky(None) is None
+
+
+def test_a_us_game_falls_through_to_met_norway_when_both_us_sources_fail():
+    met, _ = met_get()
+
+    def get(url, params=None, headers=None, timeout=0):
+        if "weather.gov" in url:
+            raise requests.ConnectionError("down")
+        return met(url, params=params, headers=headers, timeout=timeout)
+
+    out = wx.forecast(games().iloc[[0]], COEF, log=lambda m: None, today=date(2026, 10, 6), get=get)
+    assert out["2026_06_AAA_BUF"]["provider"] == "MET Norway"
