@@ -15,9 +15,11 @@ import { KIND_LABEL, americanOdds, fmtProj, matchup, playLabel, signedPct, timeA
 import ThemeToggle from "./components/ThemeToggle";
 import TopTiles, { type Tile } from "./components/TopTiles";
 import { buildBalancedLadders, buildLadderParlays, buildTdParlays, defaultBook, filterGames, ladderProps, ladderTargets, parlaysByBook } from "./parlays";
+import { importOrReload } from "./staleChunk";
 import { useDebounced } from "./useDebounced";
 
-const PlayerDrawer = lazy(() => import("./components/PlayerDrawer")); // keeps the charting library out of the first load
+// keeps the charting library out of the first load; a tab left open across a deploy reloads to the new build
+const PlayerDrawer = lazy(() => importOrReload(() => import("./components/PlayerDrawer")));
 
 type Tab = "picks" | "parlays" | "projections" | "model";
 const TABS: [Tab, string][] = [["picks", "Best props"], ["parlays", "Parlays"], ["projections", "Projections"], ["model", "Model check"]];
