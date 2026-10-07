@@ -14,7 +14,7 @@ import { API_URL, IS_STATIC } from "./env";
 import { KIND_LABEL, americanOdds, fmtProj, matchup, playLabel, signedPct, timeAgo } from "./format";
 import ThemeToggle from "./components/ThemeToggle";
 import TopTiles, { type Tile } from "./components/TopTiles";
-import { buildLadderParlays, defaultBook, ladderTargets, parlaysByBook } from "./parlays";
+import { buildLadderParlays, defaultBook, filterGames, ladderTargets, parlaysByBook } from "./parlays";
 import { useDebounced } from "./useDebounced";
 
 const PlayerDrawer = lazy(() => import("./components/PlayerDrawer")); // keeps the charting library out of the first load
@@ -41,13 +41,17 @@ export default function App() {
   const parlaysLoading = parlayQueries.some((q) => q.isLoading);
   const [parlayBook, setParlayBook] = useState<string | null>(null);
   const parlayStamp = parlayQueries.map((q) => q.dataUpdatedAt).join();
-  const picksByBook = useMemo(() => Object.fromEntries(books.map((b, i) => [b, parlayQueries[i]?.data ?? []])),
+  const allPicksByBook = useMemo(() => Object.fromEntries(books.map((b, i) => [b, parlayQueries[i]?.data ?? []])),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [books.join(), parlayStamp]);
-  const byBook = useMemo(() => parlaysByBook(picksByBook), [picksByBook]);
-  const activeBook = parlayBook && books.includes(parlayBook) ? parlayBook : defaultBook(byBook, picksByBook);
+  const [parlayGames, setParlayGames] = useState<string[]>([]);
+  // only games still on the slate count; every parlay and ladder is built from the chosen games' picks
+  const chosenGames = useMemo(() => parlayGames.filter((id) => meta.data?.games.some((g) => g.game_id === id)), [parlayGames, meta.data]);
+  const gamePicks = useMemo(() => filterGames(allPicksByBook, chosenGames), [allPicksByBook, chosenGames]);
+  const byBook = useMemo(() => parlaysByBook(gamePicks), [gamePicks]);
+  const activeBook = parlayBook && books.includes(parlayBook) ? parlayBook : defaultBook(byBook, gamePicks);
   // ladder parlays need each likely player's line ladder (alternate lines); shares the drawer's and slip's query cache
-  const targets = useMemo(() => ladderTargets(activeBook ? picksByBook[activeBook] ?? [] : []), [activeBook, picksByBook]);
+  const targets = useMemo(() => ladderTargets(activeBook ? gamePicks[activeBook] ?? [] : []), [activeBook, gamePicks]);
   const ladderQueries = useQueries({
     queries: targets.map((t) => ({ queryKey: ["ladder", t.player_id, t.kind, 0], queryFn: () => api.lines(t.player_id, t.kind, 0), enabled: tab === "parlays" })),
   });
@@ -139,7 +143,7 @@ export default function App() {
       {tab === "picks" && (picks.isLoading ? <p className="mut">Pricing plays…</p> :
         <PicksTable picks={picks.data ?? []} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
       {tab === "parlays" && (parlaysLoading ? <p className="mut">Building parlays…</p> :
-        <ParlayTiles books={books} book={activeBook} onBook={setParlayBook} parlays={(activeBook && byBook[activeBook]) || []}
+        <ParlayTiles books={books} book={activeBook} onBook={setParlayBook} games={m.games} selectedGames={chosenGames} onGames={setParlayGames} parlays={(activeBook && byBook[activeBook]) || []}
           ladders={ladderParlays} laddersLoading={ladderQueries.some((q) => q.isLoading)} />)}
       {tab === "projections" && (projections.isLoading ? <p className="mut">Loading…</p> :
         <ProjectionsTable rows={projections.data ?? []} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}

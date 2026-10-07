@@ -16,7 +16,7 @@ export interface Parlay {
   legs: ParlayLeg[];
   /** True when two legs share a game. Their correlation isn't modelled, so the hit chance is only approximate. */
   sameGame: boolean;
-  /** Chance every leg hits, treating legs as independent (exact enough for different games). */
+  /** Chance every leg hits, treating legs as independent (exact enough for different games, approximate within one). */
   prob: number;
   decimal: number;
   american: number;
@@ -33,13 +33,14 @@ export function candidates(picks: Pick[]): Pick[] {
   return picks.filter((p) => !p.flagged && p.kind !== "td" && p.prob >= MIN_LEG_PROB && p.odds >= MIN_LEG_ODDS);
 }
 
-/** Take legs in order, skipping any whose game is already used (same-game legs are correlated, so their odds multiply wrongly). */
-function oneLegPerGame(sorted: Pick[], n: number): Pick[] {
-  const games = new Set<string>();
+/** Take legs in order, at most one per player (a player's other lines and markets would be the same bet twice).
+ *  Several legs may share a game; the parlay is flagged `sameGame` then, since their correlation isn't modelled. */
+function onePerPlayer(sorted: Pick[], n: number): Pick[] {
+  const players = new Set<string>();
   const legs: Pick[] = [];
   for (const p of sorted) {
-    if (games.has(p.game_id)) continue;
-    games.add(p.game_id);
+    if (players.has(p.player_id)) continue;
+    players.add(p.player_id);
     legs.push(p);
     if (legs.length === n) break;
   }
@@ -61,14 +62,14 @@ const byEv = (a: Pick, b: Pick) => b.ev - a.ev || b.prob - a.prob;
 export function recommendParlays(picks: Pick[]): Parlay[] {
   const pool = candidates(picks);
   const specs: { key: string; title: string; blurb: string; n: number; legs: Pick[] }[] = [
-    { key: "safest", title: "Safest 3-leg", blurb: "The three likeliest plays on the board, one per game.",
-      n: 3, legs: oneLegPerGame([...pool].sort(byProb), 3) },
+    { key: "safest", title: "Safest 3-leg", blurb: "The three likeliest plays on the board.",
+      n: 3, legs: onePerPlayer([...pool].sort(byProb), 3) },
     { key: "value", title: "Best value 3-leg", blurb: "Highest expected return among high-probability plays.",
-      n: 3, legs: oneLegPerGame([...pool].sort(byEv), 3) },
-    { key: "overs", title: "Overs only", blurb: "Three likely overs, one per game.",
-      n: 3, legs: oneLegPerGame(pool.filter((p) => p.side === "Over").sort(byProb), 3) },
-    { key: "payout", title: "Bigger payout 5-leg", blurb: "Five likely plays from five different games.",
-      n: 5, legs: oneLegPerGame([...pool].sort(byProb), 5) },
+      n: 3, legs: onePerPlayer([...pool].sort(byEv), 3) },
+    { key: "overs", title: "Overs only", blurb: "Three likely overs.",
+      n: 3, legs: onePerPlayer(pool.filter((p) => p.side === "Over").sort(byProb), 3) },
+    { key: "payout", title: "Bigger payout 5-leg", blurb: "Five likely plays, each from a different player.",
+      n: 5, legs: onePerPlayer([...pool].sort(byProb), 5) },
   ];
   const seen = new Set<string>();
   const out: Parlay[] = [];
@@ -92,14 +93,25 @@ export function parlaysByBook(picksByBook: Record<string, Pick[]>): Record<strin
   return out;
 }
 
+/** Keep only picks from the chosen games; an empty selection means every game. */
+export function filterGames(picksByBook: Record<string, Pick[]>, gameIds: string[]): Record<string, Pick[]> {
+  if (!gameIds.length) return picksByBook;
+  const keep = new Set(gameIds);
+  return Object.fromEntries(Object.entries(picksByBook).map(([book, ps]) => [book, ps.filter((p) => keep.has(p.game_id))]));
+}
+
 /** The book to show first: where the lead (safest) parlay has the best expected return. */
 export function bestBook(byBook: Record<string, Parlay[]>): string | null {
   const books = Object.keys(byBook).sort();
   return books.sort((a, b) => byBook[b][0].ev - byBook[a][0].ev)[0] ?? null;
 }
 
-/** The book to show first: the best lead parlay, else the book with the most overs to ladder from. */
+/** The book the tab opens on when it has any picks. */
+export const PREFERRED_BOOK = "FanDuel";
+
+/** The book to show first: FanDuel when it's loaded, else the best lead parlay, else the book with the most overs to ladder from. */
 export function defaultBook(byBook: Record<string, Parlay[]>, picksByBook: Record<string, Pick[]>): string | null {
+  if (PREFERRED_BOOK in picksByBook) return PREFERRED_BOOK;
   const best = bestBook(byBook);
   if (best) return best;
   const overs = (b: string) => (picksByBook[b] ?? []).filter((p) => p.side === "Over" && (p.kind === "rush" || p.kind === "rec")).length;

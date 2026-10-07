@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Ladder, LadderRow, Pick } from "./api";
-import { bestBook, buildLadderParlays, candidates, defaultBook, ladderRungs, ladderTargets, parlaysByBook, pickToLeg, priceParlay, recommendParlays } from "./parlays";
+import { bestBook, buildLadderParlays, candidates, defaultBook, filterGames, ladderRungs, ladderTargets, parlaysByBook, pickToLeg, priceParlay, recommendParlays } from "./parlays";
 import { toAmerican, toDecimal } from "./slip";
 
 const pick = (o: Partial<Pick> = {}): Pick => ({
@@ -43,12 +43,20 @@ describe("recommendParlays", () => {
     expect(safest.legs.map((l) => l.player_id)).toEqual(["p0", "p1", "p2"]);
   });
 
-  it("never puts two legs from one game (or one player) in a parlay", () => {
-    const rows = [...slate(6), pick({ player_id: "dup", game_id: "g0", prob: 0.9 }), pick({ player_id: "p1", game_id: "g1", kind: "rec", prob: 0.85 })];
+  it("never uses a player twice in a parlay", () => {
+    const rows = [...slate(6), pick({ player_id: "p1", game_id: "g1", kind: "rec", prob: 0.85 }), pick({ player_id: "p1", game_id: "g1", line: 60.5, prob: 0.84 })];
     for (const parlay of recommendParlays(rows)) {
-      const games = parlay.legs.map((l) => l.game_id);
-      expect(new Set(games).size).toBe(games.length);
+      const players = parlay.legs.map((l) => l.player_id);
+      expect(new Set(players).size).toBe(players.length);
     }
+  });
+
+  it("combines several likely plays from one game, and flags the parlay as same-game", () => {
+    const oneGame = Array.from({ length: 4 }, (_, i) => pick({ player_id: `q${i}`, game_id: "g9", prob: 0.75 - i * 0.01 }));
+    const [safest] = recommendParlays(oneGame);
+    expect(safest.legs.map((l) => l.player_id)).toEqual(["q0", "q1", "q2"]);
+    expect(safest.sameGame).toBe(true);
+    expect(recommendParlays(slate(4))[0].sameGame).toBe(false);
   });
 
   it("ranks the value parlay by expected return, not probability", () => {
@@ -182,9 +190,29 @@ describe("ladder parlays", () => {
 });
 
 describe("defaultBook", () => {
+  it("opens on FanDuel whenever it is loaded", () => {
+    const picksByBook = { DraftKings: slate(4, () => ({ book: "DraftKings", odds: 500 })), FanDuel: [] };
+    expect(defaultBook(parlaysByBook(picksByBook), picksByBook)).toBe("FanDuel");
+  });
+
   it("falls back to the book with the most overs when no standard parlay exists", () => {
     const picksByBook = { A: [over()], B: [over({ player_id: "x" }), over({ player_id: "y" })], C: [] };
     expect(defaultBook({}, picksByBook)).toBe("B");
     expect(defaultBook({}, {})).toBeNull();
+  });
+});
+
+describe("filterGames", () => {
+  const by = { A: slate(4), B: slate(2) };
+  it("keeps only the chosen games in every book, and everything when none are chosen", () => {
+    const f = filterGames(by, ["g1", "g3"]);
+    expect(f.A.map((p) => p.game_id)).toEqual(["g1", "g3"]);
+    expect(f.B.map((p) => p.game_id)).toEqual(["g1"]);
+    expect(filterGames(by, [])).toBe(by);
+  });
+  it("builds parlays only from the chosen games", () => {
+    const ps = recommendParlays(filterGames({ A: slate(6) }, ["g2", "g3", "g4", "g5"]).A);
+    for (const p of ps) for (const l of p.legs) expect(["g2", "g3", "g4", "g5"]).toContain(l.game_id);
+    expect(recommendParlays(filterGames({ A: slate(6) }, ["g0", "g1"]).A)).toEqual([]); // two plays aren't enough for a 3-leg parlay
   });
 });

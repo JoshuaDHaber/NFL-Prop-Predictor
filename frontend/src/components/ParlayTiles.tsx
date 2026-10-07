@@ -1,5 +1,6 @@
+import type { Game } from "../api";
 import { useBetSlip } from "../BetSlipContext";
-import { americanOdds, pct, playLabel, signedPct, KIND_LABEL } from "../format";
+import { americanOdds, kickoff, pct, playLabel, signedPct, KIND_LABEL } from "../format";
 import { pickToLeg, type Parlay } from "../parlays";
 import Avatar from "./Avatar";
 
@@ -44,11 +45,12 @@ function ParlayCard({ p, lead }: { p: Parlay; lead: boolean }) {
 
 interface Props {
   books: string[]; book: string | null; onBook: (b: string) => void;
+  games: Game[]; selectedGames: string[]; onGames: (ids: string[]) => void;
   parlays: Parlay[]; ladders: Parlay[]; laddersLoading: boolean;
 }
 
 /** Recommended parlays at one sportsbook: tiles of high-probability plays, then ladder-style tiles, each with the combined odds. */
-export default function ParlayTiles({ books, book, onBook, parlays, ladders, laddersLoading }: Props) {
+export default function ParlayTiles({ books, book, onBook, games, selectedGames, onGames, parlays, ladders, laddersLoading }: Props) {
   return (
     <>
       <div className="seg parlay-books" role="group" aria-label="Sportsbook">
@@ -57,10 +59,26 @@ export default function ParlayTiles({ books, book, onBook, parlays, ladders, lad
         ))}
       </div>
 
+      <div className="games" role="group" aria-label="Games to build from">
+        <button aria-pressed={!selectedGames.length} className={`game${!selectedGames.length ? " on" : ""}`} onClick={() => onGames([])}>
+          <b>All games</b><small>{games.length} this week</small>
+        </button>
+        {games.map((g) => {
+          const on = selectedGames.includes(g.game_id);
+          return (
+            <button key={g.game_id} aria-pressed={on} className={`game${on ? " on" : ""}`}
+              onClick={() => onGames(on ? selectedGames.filter((id) => id !== g.game_id) : [...selectedGames, g.game_id])}>
+              <b>{g.label}</b><small>{kickoff(g.gameday, g.gametime)}</small>
+            </button>
+          );
+        })}
+      </div>
+      <p className="mut parlay-scope">{selectedGames.length ? `Building from ${selectedGames.length} selected game${selectedGames.length > 1 ? "s" : ""}. Tap a game to add or remove it.` : "Building from every game. Tap games to pick which ones to build from."}</p>
+
       <h2 className="parlay-h">Likely plays</h2>
       {parlays.length
         ? <section className="parlays" aria-label="Recommended parlays">{parlays.map((p, i) => <ParlayCard key={p.key} p={p} lead={i === 0} />)}</section>
-        : <div className="card empty">Not enough likely plays from different games at {book ?? "one sportsbook"} to build one. These take one leg per game, so they need a few games on the slate.</div>}
+        : <div className="card empty">Not enough likely plays at {book ?? "one sportsbook"} to build one. These need at least three high-probability plays from different players{selectedGames.length ? " in the selected games" : ""}.</div>}
 
       <h2 className="parlay-h">Ladders <small>rushing and receiving overs stacked to +100 to +300</small></h2>
       {ladders.length
