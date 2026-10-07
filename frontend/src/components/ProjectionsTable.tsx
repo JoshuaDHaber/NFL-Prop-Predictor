@@ -1,11 +1,12 @@
-import type { Projection } from "../api";
+import type { GameWeather, Projection } from "../api";
 import { KIND_LABEL, fmtProj, matchup, signed } from "../format";
 import { useSort } from "../useSort";
 import Avatar from "./Avatar";
 import SortBar from "./SortBar";
 import Spark from "./Spark";
+import WeatherChip from "./WeatherChip";
 
-export default function ProjectionsTable({ rows, onSelect }: { rows: Projection[]; onSelect: (p: Projection) => void }) {
+export default function ProjectionsTable({ rows, onSelect, weather = {} }: { rows: Projection[]; onSelect: (p: Projection) => void; weather?: Record<string, GameWeather | null | undefined> }) {
   const { sorted, toggle, arrow } = useSort(rows, "mu");
   const th = (key: string, label: string, title?: string) => (
     <th scope="col" onClick={() => toggle(key)} title={title} className="sortable">{label}{arrow(key)}</th>
@@ -34,7 +35,7 @@ export default function ProjectionsTable({ rows, onSelect }: { rows: Projection[
                 </div>
               </td>
               <td>{KIND_LABEL[p.kind]}</td>
-              <td>{matchup(p.opp, p.home)}</td>
+              <td>{matchup(p.opp, p.home)}{p.kind !== "td" && <WeatherChip weather={weather[p.game_id]} wx={p.wx} />}</td>
               <td data-label="Proj"><b>{fmtProj(p.kind, p.mu)}</b></td>
               <td data-label="SD">{p.kind === "td" ? "–" : `±${p.sd.toFixed(0)}`}</td>
               <td data-label="Volume">{p.vol.toFixed(1)}</td>

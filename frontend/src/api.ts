@@ -24,7 +24,22 @@ export interface SyncPlan {
 }
 
 export interface BacktestStat { n: number; mae_model: number; mae_naive: number; bias: number; metric?: "mae" | "brier"; calibration?: CalibrationBin[] }
-export interface Game { game_id: string; label: string; gameday: string; gametime: string }
+/** Kickoff weather at the stadium (outdoor games), and the multiplier it puts on each market's yardage. */
+export interface GameWeather {
+  stadium: string; roof: string; indoor: boolean;
+  source: "forecast" | "indoor" | "none";
+  temp: number | null; wind: number | null; gust: number | null;   // °F and mph, three hours from kickoff
+  precip_prob: number | null; precip: number | null; snow: number | null;  // shown, not applied
+  fetched_at: string | null;
+  factors: Partial<Record<"rush" | "rec" | "pass", number>>;
+}
+/** The fitted weather effect (per mph of wind over wind_from, per degree under cold_from) and what it did in the backtest. */
+export interface WeatherFit {
+  coef: Record<string, { wind: number; cold: number; wind_raw: number; cold_raw: number; wind_se: number | null; cold_se: number | null; n: number; shared?: boolean }>;
+  wind_from: number; cold_from: number;
+  by_kind: Record<string, { n: number; bias_before: number; bias_after: number; mae_before: number; mae_after: number }>;
+}
+export interface Game { game_id: string; label: string; gameday: string; gametime: string; weather?: GameWeather | null }
 export interface JobStatus {
   state: "idle" | "running" | "done" | "error";
   started_at: string | null; finished_at: string | null; log: string[]; error: string | null;
@@ -44,6 +59,7 @@ export interface Meta {
   books: string[];
   snapshot_at?: string | null;
   redistribution?: Redistribution | null;
+  weather?: WeatherFit | null;
   calibration?: { at: string; season: number; week: number; reused_from_run?: number } | null;
   can_write: boolean;
   can_run_projections: boolean;
@@ -52,6 +68,7 @@ export interface Projection {
   player_id: string; name: string; pos: string; team: string; opp: string; home: boolean; kind: Kind;
   mu: number; sd: number; vol: number; eff: number; spread: number; status: string;
   game_id: string; gameday: string; gametime: string; last5: number[];
+  wx?: number | null;   // weather multiplier already in mu (1 or null: none)
 }
 export interface Pick {
   player_id: string; name: string; pos: string; team: string; opp: string; home: boolean; kind: Kind;
@@ -59,6 +76,7 @@ export interface Pick {
   side: "Over" | "Under"; line: number; odds: number; book: string;
   p_model: number; p_mkt: number; prob: number; ev: number; kelly: number; books: number;
   edge_yds: number; flagged: boolean; last5: number[];
+  wx?: number | null;
 }
 export interface GameLogEntry { label: string; opp: string; yards: number; volume: number }
 export interface PlayerDetail {

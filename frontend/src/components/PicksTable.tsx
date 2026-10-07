@@ -1,11 +1,12 @@
-import type { Pick } from "../api";
+import type { GameWeather, Pick } from "../api";
 import { KIND_LABEL, americanOdds, fmtEdge, fmtProj, kickoff, matchup, pct, playLabel, signedPct } from "../format";
 import { useSort } from "../useSort";
 import Avatar from "./Avatar";
 import SortBar from "./SortBar";
 import Spark from "./Spark";
+import WeatherChip from "./WeatherChip";
 
-export default function PicksTable({ picks, onSelect }: { picks: Pick[]; onSelect: (p: Pick) => void }) {
+export default function PicksTable({ picks, onSelect, weather = {} }: { picks: Pick[]; onSelect: (p: Pick) => void; weather?: Record<string, GameWeather | null | undefined> }) {
   const { sorted, toggle, arrow } = useSort(picks, "ev");
   const th = (key: string, label: string, title?: string) => (
     <th scope="col" onClick={() => toggle(key)} title={title} aria-sort="none" className="sortable">{label}{arrow(key)}</th>
@@ -36,6 +37,7 @@ export default function PicksTable({ picks, onSelect }: { picks: Pick[]; onSelec
                     {p.status && <span className="q"> {p.status}</span>}
                     {p.flagged && <span className="flag" title="Model and market disagree strongly">large gap</span>}
                     <br /><span className="mut">{matchup(p.opp, p.home)} · {kickoff(p.gameday, p.gametime)}</span>
+                    {p.kind !== "td" && <WeatherChip weather={weather[p.game_id]} wx={p.wx} />}
                   </div>
                 </div>
               </td>

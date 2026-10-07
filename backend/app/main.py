@@ -236,10 +236,12 @@ def build_meta(db: Session, lan_url: Optional[str] = None) -> Meta:
     if run:
         rows = db.execute(select(Projection.game_id, Projection.gameday, Projection.gametime)
                           .where(Projection.run_id == run.id).distinct()).all()
-        games = [Game(game_id=g, label=game_label(g), gameday=d, gametime=t)
+        weather = run.weather or {}
+        games = [Game(game_id=g, label=game_label(g), gameday=d, gametime=t, weather=weather.get(g))
                  for g, d, t in sorted(rows, key=lambda r: (r[1], r[2], r[0]))]
         backtest = run.backtest
     return Meta(redistribution=(run.variance or {}).get("_redistribution") if run else None,
+                weather=(run.variance or {}).get("_weather") if run else None,
                 calibration=(run.variance or {}).get("_calibration") if run else None,
                 run=None if not run else RunInfo(id=run.id, season=run.season, week=run.week,
                                                   created_at=run.created_at.isoformat(), excluded=run.excluded),

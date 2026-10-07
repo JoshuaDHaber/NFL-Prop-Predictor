@@ -106,6 +106,7 @@ export default function App() {
           key: k, label: "Best backtested market", name: KIND_LABEL[k as Kind], meta: `${b.n.toLocaleString()} games`,
           value: <>{gain.toFixed(1)}% <em>better</em></>, caption: "than the naive baseline",
         }));
+  const weatherByGame = Object.fromEntries(m.games.map((g) => [g.game_id, g.weather]));
   const hasOdds = Object.keys(m.odds).length > 0;
   const latestOdds = Object.values(m.odds).map((o) => o.fetched_at).sort().at(-1);
 
@@ -156,17 +157,17 @@ export default function App() {
       {tab !== "model" && tab !== "parlays" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
 
       {tab === "picks" && (picks.isLoading ? <p className="mut">Pricing plays…</p> :
-        <PicksTable picks={picks.data ?? []} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
+        <PicksTable picks={picks.data ?? []} weather={weatherByGame} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
       {tab === "parlays" && (parlaysLoading ? <p className="mut">Building parlays…</p> :
         <ParlayTiles books={books} book={activeBook} onBook={setParlayBook} games={m.games} selectedGames={chosenGames} onGames={setParlayGames} parlays={(activeBook && byBook[activeBook]) || []} tdParlays={tdParlays}
           ladders={[...ladderParlays, ...balancedLadders]} altProps={altProps} laddersLoading={ladderQueries.some((q) => q.isLoading)} />)}
       {tab === "projections" && (projections.isLoading ? <p className="mut">Loading…</p> :
-        <ProjectionsTable rows={projections.data ?? []} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
+        <ProjectionsTable rows={projections.data ?? []} weather={weatherByGame} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
       {tab === "model" && <ModelCheck meta={m} />}
 
       <footer>
-        Yards = volume × efficiency, recency-weighted and shrunk to position means, adjusted for opponent and game
-        script. Win probabilities come from the backtest's own error distribution, blended with the
+        Yards = volume × efficiency, recency-weighted and shrunk to position means, adjusted for opponent, game
+        script and, at outdoor stadiums, kickoff wind and cold. Win probabilities come from the backtest's own error distribution, blended with the
         market's no-vig price. Large edges usually mean the model is missing context. Not betting advice.
       </footer>
 

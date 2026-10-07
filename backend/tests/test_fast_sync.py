@@ -137,3 +137,58 @@ def test_the_saved_redistribution_share_keeps_full_precision_so_reuse_changes_no
     base = pd.DataFrame({"player_id": ["a"], "t": [1], "kind": ["rush"], "mu": [50.0], "actual": [55.0], "affected": [True]})
     out = pipeline._redistribution_summary(base, base, {"rush": 0.61234567891, "rec": 0.3, "pass": 0.3}, {"rush": 0.3980493, "rec": 0.0, "pass": 0.0})
     assert out["rho"]["rush"] == 0.3980493 and out["rho_fit"]["rush"] == 0.61234567891
+
+
+WINDY = {"pass": dict(wind=-0.02, cold=0.0), "rec": dict(wind=-0.01, cold=0.0), "rush": dict(wind=0.01, cold=0.0)}
+
+
+def _outdoor_schedule(monkeypatch, wind):
+    """The synthetic league at outdoor stadiums, with the unplayed week kicking off today in `wind` mph."""
+    from datetime import date
+    _, sched = league()
+    rng = np.random.default_rng(3)
+    played = sched.home_score.notna()
+    sched = sched.assign(roof="outdoors", stadium_id="BUF00", stadium="Highmark",
+                         temp=np.where(played, rng.uniform(30, 80, len(sched)), np.nan),
+                         wind=np.where(played, rng.uniform(0, 20, len(sched)), np.nan))
+    sched.loc[~played, "gameday"] = date.today().isoformat()
+    monkeypatch.setattr(pipeline.data, "load_schedule", lambda: sched)
+    monkeypatch.setattr(pipeline.wxm, "fit", lambda bt: WINDY)
+    monkeypatch.setattr(pipeline.wxm, "fetch_point", lambda lat, lon, day, gametime, get=None:
+                        dict(temp=60.0, wind=wind, gust=wind * 1.5, precip_prob=0.0, precip=0.0, snow=0.0))
+
+
+def _by_kind(run_id):
+    from app.db import Projection
+    with SessionLocal() as s:
+        return {(p.player_id, p.kind): (p.mu, p.wx) for p in s.query(Projection).filter(Projection.run_id == run_id)}
+
+
+def test_forecast_wind_scales_projections_and_is_stored_with_the_run(synthetic, monkeypatch):
+    _outdoor_schedule(monkeypatch, wind=5.0)
+    calm = _by_kind(pipeline.run_projections(log=lambda m: None, full=True))
+    _outdoor_schedule(monkeypatch, wind=20.0)
+    log = []
+    rid = pipeline.run_projections(log=log.append)                       # fast: reuses the saved weather fit
+    windy = _by_kind(rid)
+    assert any("Using the saved calibration" in m for m in log)
+    for (pid, kind), (mu, f) in windy.items():
+        expect = {"pass": 0.8, "rec": 0.9, "rush": 1.1, "td": 1.0}.get(kind)
+        if expect is not None:
+            assert f == pytest.approx(expect) and mu == pytest.approx(calm[(pid, kind)][0] * expect)
+        assert calm[(pid, kind)][1] == 1.0                                # under 10 mph: untouched
+    assert any(k == "rr" and 0.9 < f < 1.1 for (_, k), (_, f) in windy.items())
+    with SessionLocal() as s:
+        run = s.get(Run, rid)
+        assert run.variance["_weather"]["coef"] == WINDY
+        w = next(iter(run.weather.values()))
+        assert w["source"] == "forecast" and w["wind"] == 20.0 and w["factors"]["pass"] == pytest.approx(0.8)
+
+
+def test_a_calibration_from_before_weather_is_refit(synthetic):
+    first = pipeline.run_projections(log=lambda m: None)
+    with SessionLocal() as s:
+        run = s.get(Run, first)
+        run.variance = {k: v for k, v in run.variance.items() if k != "_weather"}
+        s.commit()
+    assert pipeline.reusable_calibration(2026) is None

@@ -10,7 +10,7 @@ from .td import TD_ASSUMED_HOLD, TD_MIN_MARKET_WEIGHT  # noqa: F401  (re-exporte
 
 PICK_COLUMNS = [
     "player_id", "name", "pos", "team", "opp", "home", "kind", "mu", "sd", "status", "game_id", "gameday", "gametime",
-    "side", "line", "odds", "book", "p_model", "p_mkt", "prob", "ev", "kelly", "books", "edge_yds", "flagged",
+    "side", "line", "odds", "book", "p_model", "p_mkt", "prob", "ev", "kelly", "books", "edge_yds", "flagged", "wx",
 ]
 
 
@@ -49,6 +49,8 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
         if only_book and r.book != only_book:
             continue
         var = p.sd ** 2
+        wx = getattr(p, "wx", 1.0)
+        wx = 1.0 if wx is None or pd.isna(wx) else float(wx)
         is_td = r.market == "td"
         if is_td:
             po, pu = p.mu, 1 - p.mu  # mu already is P(>=1 TD)
@@ -78,7 +80,7 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
                 mu=p.mu, sd=p.sd, status=p.status, game_id=p.game_id, gameday=p.gameday, gametime=p.gametime,
                 side=side, line=float(r.line), odds=int(odd), book=r.book, p_model=p_side, p_mkt=mk, prob=prob, ev=ev,
                 kelly=max(0.0, ev / (dec - 1)) / 4, books=int(c.books),
-                edge_yds=edge, flagged=flagged))
+                edge_yds=edge, flagged=flagged, wx=wx))
     df = pd.DataFrame(out, columns=PICK_COLUMNS)
     if df.empty:
         return df

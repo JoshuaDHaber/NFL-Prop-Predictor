@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { americanOdds, fmtEdge, fmtProj, kickoff, pct, playLabel, signed, signedPct, timeAgo } from "./format";
+import type { GameWeather } from "./api";
+import { americanOdds, fmtEdge, fmtProj, kickoff, notableWeather, pct, playLabel, signed, signedPct, timeAgo, weatherShort, weatherText, wxEffect } from "./format";
 
 describe("format", () => {
   it("formats percentages and signs", () => {
@@ -38,3 +39,26 @@ describe("anytime TD formatting", () => {
   });
 });
 
+
+describe("weather", () => {
+  const w = (o: Partial<GameWeather>): GameWeather => ({ stadium: "Lambeau Field", roof: "outdoors", indoor: false, source: "forecast", temp: 38,
+    wind: 19.4, gust: 27, precip_prob: 10, precip: 0, snow: 0, fetched_at: null, factors: {}, ...o });
+  it("describes the kickoff forecast, and indoor games by their roof", () => {
+    expect(weatherText(w({}))).toBe("38°F · wind 19 mph (gusts 27)");
+    expect(weatherText(w({ precip_prob: 70, gust: 20 }))).toBe("38°F · wind 19 mph · 70% rain");
+    expect(weatherText(w({ indoor: true, roof: "dome", source: "indoor" }))).toBe("Dome");
+    expect(weatherText(w({ source: "none", temp: null, wind: null }))).toBeNull();
+  });
+  it("flags only weather that matters, with the condition that stands out", () => {
+    expect(notableWeather(w({ temp: 70, wind: 6 }))).toBe(false);
+    expect(weatherShort(w({}))).toBe("💨 19 mph");
+    expect(weatherShort(w({ wind: 5, snow: 0.4 }))).toBe("❄️ snow");
+    expect(weatherShort(w({ wind: 5 }))).toBe("🥶 38°F");
+  });
+  it("shows the adjustment as a percentage, and nothing when there is none", () => {
+    expect(wxEffect(0.782)).toBe("−22%");
+    expect(wxEffect(1.03)).toBe("+3%");
+    expect(wxEffect(1)).toBeNull();
+    expect(wxEffect(null)).toBeNull();
+  });
+});

@@ -13,6 +13,7 @@ from .db import AltLine, OddsLine, Projection, Run, SessionLocal
 from .engine import data, model, odds
 from .engine import redistribute as rd
 from .engine import td as tdm
+from .engine import weather as wxm
 
 Log = Callable[[str], None]
 ALL_MARKETS = set(odds.MARKETS.values())
@@ -36,6 +37,8 @@ def reusable_calibration(season: int, now: datetime = None):
             return None
         if not all(isinstance(v.get(k), dict) for k in ("rush", "rec", "pass", "rr")):
             return None
+        if not isinstance((v.get("_weather") or {}).get("coef"), dict):
+            return None  # fitted before weather was modeled
         if (now - datetime.fromisoformat(cal["at"])).days > CALIBRATION_MAX_AGE_DAYS:
             return None
         return dict(variance=copy.deepcopy(v), backtest=copy.deepcopy(run.backtest), run_id=run.id)
@@ -75,6 +78,7 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
         var_params["_calibration"] = cal
         td_scale = var_params["td"][0]
         rho = {k: float(v) for k, v in var_params["_redistribution"]["rho"].items()}
+        wx_coef = var_params["_weather"]["coef"]
         log(f"Using the saved calibration from week {cal['week']} (run {saved['run_id']}): skipping the backtest")
     else:
         log("Walk-forward backtest (fits variance, checks accuracy)...")
@@ -83,7 +87,8 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
         base = model.walk_forward(stats, priors, played, start_t=start_t, td_priors=td_pri, records=records)  # also gathers data to fit rho
         rho_fit = rd.fit_rho([x for x in records if x[3] < week_t])
         rho = rd.applied(rho_fit)
-        bt = model.walk_forward(stats, priors, played, start_t=start_t, td_priors=td_pri, rho=rho)
+        wx_coef = wxm.fit(base[(base.t < week_t) & (base.kind != "td")])  # base has no weather adjustment yet
+        bt = model.walk_forward(stats, priors, played, start_t=start_t, td_priors=td_pri, rho=rho, wx_coef=wx_coef)
         bt, base = bt[bt.t < week_t], base[base.t < week_t]
         bt_td, bt = bt[bt.kind == "td"], bt[bt.kind != "td"]
         bt_sum, var_params = model.backtest_summary(bt), model.fit_dist(bt)
@@ -92,12 +97,20 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
         bt_sum["td"] = tdm.summary(bt_td, td_scale)
         var_params["td"] = [td_scale, 0.0]  # anytime TD: (scale on expected TDs, unused); yardage kinds hold their error tables
         var_params["_redistribution"] = _redistribution_summary(base, bt, rho_fit, rho)
+        var_params["_weather"] = wxm.summary(bt, wx_coef)
         var_params["_calibration"] = dict(at=datetime.utcnow().isoformat(), season=season, week=week)
         log(f"Redistribution: {var_params['_redistribution']['summary']}")
+        log("Weather: " + _weather_line(wx_coef))
 
+    log("Fetching stadium weather forecasts...")
+    week_games = sched[(sched.season == season) & (sched.week == week) & sched.home_score.isna()]
+    game_weather = wxm.forecast(week_games, wx_coef, log=log)
+    outdoor = [w for w in game_weather.values() if w["source"] == "forecast"]
+    log(f"  {len(outdoor)} outdoor games forecast, {sum(w['indoor'] for w in game_weather.values())} indoors")
     log("Projecting upcoming games...")
     proj = model.upcoming_projections(stats, sched, priors, var_params, week_t, data.load_roster(season),
-                                      td_priors=td_pri, td_scale=td_scale, rho=rho, absent_ids=absent_ids)
+                                      td_priors=td_pri, td_scale=td_scale, rho=rho, absent_ids=absent_ids,
+                                      game_wx={g: w["factors"] for g, w in game_weather.items()})
 
     proj["status"] = proj.player_id.map(status).fillna("")
     proj.loc[proj.player_id.isin(manual_ids), "status"] = "Out"
@@ -107,17 +120,25 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
 
     with SessionLocal() as s:
         run = Run(season=season, week=week, backtest=bt_sum, variance=var_params,
-                  excluded=excluded)
+                  excluded=excluded, weather=game_weather)
         run.projections = [
             Projection(player_id=r.player_id, name=r.name, pos=r.pos, team=r.team, opp=r.opp, home=bool(r.home),
                        kind=r.kind, mu=float(r.mu), sd=float(r.sd), vol=float(r.vol), eff=float(r.eff),
                        spread=float(r.spread), status=r.status, game_id=r.game_id, gameday=str(r.gameday),
-                       gametime="" if pd.isna(r.gametime) else str(r.gametime), last5=[float(x) for x in r.last5])
+                       gametime="" if pd.isna(r.gametime) else str(r.gametime), last5=[float(x) for x in r.last5],
+                       wx=float(r.wx))
             for r in proj.itertuples()]
         s.add(run)
         s.commit()
         log(f"Stored run {run.id}: {len(run.projections)} projections, {len(excluded)} players excluded")
         return run.id
+
+
+def _weather_line(coef: dict) -> str:
+    """e.g. 'per mph over 10: pass -2.3%, rec -2.5%, rush +1.0%; per degree under 45: ...'"""
+    def part(key):
+        return ", ".join(f"{k} {coef[k][key] * 100:+.1f}%" for k in wxm.KINDS if k in coef)
+    return f"per mph over {wxm.WIND_FROM:.0f}: {part('wind')}; per degree under {wxm.COLD_FROM:.0f}F: {part('cold')}"
 
 
 def _redistribution_summary(base: pd.DataFrame, bt: pd.DataFrame, rho_fit: dict, rho: dict) -> dict:

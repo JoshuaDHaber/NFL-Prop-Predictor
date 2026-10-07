@@ -5,6 +5,7 @@ yards = volume (carries | targets) x efficiency (yds/carry | yds/target)
   * efficiency: recency-weighted, heavily shrunk toward the position mean
   * opponent: shrunk yards-allowed-per-game factor vs. league average
   * game script: team spread nudges rush volume up (favorites) / pass volume down
+  * weather: at outdoor stadiums, wind and cold scale yardage by factors fitted on the backtest (engine/weather.py)
 The spread and shape of outcomes come from the walk-forward backtest of this same model: the typical error
 (a robust spread, binned by projection size) and the empirical distribution of standardized errors. So the
 chance of beating a line matches how often actual yardage beat the projection, including skew and blow-up
@@ -15,6 +16,7 @@ import pandas as pd
 from scipy import stats as st
 
 from . import td as tdm
+from . import weather as wxm
 
 HALFLIFE = 5.0          # games
 VOL_PRIOR_K = {"rush": 0.5, "rec": 0.5, "pass": 0.2}   # pseudo-games of shrinkage on volume (QB volume is stable)
@@ -84,8 +86,9 @@ def project_player(hist, kind, prior_eff, opp_dev=0.0, spread=0.0):
     return mu, vol_adj, eff_hat
 
 
-def components(hist, pos, priors, opp, spread):
-    """Per-kind (mu, vol, eff) for one player, no volume floor applied."""
+def components(hist, pos, priors, opp, spread, wx=None):
+    """Per-kind (mu, vol, eff) for one player, no volume floor applied. wx: per-kind weather multipliers on mu
+    (volume is left alone, so touchdown and redistribution math don't change)."""
     out = {}
     for kind in CFG:
         pe = priors.get((kind, pos))
@@ -93,8 +96,20 @@ def components(hist, pos, priors, opp, spread):
             continue
         res = project_player(hist, kind, pe, opp[kind].get(hist.attrs["opp"], 0.0), spread)
         if res:
-            out[kind] = res
+            f = (wx or {}).get(kind, 1.0)
+            out[kind] = (res[0] * f, res[1], res[2]) if f != 1.0 else res
     return out
+
+
+def wx_ratio(kind, comp, wx):
+    """The weather multiplier a projection carries; for rush + rec, its parts' factors weighted by their yards."""
+    if not wx:
+        return 1.0
+    if kind != "rr":
+        return wx.get(kind, 1.0)
+    adj = comp["rush"][0] + comp["rec"][0]
+    raw = comp["rush"][0] / wx.get("rush", 1.0) + comp["rec"][0] / wx.get("rec", 1.0)
+    return adj / raw if raw > 0 else 1.0
 
 
 def combined(comp):
@@ -159,7 +174,7 @@ def _apply_redistribution(ctx, logs, priors, opp_cache, spread_map, rho, records
         if not absent:
             continue
 
-        def comp_fn(hist, _opp=opp_team, _sp=sp):
+        def comp_fn(hist, _opp=opp_team, _sp=sp):  # only volume is read from these, so weather doesn't matter
             hist = hist.copy()
             hist.attrs["opp"] = _opp
             return components(hist, hist.position.iat[-1], priors, opp_cache[t], _sp)
@@ -170,15 +185,17 @@ def _apply_redistribution(ctx, logs, priors, opp_cache, spread_map, rho, records
     return affected
 
 
-def walk_forward(df, priors, sched, start_t, td_priors=None, rho=None, records=None):
+def walk_forward(df, priors, sched, start_t, td_priors=None, rho=None, records=None, wx_coef=None):
     """Project every historical player-game from t >= start_t using only prior data.
 
     With td_priors, anytime-TD rows are added too (kind "td": mu = unscaled P(>=1 TD), actual = 0/1).
     With rho (per-role redistribution shares), absent regulars' volume is handed to their teammates.
     With records (a list), the data to fit rho is collected instead/as well. Rows carry an `affected` flag:
     True when a teammate was absent in that game (computed only when rho or records is given).
+    Rows also carry the game's weather (wx_temp, wx_wind: NaN indoors) and wx, the multiplier applied with wx_coef.
     """
     spread_map = _spread_lookup(sched)
+    wx_hist = wxm.history(sched)
     implied_map = tdm.implied_points(sched)
     opp_cache = {t: opp_table(df, t) for t in sorted(df[df.t >= start_t].t.unique())}
     ctx = []
@@ -191,9 +208,11 @@ def walk_forward(df, priors, sched, start_t, td_priors=None, rho=None, records=N
             hist = g.iloc[:i]  # a view: copying every player-game's history is what made full refreshes big
             hist.attrs["opp"] = r.opponent_team
             sp = spread_map.get((r.season, r.week, r.team), 0.0)
+            temp, wind = wx_hist.get((r.season, r.week, r.team), (np.nan, np.nan))
+            wx = wxm.factors(wx_coef, temp, wind) if wx_coef and not np.isnan(temp) else None
             ctx.append(dict(pid=pid, name=r.player_display_name, pos=r.position, team=r.team, opp=r.opponent_team, season=r.season,
-                            week=r.week, t=r.t, hist=hist, sp=sp, row=r, one=g.iloc[[i]],
-                            comp=components(hist, r.position, priors, opp_cache[r.t], sp)))
+                            week=r.week, t=r.t, hist=hist, sp=sp, row=r, one=g.iloc[[i]], temp=temp, wind=wind, wx=wx,
+                            comp=components(hist, r.position, priors, opp_cache[r.t], sp, wx)))
     affected = set()
     if rho is not None or records is not None:
         from . import redistribute as rd
@@ -204,13 +223,13 @@ def walk_forward(df, priors, sched, start_t, td_priors=None, rho=None, records=N
         aff = (pid, c["t"]) in affected
         for kind, (mu, vol, eff) in all_kinds(hist, c["pos"], priors, opp_cache[c["t"]], c["sp"], c["comp"]).items():
             rows.append((pid, c["name"], kind, c["t"], mu, float(actual_hist(one, kind).iloc[0]),
-                         float(actual_hist(hist, kind).tail(5).mean()), aff))
+                         float(actual_hist(hist, kind).tail(5).mean()), aff, c["temp"], c["wind"], wx_ratio(kind, c["comp"], c["wx"])))
         if td_priors is not None:
             res = tdm.project_td(hist, c["comp"], c["pos"], td_priors, implied_map.get((c["season"], c["week"], c["team"])))
             if res:
                 rows.append((pid, c["name"], "td", c["t"], res[0], float(tdm.td_count(one).iloc[0] >= 1),
-                             float((tdm.td_count(hist).tail(8) >= 1).mean()), aff))
-    return pd.DataFrame(rows, columns=["player_id", "name", "kind", "t", "mu", "actual", "naive5", "affected"])
+                             float((tdm.td_count(hist).tail(8) >= 1).mean()), aff, c["temp"], c["wind"], 1.0))
+    return pd.DataFrame(rows, columns=["player_id", "name", "kind", "t", "mu", "actual", "naive5", "affected", "wx_temp", "wx_wind", "wx"])
 
 
 Z_PROBS = np.linspace(0, 1, 41)
@@ -286,11 +305,12 @@ def prob_over_under(mu, line, var):
     return float(d.sf(line)), float(d.cdf(line))
 
 
-def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_priors=None, td_scale=1.0, rho=None, absent_ids=()):
+def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_priors=None, td_scale=1.0, rho=None, absent_ids=(),
+                         game_wx=None):
     """Project all active players for games not yet played in the target week.
 
     With rho, volume from absent regulars (ruled out/doubtful via absent_ids, or no longer on the active roster)
-    is handed to their teammates in the same position group."""
+    is handed to their teammates in the same position group. game_wx: game_id -> per-kind weather multipliers."""
     season, week = divmod(week_t, 100)
     games = sched[(sched.season == season) & (sched.week == week) & sched.home_score.isna()]
     opp = opp_table(df, week_t)
@@ -303,6 +323,7 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
         logs = rd.Logs(df)
     rows = []
     for _, gm in games.iterrows():
+        wx = (game_wx or {}).get(gm.game_id)
         for team, other, sp in ((gm.home_team, gm.away_team, gm.spread_line), (gm.away_team, gm.home_team, -gm.spread_line)):
             sp = 0.0 if pd.isna(sp) else float(sp)
             on_team = latest[latest.index.map(lambda i: roster.get(i) == team) & (latest.t >= (season - 1) * 100)]
@@ -315,7 +336,7 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
                     continue
                 hist = hist.iloc[:]  # a view of the player's rows; attrs are set per use
                 hist.attrs["opp"] = other
-                members.append(dict(pid=pid, p=p, hist=hist, pos=p.position, comp=components(hist, p.position, priors, opp, sp)))
+                members.append(dict(pid=pid, p=p, hist=hist, pos=p.position, comp=components(hist, p.position, priors, opp, sp, wx)))
             if rho and any(v > 0 for v in rho.values()):
                 from . import redistribute as rd
                 # not absent: healthy members, and anyone active on another team's roster (traded away, not missing)
@@ -339,11 +360,11 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
                         rows.append(dict(player_id=pid, name=p.player_display_name, pos=p.position, team=team,
                                          opp=other, home=team == gm.home_team, kind="td", mu=res[0], vol=res[2], eff=res[1],
                                          sd=0.0, spread=sp, gameday=gm.gameday, gametime=gm.gametime, game_id=gm.game_id,
-                                         last5=tdm.td_count(hist).tail(5).tolist()))
+                                         last5=tdm.td_count(hist).tail(5).tolist(), wx=1.0))
                 for kind, (mu, vol, eff) in all_kinds(hist, p.position, priors, opp, sp, comp).items():
                     rows.append(dict(player_id=pid, name=p.player_display_name, pos=p.position, team=team,
                                      opp=other, home=team == gm.home_team, kind=kind, mu=mu, vol=vol, eff=eff,
                                      sd=sd_at(mu, var_params[kind]), spread=sp,
                                      gameday=gm.gameday, gametime=gm.gametime, game_id=gm.game_id,
-                                     last5=actual_hist(hist, kind).tail(5).tolist()))
+                                     last5=actual_hist(hist, kind).tail(5).tolist(), wx=wx_ratio(kind, comp, wx)))
     return pd.DataFrame(rows)

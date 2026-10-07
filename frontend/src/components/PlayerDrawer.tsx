@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, type Kind } from "../api";
-import { KIND_LABEL, KIND_SHORT, fmtProj, matchup } from "../format";
+import { KIND_LABEL, KIND_SHORT, fmtProj, matchup, weatherText, wxEffect } from "../format";
 import Avatar from "./Avatar";
 import LineLadder, { ODDS_RANGE } from "./LineLadder";
 
@@ -21,6 +21,10 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
   }, [onClose]);
 
   const proj = data?.projections.find((p) => p.kind === kind);
+  const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });   // already cached by the page
+  const weather = meta.data?.games.find((g) => g.game_id === proj?.game_id)?.weather;
+  const wxText = weatherText(weather);
+  const wxAdj = kind !== "td" ? wxEffect(proj?.wx) : null;
 
   const logs = data?.logs[kind] ?? [];
   // main-line markers on the chart come from the same ladder the table shows, so they follow the sportsbook filter
@@ -43,6 +47,13 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
                 <div className="mut"><span className="pos-pill">{data.pos}</span> {data.team} {matchup(proj.opp, proj.home)}</div>
               </div>
             </div>
+            {wxText && (
+              <p className="wx-line mut">
+                {weather?.stadium ? `${weather.stadium} · ` : ""}{wxText}
+                {wxAdj ? <> · <b className={proj.wx! < 1 ? "under" : "over"}>{wxAdj} {KIND_SHORT[kind].toLowerCase()} for weather</b></>
+                  : !weather?.indoor && kind !== "td" ? " · no weather adjustment" : ""}
+              </p>
+            )}
             <div className="seg small" role="tablist">
               {data.projections.map((p) => (
                 <button key={p.kind} className={p.kind === kind ? "on" : ""} onClick={() => setKind(p.kind)}>

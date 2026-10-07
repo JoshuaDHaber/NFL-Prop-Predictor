@@ -62,3 +62,24 @@ def test_each_old_quote_is_tagged_with_the_game_that_was_upcoming_when_it_was_fe
     eng = make_engine(url)
     with Session(eng) as s:
         assert sorted(r.game_id for r in s.query(OddsLine) if r.game_id) == ["2026_04_AAA_BBB", "2026_05_CCC_DDD"]   # nothing is re-tagged
+
+
+def test_a_database_from_before_weather_gains_the_weather_columns(tmp_path):
+    path = str(tmp_path / "pre_weather.db")
+    url, con = old_database(path)
+    con.execute("DROP TABLE projections")
+    con.execute("DROP TABLE runs")
+    con.execute("CREATE TABLE runs (id INTEGER PRIMARY KEY, season INTEGER, week INTEGER, created_at DATETIME, backtest JSON, variance JSON, excluded JSON)")
+    con.execute("""CREATE TABLE projections (id INTEGER PRIMARY KEY, run_id INTEGER, player_id VARCHAR(20), name VARCHAR(80), pos VARCHAR(4),
+        team VARCHAR(4), opp VARCHAR(4), home BOOLEAN, kind VARCHAR(6), mu FLOAT, sd FLOAT, vol FLOAT, eff FLOAT, spread FLOAT,
+        status VARCHAR(20), game_id VARCHAR(24), gameday VARCHAR(12), gametime VARCHAR(8), last5 JSON)""")
+    con.execute("INSERT INTO runs (season, week, created_at, backtest, variance, excluded) VALUES (2026, 5, '2026-10-01', '{}', '{}', '[]')")
+    con.commit(); con.close()
+    eng = make_engine(url)
+    with Session(eng) as s:
+        run = s.query(Run).one()
+        assert run.weather is None
+        run.weather = {"g": {"wind": 12.0}}
+        s.commit()
+        assert s.query(Run).one().weather == {"g": {"wind": 12.0}}
+    eng.dispose()

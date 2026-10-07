@@ -1,4 +1,4 @@
-import type { Kind } from "./api";
+import type { GameWeather, Kind } from "./api";
 
 export const KIND_LABEL: Record<Kind, string> = {
   rush: "Rushing yds", rec: "Receiving yds", pass: "Passing yds", rr: "Rush+Rec yds", td: "Anytime TD",
@@ -34,3 +34,33 @@ export function timeAgo(iso: string, now = Date.now()): string {
   if (mins < 60 * 48) return `${Math.round(mins / 60)} h ago`;
   return `${Math.round(mins / 1440)} d ago`;
 }
+
+/** "Dome", or the kickoff forecast: "78°F · wind 19 mph (gusts 27) · 40% rain". null when there is nothing to say. */
+export function weatherText(w: GameWeather | null | undefined): string | null {
+  if (!w) return null;
+  if (w.indoor) return w.roof === "dome" ? "Dome" : w.roof === "closed" ? "Roof closed" : w.roof === "retractable" ? "Retractable roof" : null;
+  if (w.source !== "forecast" || w.temp == null || w.wind == null) return null;
+  const parts = [`${Math.round(w.temp)}°F`, `wind ${Math.round(w.wind)} mph${w.gust != null && w.gust >= w.wind + 5 ? ` (gusts ${Math.round(w.gust)})` : ""}`];
+  if ((w.snow ?? 0) > 0.05) parts.push(`snow ${w.snow!.toFixed(1)}"`);
+  else if ((w.precip_prob ?? 0) >= 30) parts.push(`${Math.round(w.precip_prob!)}% rain`);
+  return parts.join(" · ");
+}
+
+/** Worth flagging on a row: wind, cold, or wet enough to matter. */
+export function notableWeather(w: GameWeather | null | undefined): boolean {
+  if (!w || w.indoor || w.source !== "forecast") return false;
+  return (w.wind ?? 0) >= 12 || (w.temp ?? 60) <= 40 || (w.precip_prob ?? 0) >= 60 || (w.snow ?? 0) > 0.05;
+}
+
+/** The one condition that stands out, with an icon: "💨 19 mph", "❄️ snow", "🌧️ 70% rain", "🥶 31°F". */
+export function weatherShort(w: GameWeather): string {
+  if ((w.snow ?? 0) > 0.05) return "❄️ snow";
+  if ((w.wind ?? 0) >= 12) return `💨 ${Math.round(w.wind!)} mph`;
+  if ((w.precip_prob ?? 0) >= 60) return `🌧️ ${Math.round(w.precip_prob!)}% rain`;
+  if ((w.temp ?? 60) <= 40) return `🥶 ${Math.round(w.temp!)}°F`;
+  return `💨 ${Math.round(w.wind ?? 0)} mph`;
+}
+
+/** The weather adjustment as a percentage ("-22%"), or null when it is (effectively) none. */
+export const wxEffect = (wx: number | null | undefined) =>
+  wx != null && Math.abs(wx - 1) >= 0.005 ? `${wx > 1 ? "+" : "−"}${Math.abs((wx - 1) * 100).toFixed(0)}%` : null;

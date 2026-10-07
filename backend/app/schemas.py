@@ -33,11 +33,27 @@ class OddsInfo(BaseModel):
     lines: int
 
 
+class GameWeather(BaseModel):
+    stadium: str = ""
+    roof: str = "unknown"
+    indoor: bool = False
+    source: str = "none"              # forecast | indoor | none (no forecast available)
+    temp: Optional[float] = None      # degrees F, average over the three hours from kickoff
+    wind: Optional[float] = None      # mph, same window
+    gust: Optional[float] = None
+    precip_prob: Optional[float] = None  # %, highest in the window
+    precip: Optional[float] = None    # inches; shown, not applied (no history to fit it on)
+    snow: Optional[float] = None
+    fetched_at: Optional[str] = None
+    factors: dict[str, float] = {}    # per market: multiplier applied to yardage projections
+
+
 class Game(BaseModel):
     game_id: str
     label: str
     gameday: str
     gametime: str
+    weather: Optional[GameWeather] = None
 
 
 class JobStatus(BaseModel):
@@ -65,6 +81,7 @@ class Meta(BaseModel):
     snapshot_at: Optional[str] = None  # set only in the static demo export
     calibration: Optional[dict] = None  # when/for which week the error tables were last fitted
     redistribution: Optional[dict] = None  # what teammate redistribution did in the backtest (see engine/redistribute.py)
+    weather: Optional[dict] = None  # the fitted weather effect and what it did in the backtest (see engine/weather.py)
     can_write: bool = False  # this client may refresh data / fetch alt lines (local, or sent the admin token)
     can_run_projections: bool = True  # False on small hosts that only fetch odds
 
@@ -87,6 +104,7 @@ class ProjectionOut(BaseModel):
     gameday: str
     gametime: str
     last5: list[float]
+    wx: Optional[float] = None  # weather multiplier already in mu (1 or None: no effect)
 
 
 class PickOut(BaseModel):
@@ -116,6 +134,7 @@ class PickOut(BaseModel):
     edge_yds: float
     flagged: bool
     last5: list[float]
+    wx: Optional[float] = None
 
 
 class GameLogEntry(BaseModel):

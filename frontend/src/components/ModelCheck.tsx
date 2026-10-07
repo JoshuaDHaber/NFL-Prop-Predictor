@@ -1,5 +1,5 @@
 import type { Meta } from "../api";
-import { KIND_LABEL, signed, timeAgo } from "../format";
+import { KIND_LABEL, signed, timeAgo, weatherText, wxEffect } from "../format";
 import type { Kind } from "../api";
 
 function RedistributionCard({ r }: { r: NonNullable<Meta["redistribution"]> }) {
@@ -24,6 +24,55 @@ function RedistributionCard({ r }: { r: NonNullable<Meta["redistribution"]> }) {
         <p className="mut">
           Switched off for {off.map((k) => label[k] ?? k).join(" and ")}: on held-out weeks it overshot and made projections less accurate.
         </p>
+      )}
+    </div>
+  );
+}
+
+const pctPer = (x: number) => `${x >= 0 ? "+" : "−"}${Math.abs(x * 100).toFixed(1)}%`;
+
+function WeatherCard({ fit, games }: { fit: NonNullable<Meta["weather"]>; games: Meta["games"] }) {
+  const c = fit.coef;
+  const air = c.pass ?? c.rec;
+  const label: Record<string, string> = { pass: "Passing", rec: "Receiving", rush: "Rushing" };
+  const outdoor = games.filter((g) => g.weather && !g.weather.indoor);
+  return (
+    <div className="card prose">
+      <h3>Weather</h3>
+      <p>
+        At outdoor stadiums, yardage projections are scaled for kickoff wind and cold, using effects fitted on the backtest's own misses.
+        {air && <> Passing and receiving: <b>{pctPer(air.wind)} per mph</b> of wind over {fit.wind_from} mph and {pctPer(air.cold)} per degree under {fit.cold_from}°F.</>}
+        {c.rush && <> Rushing: {pctPer(c.rush.wind)} per mph of wind.</>}
+        {" "}Each effect is shrunk toward zero by how noisy it is. Domes, closed and retractable roofs get no adjustment; rain and snow are shown but not applied (there's no history of them to fit).
+      </p>
+      {Object.keys(fit.by_kind).length > 0 && (
+        <table className="calib" aria-label="Weather adjustment in the backtest">
+          <thead><tr><th>Market</th><th>Games moved</th><th>Bias before → after</th><th>MAE before → after</th></tr></thead>
+          <tbody>
+            {Object.entries(fit.by_kind).map(([k, b]) => (
+              <tr key={k}><td>{label[k] ?? k}</td><td>{b.n}</td><td>{signed(b.bias_before)} → {signed(b.bias_after)}</td><td>{b.mae_before.toFixed(1)} → {b.mae_after.toFixed(1)}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {outdoor.length > 0 && (
+        <>
+          <h3>This week's outdoor games</h3>
+          <table className="wx-games">
+            <thead><tr><th>Game</th><th>Forecast at kickoff</th><th className="num">Pass/rec</th><th className="num">Rush</th></tr></thead>
+            <tbody>
+              {outdoor.map((g) => (
+                <tr key={g.game_id}>
+                  <td>{g.label}</td>
+                  <td>{weatherText(g.weather) ?? <span className="mut">no forecast yet</span>}</td>
+                  <td className="num">{wxEffect(g.weather!.factors.pass) ?? "–"}</td>
+                  <td className="num">{wxEffect(g.weather!.factors.rush) ?? "–"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mut">Forecasts are from Open-Meteo, fetched when the model last ran; sync again closer to kickoff for a fresher one.</p>
+        </>
       )}
     </div>
   );
@@ -63,11 +112,12 @@ export default function ModelCheck({ meta }: { meta: Meta }) {
       </div>
       {meta.calibration && (
         <p className="mut">
-          Calibration (error tables, TD scale, redistribution share) was last fitted for week {meta.calibration.week}, {new Date(meta.calibration.at + "Z").toLocaleDateString()}
+          Calibration (error tables, TD scale, redistribution share, weather effect) was last fitted for week {meta.calibration.week}, {new Date(meta.calibration.at + "Z").toLocaleDateString()}
           {meta.calibration.reused_from_run ? "; later syncs reuse it until it is recalibrated." : "."}
         </p>
       )}
       {meta.redistribution && <RedistributionCard r={meta.redistribution} />}
+      {meta.weather && <WeatherCard fit={meta.weather} games={meta.games} />}
       <div className="card prose">
         <h3>How to read this</h3>
         <p>

@@ -276,3 +276,9 @@ tr.clickable:hover td:last-child { border-top-right-radius: 10px; border-bottom-
 .menu-note { padding: 8px 12px; font-size: 11px; border-top: 1px solid var(--line); }
 .parlay-scope { margin: 2px 0 0; }
 .altprops { padding: 4px 14px; } .altprops .parlay-legs { border-top: 0; } .altprops li:last-child { border-bottom: 0; } .altprops .add { margin: 0 0 0 4px; }
+.wx-chip { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; margin-left: 6px; background: var(--chip); color: var(--acc); white-space: nowrap; }
+.wx-chip.down { background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); }
+.wx-chip.up { background: color-mix(in srgb, var(--good) 12%, transparent); color: var(--good); }
+.wx-line { font-size: 13px; margin: -4px 0 10px; }
+table.wx-games { width: 100%; font-size: 13px; margin-top: 8px; } table.wx-games th, table.wx-games td { padding: 4px 6px; text-align: left; }
+table.wx-games td.num, table.wx-games th.num { text-align: right; }

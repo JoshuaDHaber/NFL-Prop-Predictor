@@ -7,7 +7,7 @@ A full-stack web app that projects NFL player yardage, prices the projections ag
 - **Front end:** React + TypeScript (Vite, TanStack Query, Recharts).
 - **Back end:** FastAPI + SQLAlchemy (SQLite locally, Postgres-ready).
 - **Model:** pandas / SciPy projection engine with a walk-forward backtest.
-- **Data:** [nflverse](https://github.com/nflverse/nflverse-data) for stats, schedules, rosters and injuries; [The Odds API](https://the-odds-api.com) for prop lines.
+- **Data:** [nflverse](https://github.com/nflverse/nflverse-data) for stats, schedules (with game-time weather), rosters and injuries; [The Odds API](https://the-odds-api.com) for prop lines; [Open-Meteo](https://open-meteo.com) (free, no key) for kickoff forecasts at outdoor stadiums.
 
 > A modeling and software project, not betting advice. See [Limitations](#limitations).
 
@@ -18,7 +18,8 @@ A full-stack web app that projects NFL player yardage, prices the projections ag
 - **Alternate lines:** in the drawer, a ladder shows every posted line, main and alternate, across books, priced with the model's own win probability and EV. Refreshing odds fetches main and alternate lines for every game of the week (one API call per game, one credit per market, about 4 credits per game for alternates), so they're available by default. A "−300 to +300" toggle (on by default) hides prices outside that range, such as -2500 locks and +3900 longshots. *Load alternate lines* remains as a one-game fallback.
 - **Betslip:** tap **+** on any quote to build a slip (saved in your browser). Each leg has a book switcher that lists every sportsbook offering that exact line, and "Put every leg at one book" moves the whole slip to a single book (showing how many legs it can take) so a parlay stays consistent. When that book doesn't offer a leg's exact line, the slip suggests the nearest lines the book does offer, with prices and EV, and one click swaps the leg. Selections are grouped by sportsbook with per-book parlay odds and payout, a stake box, and **Copy slip link**, which copies the same link "Open all in one tab" opens (a bare URL for one book, labelled per book otherwise) so you can open the slip on another device; **Copy phone link** copies a link that reopens the whole slip in this app on another device (the slip travels in the URL, nothing is stored on a server); tap each leg's button, or "Open all in one tab", on the phone to hand it to the sportsbook app. **Copy as text** copies a readable summary instead. **Get links** fetches missing betslip links for the slip's games on demand, **Open all in one tab** builds a single link that adds every linked leg to the slip for FanDuel and DraftKings (experimental: those multi-selection link formats are not yet confirmed against the live sites, so check the slip afterward), and each book's **Add leg N of M** button steps through its legs one new tab per click (browsers block extra pop-ups from a single click), skipping legs that have no link. **Add at book** opens the sportsbook with that selection added to its betslip where the Odds API provides a direct link (FanDuel and DraftKings do), and otherwise opens the book. The app never places bets; you sign in and confirm at the book.
 - **Projections:** every projected player with the volume and efficiency behind the number, sortable.
-- **Model check:** backtest accuracy per market and the freshness of projections and odds.
+- **Weather:** outdoor games show the kickoff forecast; rows flag windy, cold or wet games with the adjustment made to that projection (for example "💨 19 mph · −22%"), and the player drawer spells it out.
+- **Model check:** backtest accuracy per market, the fitted weather effect with this week's outdoor forecasts, and the freshness of projections and odds.
 - **Refresh from the UI:** recompute projections and fetch odds (projections only, missing markets only, or everything) with live job status. Odds are stored in the database, so re-running the model never spends API credits.
 
 ## Architecture
@@ -71,6 +72,7 @@ Yards = **volume x efficiency**:
 - **Recency weighting:** exponential decay (5-game half-life) across seasons, so recent games dominate while last year anchors small samples.
 - **Shrinkage:** efficiency is pulled toward the position mean with a pseudo-count prior, because yards per attempt is noisy. Volume is shrunk only lightly (and not at all for most quarterback volume), since roles are stable.
 - **Opponent and game script:** a shrunk yards-allowed factor for the defense, and a point-spread nudge (favorites run more, underdogs pass more).
+- **Weather:** at outdoor stadiums, wind and cold scale the yardage projection (see below).
 - **Injured teammates:** see "Injury redistribution" below.
 - **Availability:** the active roster decides a player's team. Injured reserve, Out/Doubtful, players with no practice and no game status, and offseason arrivals with no games for their new team are excluded.
 
@@ -79,6 +81,19 @@ Yards = **volume x efficiency**:
 When a regular is out, his volume goes to his teammates and the books price that in. For each team-game the model finds absent regulars (ruled Out or Doubtful, sat out practice with no game status, or no longer on the active roster, and projected at 8+ carries), takes the volume they would have had, subtracts the part teammates' recent history already reflects (the longer someone has been out, the more of that is already in), and hands a fitted share of the rest to the active teammates **in the same position group** in proportion to their own projected carries. The share is fitted in the backtest (about 62% of the missing carries) and then shrunk by 35% (to about 40%), because the fit on volume overshoots once volume becomes yards; held-out weeks and a replay of past weeks both put the best share at 50-75% of the fit.
 
 It was tested on held-out weeks, market by market, and only rushing is switched on. In the backtest, rushing teammates of an absent back were under-projected by about 8 yards (+25%, ~3.5 standard errors); with redistribution that bias is about 0 to +1 yard on held-out weeks and in the replay, and average error is no worse (23.2 to 22.9 held out, unchanged in the replay; neither difference is statistically meaningful at ~200 games). Receiving (targets) and passing (attempts) were tried the same way and made held-out error worse (overshooting), so they're off. The Model check tab shows the numbers for the current run.
+
+### Weather
+
+Wind is the weather that moves yardage. The nflverse schedule records game-time temperature and wind for every outdoor game, so the effect is fitted on the walk-forward backtest's own misses: per market, the relative miss is regressed on wind above 10 mph and cold below 45°F, and each slope is shrunk toward zero by its own noise. Receiving yards are passing yards split among receivers, so those two markets share one effect. The adjustment multiplies the yardage projection only (never volume), so touchdown chances and injury redistribution are unchanged, and it is capped at ±25%.
+
+| Fitted on the current backtest | Passing / receiving | Rushing |
+|---|---|---|
+| Per mph of wind over 10 mph | −2.4% | +0.3% |
+| Per °F under 45°F | −0.4% | 0 |
+
+A 19 mph game therefore takes about 22% off passing and receiving projections. In backtested games the adjustment moved, passing bias went from −13.4 to +4.4 yards and average miss from 68.4 to 65.5; receiving from −2.1 to +1.3 (miss 22.9 to 22.1); rushing barely changed. Fitted on 2024 only and tested on later games, it cut the passing bias in those games from −13 to +1 yards. The Model check tab shows the numbers for the current run.
+
+For upcoming games the model fetches the [Open-Meteo](https://open-meteo.com) forecast at the stadium, averaged over the three hours from kickoff, each time it runs (a sync takes about a second, so re-sync near kickoff for a fresher forecast). Domes and closed roofs get no adjustment, and neither do retractable roofs, which are opened or closed on game day. Rain and snow are shown but not applied: nflverse has no history of them to fit against. A forecast that can't be fetched (network error, game more than 16 days out) leaves the game unadjusted.
 
 ### Anytime touchdown
 
@@ -150,7 +165,7 @@ GitHub Pages (React)  ──HTTPS──▶  Render (FastAPI)  ──▶  Neon Po
 
 **Syncing a new week from the site (no code or push needed).** Once the API has been deployed with `PROJECTIONS_ON_SERVER=1`, open the site, unlock **Admin**, and click **Sync next week**. It works out the next week with unplayed games, shows exactly what it will do and what it costs in Odds API credits (for example "15 of 15 games, about 135 credits"), and when you confirm it runs the model, stores the new projections in Neon, and fetches odds for every game that doesn't have them yet: main lines, anytime TD and alternate lines. A repeat costs nothing, because odds are stored per game and only the missing ones are bought. The menu also has "Model only" (no credits) and "Re-fetch all odds for the week". The sync shows its progress: a live timer, which step it is on ("Step 1 of 2 · Running the model"), the current sub-step, and a bar through the odds fetch.
 
-**Fast by default.** The slow part of a model run is the walk-forward backtest that calibrates it (error tables, the touchdown scale, the injury-redistribution share). Those change very little from one week to the next, so a normal sync reuses the previous run's calibration and only computes the new week's projections: about 0.7 seconds instead of 14 on a laptop, with projections identical to a full run on the same data. On Render's free tier the full run took about 8 minutes, so expect this to take a fraction of that. Tick **Recalibrate the model** in the confirm step (or choose "Recalibrate model" from the menu) to refit it; it is also refit automatically if the saved calibration is missing, from another season, or older than 21 days. The Model check tab says which week the calibration was last fitted for.
+**Fast by default.** The slow part of a model run is the walk-forward backtest that calibrates it (error tables, the touchdown scale, the injury-redistribution share, the weather effect). Those change very little from one week to the next, so a normal sync reuses the previous run's calibration and only computes the new week's projections: about 0.7 seconds instead of 14 on a laptop, with projections identical to a full run on the same data. On Render's free tier the full run took about 8 minutes, so expect this to take a fraction of that. Tick **Recalibrate the model** in the confirm step (or choose "Recalibrate model" from the menu) to refit it; it is also refit automatically if the saved calibration is missing, from another season, older than 21 days, or from before the weather model (so the first sync after this update does a full run). The weather forecast itself is fetched fresh on every run, fast or full. The Model check tab says which week the calibration was last fitted for.
 
 **Topping up thin games.** Books post lines gradually through the week, so a sync early in the week can leave some games with few quotes. "Top up thin games" in the menu re-fetches games that have fewer than 100 stored quotes whose lines are at least 3 hours old, plus any that are missing, and shows the games and cost first. The normal sync never re-buys a game that already has lines.
 
@@ -191,7 +206,7 @@ backend/
     cli.py         run the pipeline without the web app
     export_static.py  write the data as static JSON for the Pages demo
     copy_db.py     copy the local database to a hosted Postgres (./run.sh push-data)
-    engine/        model.py (projections, backtest, probabilities) · td.py (anytime touchdown) · picks.py (pricing) · ladder.py (alt-line pricing) · odds.py · data.py
+    engine/        model.py (projections, backtest, probabilities) · td.py (anytime touchdown) · weather.py (fitted wind/cold effect, stadium forecasts) · picks.py (pricing) · ladder.py (alt-line pricing) · odds.py · data.py
   tests/           pytest suite
 frontend/src/      App, components (picks table, player drawer, line ladder, betslip, controls, refresh), betslip math in slip.ts, typed API client
 ```
@@ -201,6 +216,7 @@ frontend/src/      App, components (picks table, player drawer, line ladder, bet
 - **The backtest has no historical odds,** so it validates accuracy, not profitability. Sportsbook prop markets are efficient; a large apparent edge usually means the model is missing context.
 - **Teammate redistribution covers carries only:** when a back is out his carries move to his teammates, but a missing receiver's targets or quarterback's attempts are not redistributed (tested, and it made held-out error worse). Backups at those positions are still under-projected.
 - **Heuristic adjustments:** opponent and game-script effects are reasonable but untuned.
+- **Weather is wind and cold only.** Rain and snow aren't modeled (no history to fit), retractable roofs are assumed closed, and the forecast is as of the last model run. The weather effect is fitted on a few hundred outdoor games with strong wind, so it's noisy, and sportsbooks price wind too.
 - **Rush + Rec** treats its two parts as independent, though they are often negatively correlated.
 - **Early-season samples are small;** projections lean on last season until enough of this one is played.
 - **Injury data is only as fresh as the nflverse feed.** Check game-day statuses before relying on a pick.
@@ -210,7 +226,7 @@ frontend/src/      App, components (picks table, player drawer, line ladder, bet
 
 - Redistribute targets and attempts too, if a better allocation than "same position group" can be shown to help on held-out weeks.
 - Model team-level pass/run volume explicitly, then split it among players.
-- Weather, pace and offensive-line context.
+- Pace and offensive-line context; precipitation, once there's a history of it to fit.
 - Store pick history and track closing-line value as an out-of-sample test.
 - Scheduled refreshes, auth for a shared deployment, more markets (receptions, attempts, touchdowns).
 - Multi-leg deep links per sportsbook (today each selection opens as its own link) and correlation-aware same-game parlay pricing.
