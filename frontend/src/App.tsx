@@ -3,6 +3,7 @@ import { Suspense, lazy, useMemo, useState } from "react";
 import { api, type Filters, type Kind } from "./api";
 import BetSlip from "./components/BetSlip";
 import Controls from "./components/Controls";
+import GameWeather from "./components/GameWeather";
 import ModelCheck from "./components/ModelCheck";
 import ParlayTiles from "./components/ParlayTiles";
 import PicksTable from "./components/PicksTable";
@@ -109,6 +110,7 @@ export default function App() {
           value: <>{gain.toFixed(1)}% <em>better</em></>, caption: "than the naive baseline",
         }));
   const weatherByGame = Object.fromEntries(m.games.map((g) => [g.game_id, g.weather]));
+  const selectedGame = m.games.find((g) => g.game_id === filters.game);
   const hasOdds = Object.keys(m.odds).length > 0;
   const latestOdds = Object.values(m.odds).map((o) => o.fetched_at).sort().at(-1);
 
@@ -157,6 +159,7 @@ export default function App() {
       <TopTiles tiles={tiles} />
 
       {tab !== "model" && tab !== "parlays" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
+      {(tab === "picks" || tab === "projections") && selectedGame && <GameWeather game={selectedGame} fit={m.weather} />}
 
       {tab === "picks" && (picks.isLoading ? <p className="mut">Pricing plays…</p> :
         <PicksTable picks={picks.data ?? []} weather={weatherByGame} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}

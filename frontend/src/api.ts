@@ -29,8 +29,11 @@ export interface GameWeather {
   stadium: string; roof: string; indoor: boolean;
   source: "forecast" | "indoor" | "none";
   temp: number | null; wind: number | null; gust: number | null;   // °F and mph, three hours from kickoff
+  wind_dir?: number | null;   // degrees the wind blows FROM (0 = north)
+  sky?: string | null;        // "Partly cloudy", "Rain showers", ...
   precip_prob: number | null; precip: number | null; snow: number | null;  // shown, not applied
   fetched_at: string | null;
+  provider?: string | null;   // Open-Meteo, or the National Weather Service as a US fallback
   factors: Partial<Record<"rush" | "rec" | "pass", number>>;
 }
 /** The fitted weather effect (per mph of wind over wind_from, per degree under cold_from) and what it did in the backtest. */

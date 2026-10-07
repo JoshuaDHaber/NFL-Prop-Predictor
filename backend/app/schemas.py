@@ -41,10 +41,13 @@ class GameWeather(BaseModel):
     temp: Optional[float] = None      # degrees F, average over the three hours from kickoff
     wind: Optional[float] = None      # mph, same window
     gust: Optional[float] = None
+    wind_dir: Optional[float] = None  # degrees the wind blows FROM (0 = north), averaged over the window
+    sky: Optional[str] = None         # e.g. "Partly cloudy", "Rain showers"
     precip_prob: Optional[float] = None  # %, highest in the window
     precip: Optional[float] = None    # inches; shown, not applied (no history to fit it on)
     snow: Optional[float] = None
     fetched_at: Optional[str] = None
+    provider: Optional[str] = None    # Open-Meteo | National Weather Service
     factors: dict[str, float] = {}    # per market: multiplier applied to yardage projections
 
 

@@ -154,7 +154,7 @@ def _outdoor_schedule(monkeypatch, wind):
     sched.loc[~played, "gameday"] = date.today().isoformat()
     monkeypatch.setattr(pipeline.data, "load_schedule", lambda: sched)
     monkeypatch.setattr(pipeline.wxm, "fit", lambda bt: WINDY)
-    monkeypatch.setattr(pipeline.wxm, "fetch_point", lambda lat, lon, day, gametime, get=None:
+    monkeypatch.setattr(pipeline.wxm, "fetch_point", lambda lat, lon, day, gametime, **kw:
                         dict(temp=60.0, wind=wind, gust=wind * 1.5, precip_prob=0.0, precip=0.0, snow=0.0))
 
 

@@ -36,6 +36,7 @@ function WeatherCard({ fit, games }: { fit: NonNullable<Meta["weather"]>; games:
   const air = c.pass ?? c.rec;
   const label: Record<string, string> = { pass: "Passing", rec: "Receiving", rush: "Rushing" };
   const outdoor = games.filter((g) => g.weather && !g.weather.indoor);
+  const providers = [...new Set(outdoor.map((g) => g.weather!.provider).filter(Boolean))];
   return (
     <div className="card prose">
       <h3>Weather</h3>
@@ -71,7 +72,7 @@ function WeatherCard({ fit, games }: { fit: NonNullable<Meta["weather"]>; games:
               ))}
             </tbody>
           </table>
-          <p className="mut">Forecasts are from Open-Meteo, fetched when the model last ran; sync again closer to kickoff for a fresher one.</p>
+          <p className="mut">Forecasts are from {providers.length ? providers.join(" and ") : "Open-Meteo"}, fetched when the model last ran; sync again closer to kickoff for a fresher one.</p>
         </>
       )}
     </div>

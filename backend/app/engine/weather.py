@@ -8,11 +8,13 @@ share one effect (their fits averaged by precision). In the 2024-26 backtest, st
 receiving yards and somewhat more rushing yards; cold took a few percent off passing.
 
 Forecasts come from Open-Meteo (free, no key): the average temperature and wind over the three hours from kickoff,
-plus gusts and precipitation. Precipitation is shown but not applied: nflverse has no history of it to fit against.
-Domes and closed retractable roofs get no adjustment.
+plus gusts and precipitation. Open-Meteo may refuse shared cloud hosts (rate limits), so US stadiums fall back to the
+National Weather Service's hourly forecast (also free; about a week ahead, without gusts or amounts). Precipitation is
+shown but not applied: nflverse has no history of it to fit against. Domes and closed retractable roofs get no adjustment.
 """
+import re
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
@@ -25,6 +27,8 @@ KINDS = ("rush", "rec", "pass")
 OUTDOOR = {"outdoors", "open"}
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 FORECAST_DAYS = 16     # Open-Meteo's horizon
+NWS_URL = "https://api.weather.gov"
+NWS_HEADERS = {"User-Agent": "nfl-prop-predictor (github.com/JoshuaDHaber/NFL-Prop-Predictor)", "Accept": "application/geo+json"}
 
 # (latitude, longitude) per nflverse stadium_id
 STADIUMS = {
@@ -41,10 +45,21 @@ STADIUMS = {
     "MAD01": (40.4531, -3.6883), "MEL00": (-37.8200, 144.9834), "MEX00": (19.3029, -99.1505), "PAR00": (48.9245, 2.3602),
     "RIO00": (-22.9122, -43.2302), "SAO00": (-23.5453, -46.4742),
 }
+INTERNATIONAL = {"GER00", "MUN01", "LON00", "LON02", "MAD01", "MEL00", "MEX00", "PAR00", "RIO00", "SAO00"}
+# nflverse sometimes gives an international game its home team's stadium_id but the real stadium name
+VENUE_BY_NAME = (("tottenham", "LON02"), ("wembley", "LON00"), ("bayern", "MUN01"), ("allianz", "MUN01"), ("bernab", "MAD01"),
+                 ("stade de france", "PAR00"), ("melbourne", "MEL00"), ("maracan", "RIO00"), ("corinthians", "SAO00"),
+                 ("banorte", "MEX00"), ("azteca", "MEX00"))
 # nflverse lists some open-air international venues as domes
 ROOF_OVERRIDE = {"MEL00": "outdoors", "PAR00": "outdoors", "MUN01": "outdoors"}
 RETRACTABLE = {"ATL97", "DAL00", "HOU00", "IND00", "PHO00", "MAD01"}  # open or closed is decided on game day
 SHARED = ("rec", "pass")
+
+
+def venue(stadium_id, stadium) -> str:
+    """The stadium_id to locate a game by: the stadium's name wins for international venues."""
+    name = stadium.lower() if isinstance(stadium, str) else ""
+    return next((vid for key, vid in VENUE_BY_NAME if key in name), stadium_id)
 
 
 def roof(stadium_id, listed) -> str:
@@ -148,6 +163,25 @@ def summary(bt: pd.DataFrame, coef: dict) -> dict:
     return dict(coef=coef, wind_from=WIND_FROM, cold_from=COLD_FROM, by_kind=by_kind)
 
 
+# WMO weather codes (Open-Meteo) -> short sky description; the most severe code in the kickoff window is shown
+WMO = [(95, "Thunderstorms"), (85, "Snow showers"), (80, "Rain showers"), (71, "Snow"), (66, "Freezing rain"), (61, "Rain"),
+       (56, "Freezing drizzle"), (51, "Drizzle"), (45, "Fog"), (3, "Overcast"), (2, "Partly cloudy"), (1, "Mostly clear"), (0, "Clear")]
+COMPASS = {d: i * 22.5 for i, d in enumerate("N NNE NE ENE E ESE SE SSE S SSW SW WSW W WNW NW NNW".split())}
+
+
+def sky(code) -> str:
+    return next((label for floor, label in WMO if code is not None and code >= floor), None)
+
+
+def mean_direction(degrees) -> float:
+    """Average of compass bearings (so 350 and 10 average to 0, not 180)."""
+    d = [x for x in degrees if x is not None]
+    if not d:
+        return None
+    r = np.radians(d)
+    return float(np.degrees(np.arctan2(np.sin(r).mean(), np.cos(r).mean())) % 360)
+
+
 def _kickoff_hour(gametime) -> int:
     try:
         return int(str(gametime).split(":")[0])
@@ -155,11 +189,11 @@ def _kickoff_hour(gametime) -> int:
         return 13
 
 
-def fetch_point(lat: float, lon: float, day: str, gametime, get=requests.get) -> dict:
+def fetch_open_meteo(lat: float, lon: float, day: str, gametime, get=requests.get) -> dict:
     """Open-Meteo forecast for three hours from kickoff (gametime is US Eastern, as in the nflverse schedule)."""
     r = get(FORECAST_URL, params=dict(
         latitude=lat, longitude=lon, start_date=day, end_date=day, timezone="America/New_York",
-        hourly="temperature_2m,wind_speed_10m,wind_gusts_10m,precipitation_probability,precipitation,snowfall",
+        hourly="temperature_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation_probability,precipitation,snowfall,weather_code",
         temperature_unit="fahrenheit", wind_speed_unit="mph", precipitation_unit="inch"), timeout=15)
     r.raise_for_status()
     h = r.json()["hourly"]
@@ -171,7 +205,74 @@ def fetch_point(lat: float, lon: float, day: str, gametime, get=requests.get) ->
         return float(fn(vals)) if vals else None
 
     return dict(temp=pick("temperature_2m", np.mean), wind=pick("wind_speed_10m", np.mean), gust=pick("wind_gusts_10m", max),
-                precip_prob=pick("precipitation_probability", max), precip=pick("precipitation", sum), snow=pick("snowfall", sum))
+                precip_prob=pick("precipitation_probability", max), precip=pick("precipitation", sum), snow=pick("snowfall", sum),
+                wind_dir=mean_direction([h["wind_direction_10m"][i] for i in idx]) if h.get("wind_direction_10m") else None,
+                sky=sky(pick("weather_code", max)), provider="Open-Meteo")
+
+
+def _eastern(dt: datetime) -> datetime:
+    try:
+        from zoneinfo import ZoneInfo
+        return dt.astimezone(ZoneInfo("America/New_York"))
+    except Exception:  # no tz database on the host: US daylight time runs roughly mid-March to early November
+        utc = dt.astimezone(timezone.utc)
+        return utc + timedelta(hours=-4 if 3 <= utc.month <= 10 or (utc.month == 11 and utc.day < 3) else -5)
+
+
+def fetch_nws(lat: float, lon: float, day: str, gametime, get=requests.get) -> dict:
+    """National Weather Service hourly forecast (US only, about a week ahead) for three hours from kickoff."""
+    r = get(f"{NWS_URL}/points/{lat:.4f},{lon:.4f}", headers=NWS_HEADERS, timeout=15)
+    r.raise_for_status()
+    r = get(r.json()["properties"]["forecastHourly"], headers=NWS_HEADERS, timeout=15)
+    r.raise_for_status()
+    k = _kickoff_hour(gametime)
+    rows = []
+    for p in r.json()["properties"]["periods"]:
+        t = _eastern(datetime.fromisoformat(p["startTime"]))
+        if t.date().isoformat() == day and k <= t.hour < k + 3:
+            rows.append(p)
+    if not rows:
+        raise ValueError("no hourly forecast for kickoff yet")
+
+    def temp_f(p):
+        return p["temperature"] * 9 / 5 + 32 if p.get("temperatureUnit") == "C" else p["temperature"]
+
+    winds = [np.mean([float(x) for x in re.findall(r"\d+(?:\.\d+)?", p.get("windSpeed") or "")] or [np.nan]) for p in rows]
+    probs = [(p.get("probabilityOfPrecipitation") or {}).get("value") for p in rows]
+    probs = [x for x in probs if x is not None]
+    return dict(temp=float(np.mean([temp_f(p) for p in rows])), wind=float(np.nanmean(winds)) if not np.isnan(winds).all() else None,
+                gust=None, precip_prob=float(max(probs)) if probs else None, precip=None, snow=None,
+                wind_dir=mean_direction([COMPASS.get(p.get("windDirection")) for p in rows]), sky=rows[0].get("shortForecast") or None,
+                provider="National Weather Service")
+
+
+def _why(e: Exception) -> str:
+    code = getattr(getattr(e, "response", None), "status_code", None)
+    return f"{type(e).__name__} {code}" if code else type(e).__name__
+
+
+FETCH_ERRORS = (requests.RequestException, KeyError, ValueError, TypeError)
+
+
+def fetch_point(lat: float, lon: float, day: str, gametime, get=requests.get, us: bool = True, state: dict = None, log=print) -> dict:
+    """Open-Meteo first; for US stadiums, the National Weather Service when Open-Meteo fails. After Open-Meteo refuses
+    this host (429/403), the rest of the run goes straight to the fallback."""
+    state = state if state is not None else {}
+    errors = []
+    if not state.get("open_meteo_blocked"):
+        try:
+            return fetch_open_meteo(lat, lon, day, gametime, get=get)
+        except FETCH_ERRORS as e:
+            errors.append(f"Open-Meteo: {_why(e)}")
+            if getattr(getattr(e, "response", None), "status_code", None) in (403, 429):
+                state["open_meteo_blocked"] = True
+                log(f"  Open-Meteo refused this host ({_why(e)}); using the National Weather Service for US stadiums")
+    if us:
+        try:
+            return fetch_nws(lat, lon, day, gametime, get=get)
+        except FETCH_ERRORS as e:
+            errors.append(f"NWS: {_why(e)}")
+    raise ValueError("; ".join(errors) or "no forecast source")
 
 
 def forecast(games: pd.DataFrame, coef: dict, log=print, today: date = None, get=requests.get) -> dict:
@@ -183,11 +284,12 @@ def forecast(games: pd.DataFrame, coef: dict, log=print, today: date = None, get
     if "stadium_id" not in games.columns:
         return out
     fetched = datetime.utcnow().isoformat()
+    state = {}
     for g in games.itertuples():
-        sid = getattr(g, "stadium_id", None)
+        sid = venue(getattr(g, "stadium_id", None), getattr(g, "stadium", None))
         rf = roof(sid, getattr(g, "roof", None))
         w = dict(stadium=getattr(g, "stadium", None) or "", roof=rf, indoor=rf not in OUTDOOR, source="indoor" if rf not in OUTDOOR else "none",
-                 temp=None, wind=None, gust=None, precip_prob=None, precip=None, snow=None, fetched_at=None,
+                 temp=None, wind=None, gust=None, wind_dir=None, sky=None, precip_prob=None, precip=None, snow=None, fetched_at=None, provider=None,
                  factors={k: 1.0 for k in KINDS})
         out[g.game_id] = w
         if w["indoor"] or sid not in STADIUMS:
@@ -199,11 +301,12 @@ def forecast(games: pd.DataFrame, coef: dict, log=print, today: date = None, get
         if not 0 <= days_out < FORECAST_DAYS:
             continue
         try:
-            w.update(fetch_point(*STADIUMS[sid], str(g.gameday), g.gametime, get=get), source="forecast", fetched_at=fetched)
-        except (requests.RequestException, KeyError, ValueError, TypeError) as e:
-            log(f"  weather for {g.game_id} unavailable ({type(e).__name__})")
+            w.update(fetch_point(*STADIUMS[sid], str(g.gameday), g.gametime, get=get, us=sid not in INTERNATIONAL, state=state, log=log),
+                     source="forecast", fetched_at=fetched)
+        except FETCH_ERRORS as e:
+            log(f"  weather for {g.game_id} unavailable ({e if isinstance(e, ValueError) else _why(e)})")
             continue
         if w["temp"] is not None and w["wind"] is not None:
             w["factors"] = factors(coef, w["temp"], w["wind"])
-        time.sleep(0.05)  # be polite to a free API
+        time.sleep(0.05)  # be polite to free APIs
     return out

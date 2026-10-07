@@ -72,10 +72,11 @@ def test_history_keeps_only_outdoor_games_with_readings():
 class FakeResp:
     def __init__(self, payload, status=200):
         self.payload, self.status = payload, status
+        self.status_code = status
 
     def raise_for_status(self):
         if self.status >= 400:
-            raise requests.HTTPError(f"{self.status}")
+            raise requests.HTTPError(f"{self.status}", response=self)
 
     def json(self):
         return self.payload
@@ -84,7 +85,8 @@ class FakeResp:
 def hourly(day, temps, winds):
     return {"hourly": {"time": [f"{day}T{h:02d}:00" for h in range(24)], "temperature_2m": temps, "wind_speed_10m": winds,
                        "wind_gusts_10m": [w * 1.5 for w in winds], "precipitation_probability": [10] * 24,
-                       "precipitation": [0.01] * 24, "snowfall": [0.0] * 24}}
+                       "precipitation": [0.01] * 24, "snowfall": [0.0] * 24, "wind_direction_10m": [350.0, 10.0] * 12,
+                       "weather_code": [2] * 14 + [61] + [2] * 9}}
 
 
 def games():
@@ -109,6 +111,8 @@ def test_forecast_averages_the_three_hours_from_kickoff_and_skips_domes():
     buf = out["2026_06_AAA_BUF"]
     assert buf["source"] == "forecast" and buf["wind"] == pytest.approx(18.0) and buf["gust"] == pytest.approx(30.0)
     assert buf["factors"]["pass"] == pytest.approx(1 - 0.02 * 8) and buf["factors"]["rush"] == pytest.approx(1 + 0.01 * 8)
+    assert buf["wind_dir"] < 5                                       # 10, 350, 10 degrees average to just east of north, not 123
+    assert buf["sky"] == "Rain"                                      # the worst hour of the window
     assert out["2026_06_CCC_DET"]["indoor"] and out["2026_06_CCC_DET"]["factors"]["pass"] == 1.0
     assert out["2026_06_EEE_CHI"]["source"] == "none" and out["2026_06_EEE_CHI"]["factors"]["pass"] == 1.0
 
@@ -143,3 +147,56 @@ def test_components_scale_yards_but_not_volume():
     assert windy["rec"][0] == pytest.approx(base["rec"][0] * 0.84)
     ratio = model.wx_ratio("rr", windy, {"rush": 1.08, "rec": 0.84})
     assert ratio == pytest.approx((windy["rush"][0] + windy["rec"][0]) / (base["rush"][0] + base["rec"][0]))
+
+
+def nws_get(open_meteo_status=429, nws_wind="15 to 25 mph"):
+    """Open-Meteo refuses (as it can for shared cloud hosts); the NWS answers with hourly periods in Central time."""
+    calls = []
+
+    def get(url, params=None, headers=None, timeout=0):
+        calls.append(url)
+        if "open-meteo" in url:
+            return FakeResp({}, status=open_meteo_status)
+        if "/points/" in url:
+            return FakeResp({"properties": {"forecastHourly": "https://api.weather.gov/gridpoints/BUF/1,2/forecast/hourly"}})
+        periods = [dict(startTime=f"2026-10-11T{h:02d}:00:00-05:00", temperature=40 + h, temperatureUnit="F", windSpeed=nws_wind,
+                        windDirection="W", shortForecast="Mostly Sunny", probabilityOfPrecipitation={"value": 20 + h}) for h in range(6, 20)]
+        return FakeResp({"properties": {"periods": periods}})
+    return get, calls
+
+
+def test_us_stadiums_fall_back_to_the_weather_service_when_open_meteo_refuses():
+    get, calls = nws_get()
+    logs = []
+    out = wx.forecast(games(), COEF, log=logs.append, today=date(2026, 10, 6), get=get)
+    buf = out["2026_06_AAA_BUF"]
+    # 13:00-15:59 Eastern is 12:00-14:59 Central
+    assert buf["source"] == "forecast" and buf["provider"] == "National Weather Service"
+    assert buf["temp"] == pytest.approx(53.0) and buf["wind"] == pytest.approx(20.0) and buf["precip_prob"] == 34
+    assert buf["factors"]["pass"] == pytest.approx(1 - 0.02 * 10)
+    assert buf["wind_dir"] == pytest.approx(270.0) and buf["sky"] == "Mostly Sunny"
+    assert any("refused this host" in m for m in logs)
+
+
+def test_after_open_meteo_refuses_the_rest_of_the_run_skips_it():
+    get, calls = nws_get()
+    two = pd.concat([games().iloc[[0]], games().iloc[[0]].assign(game_id="2026_06_FFF_BUF")], ignore_index=True)
+    wx.forecast(two, COEF, log=lambda m: None, today=date(2026, 10, 6), get=get)
+    assert sum("open-meteo" in u for u in calls) == 1
+
+
+def test_an_international_game_is_located_by_its_stadium_name():
+    london = pd.DataFrame([dict(game_id="2026_05_PHI_JAX", gameday="2026-10-11", gametime="09:30", stadium_id="JAX00",
+                                stadium="Tottenham Hotspur Stadium", roof="outdoors")])
+    seen = []
+
+    def get(url, params=None, headers=None, timeout=0):
+        seen.append(params)
+        return FakeResp(hourly("2026-10-11", [55.0] * 24, [8.0] * 24))
+
+    out = wx.forecast(london, COEF, log=lambda m: None, today=date(2026, 10, 6), get=get)
+    assert seen[0]["latitude"] == pytest.approx(51.6043)              # London, not Jacksonville
+    assert out["2026_05_PHI_JAX"]["provider"] == "Open-Meteo"
+    get, calls = nws_get()
+    out = wx.forecast(london, COEF, log=lambda m: None, today=date(2026, 10, 6), get=get)
+    assert out["2026_05_PHI_JAX"]["source"] == "none" and not any("weather.gov" in u for u in calls)   # the NWS is US-only

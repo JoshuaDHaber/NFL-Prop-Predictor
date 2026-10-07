@@ -282,3 +282,35 @@ tr.clickable:hover td:last-child { border-top-right-radius: 10px; border-bottom-
 .wx-line { font-size: 13px; margin: -4px 0 10px; }
 table.wx-games { width: 100%; font-size: 13px; margin-top: 8px; } table.wx-games th, table.wx-games td { padding: 4px 6px; text-align: left; }
 table.wx-games td.num, table.wx-games th.num { text-align: right; }
+/* game weather panel */
+.gw { padding: 14px 16px; margin: 0 0 14px; }
+.gw-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 10px; } .gw-head b { font-size: 16px; }
+.gw-body { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; }
+.gw-now { display: flex; align-items: center; gap: 10px; min-width: 150px; }
+.gw-big-ico { font-size: 40px; line-height: 1; }
+.gw-temp { font-size: 30px; font-weight: 800; letter-spacing: -.02em; line-height: 1.1; }
+.gw-title { font-weight: 700; font-size: 16px; }
+.gw-compass { width: 112px; height: 112px; flex: none; }
+.gw-compass .ring { fill: none; stroke: var(--line); stroke-width: 2; }
+.gw-compass .tick { stroke: var(--mut); stroke-width: 1.5; }
+.gw-compass .pt { fill: var(--mut); font-size: 10px; font-weight: 700; text-anchor: middle; }
+.gw-compass .arrow { stroke: var(--acc); stroke-width: 4; stroke-linecap: round; }
+.gw-compass .head { fill: var(--acc); }
+.gw-compass.breezy .arrow { stroke: var(--warn); } .gw-compass.breezy .head { fill: var(--warn); }
+.gw-compass.strong .arrow { stroke: var(--bad); } .gw-compass.strong .head { fill: var(--bad); }
+.gw-compass .hub { fill: var(--card); stroke: var(--line); }
+.gw-compass .spd { fill: var(--ink); font-size: 15px; font-weight: 800; text-anchor: middle; }
+.gw-compass .unit { fill: var(--mut); font-size: 8px; text-anchor: middle; }
+.gw-stats { display: grid; grid-template-columns: repeat(2, minmax(110px, auto)); gap: 6px 20px; margin: 0; }
+.gw-stats dt { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--mut); }
+.gw-stats dd { margin: 0; font-weight: 600; }
+.gw-effect { margin-top: 12px; padding: 8px 10px; border-radius: 8px; background: var(--chip); font-size: 13px; }
+.gw-effect.on { background: var(--warn-bg); }
+.gw-foot { font-size: 12px; margin: 8px 0 0; }
+.gw-indoor { display: flex; align-items: center; gap: 16px; } .gw-indoor p { margin: 2px 0 0; }
+.gw-roof-art { width: 120px; height: 70px; flex: none; }
+.gw-roof-art .base { stroke: var(--mut); stroke-width: 2; }
+.gw-roof-art .bowl { fill: var(--chip); stroke: var(--acc); stroke-width: 2; }
+.gw-roof-art .roof { fill: color-mix(in srgb, var(--acc) 22%, transparent); stroke: var(--acc); stroke-width: 2; }
+.gw-roof-art .slide { stroke: var(--acc); stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+@media (max-width: 600px) { .gw-body { gap: 12px; } .gw-stats { grid-template-columns: 1fr 1fr; width: 100%; } }

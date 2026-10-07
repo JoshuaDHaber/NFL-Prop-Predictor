@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GameWeather } from "./api";
-import { americanOdds, fmtEdge, fmtProj, kickoff, notableWeather, pct, playLabel, signed, signedPct, timeAgo, weatherShort, weatherText, wxEffect } from "./format";
+import { compassPoint, skyIcon, americanOdds, fmtEdge, fmtProj, kickoff, notableWeather, pct, playLabel, signed, signedPct, timeAgo, weatherShort, weatherText, wxEffect } from "./format";
 
 describe("format", () => {
   it("formats percentages and signs", () => {
@@ -60,5 +60,21 @@ describe("weather", () => {
     expect(wxEffect(1.03)).toBe("+3%");
     expect(wxEffect(1)).toBeNull();
     expect(wxEffect(null)).toBeNull();
+  });
+});
+
+describe("game weather panel", () => {
+  it("names compass points", () => {
+    expect(compassPoint(0)).toBe("N");
+    expect(compassPoint(300)).toBe("WNW");
+    expect(compassPoint(359)).toBe("N");
+    expect(compassPoint(-90)).toBe("W");
+  });
+  it("picks a sky icon, with a moon for clear night games", () => {
+    expect(skyIcon("Rain showers")).toBe("🌧️");
+    expect(skyIcon("Partly cloudy")).toBe("⛅");
+    expect(skyIcon("Mostly Cloudy")).toBe("☁️");
+    expect(skyIcon("Clear", "20:20")).toBe("🌙");
+    expect(skyIcon("Mostly Sunny", "13:00")).toBe("☀️");
   });
 });

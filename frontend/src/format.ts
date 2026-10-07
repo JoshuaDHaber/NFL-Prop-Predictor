@@ -64,3 +64,19 @@ export function weatherShort(w: GameWeather): string {
 /** The weather adjustment as a percentage ("-22%"), or null when it is (effectively) none. */
 export const wxEffect = (wx: number | null | undefined) =>
   wx != null && Math.abs(wx - 1) >= 0.005 ? `${wx > 1 ? "+" : "−"}${Math.abs((wx - 1) * 100).toFixed(0)}%` : null;
+
+const POINTS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+/** Compass point for a bearing: 300 -> "WNW". */
+export const compassPoint = (deg: number) => POINTS[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
+
+/** An icon for a sky description; clear skies at night kickoffs (7 pm ET or later) get a moon. */
+export function skyIcon(sky: string | null | undefined, gametime = ""): string {
+  const s = (sky ?? "").toLowerCase();
+  if (s.includes("thunder")) return "⛈️";
+  if (s.includes("snow") || s.includes("flurr")) return "🌨️";
+  if (/rain|shower|drizzle/.test(s)) return "🌧️";
+  if (s.includes("fog")) return "🌫️";
+  if (s.includes("overcast") || /^(mostly )?cloudy/.test(s)) return "☁️";
+  if (s.includes("partly")) return "⛅";
+  return parseInt(gametime, 10) >= 19 ? "🌙" : "☀️";
+}
