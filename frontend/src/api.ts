@@ -10,6 +10,7 @@ export interface Redistribution {
   rho: Record<string, number>;       // shares actually applied (0 = that role is switched off)
   rho_fit: Record<string, number>;   // shares the data suggested for every role
   active_roles: string[];
+  replace_roles?: string[];          // roles where a replacement takes over outright (quarterback attempts)
   by_kind: Record<string, { n: number; bias_before: number; bias_after: number; mae_before: number; mae_after: number }>;
   summary: string;
 }

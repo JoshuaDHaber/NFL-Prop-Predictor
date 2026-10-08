@@ -145,7 +145,7 @@ def _redistribution_summary(base: pd.DataFrame, bt: pd.DataFrame, rho_fit: dict,
     """What redistribution did in the backtest (in-sample): bias on teammates of absent regulars, before and after."""
     # full precision: a later sync reuses `rho` as-is, and rounding it would shift projections slightly
     out = dict(rho_fit={k: float(v) for k, v in rho_fit.items()}, rho={k: float(v) for k, v in rho.items()},
-               active_roles=list(rd.ACTIVE_ROLES), by_kind={})
+               active_roles=list(rd.ACTIVE_ROLES), replace_roles=list(rd.REPLACE_ROLES), by_kind={})
     key = ["player_id", "t", "kind"]
     b = base[base.kind != "td"].set_index(key)
     n = bt[bt.kind != "td"].set_index(key)

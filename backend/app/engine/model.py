@@ -136,17 +136,35 @@ def _lift_members(members, lost, rho, records=None, t=None, affected=None, only=
     """Hand lost volume to active teammates of the same position group (in place on each member's comp).
 
     members: dicts with pid, pos, comp (and row, for fitting). only: pids allowed to receive (default: all).
-    With records, collect (role, expected extra volume, observed extra volume, t) to fit rho."""
+    With records, collect (role, expected extra volume, observed extra volume, t) to fit rho.
+    Replacement roles (quarterback attempts) are not shared: the lead active QB takes over the missing starter's
+    attempts whenever redistribution is on (rho given)."""
     from . import redistribute as rd
     receivers = [c for c in members if only is None or c["pid"] in only]
+    if rho is not None:
+        for kind in rd.REPLACE_ROLES:
+            groups = {}
+            for c in receivers:
+                key = (kind, rd.group(kind, c["pos"]))
+                if kind in c["comp"] and lost.get(key, 0) > 0:
+                    groups.setdefault(key, []).append(c)
+            for key, cands in groups.items():
+                lead = max(cands, key=lambda c: c["comp"][kind][1])   # the QB expected to play
+                mu, vol, eff = lead["comp"][kind]
+                if vol < lost[key] and vol > 0:
+                    lead["comp"][kind] = (mu * lost[key] / vol, lost[key], eff)
+                    if affected is not None:
+                        affected.add((lead["pid"], t))
     active_vol = {}
     for c in receivers:
         for kind in rd.ROLES:
-            if kind in c["comp"]:
+            if kind in c["comp"] and kind not in rd.REPLACE_ROLES:
                 key = (kind, rd.group(kind, c["pos"]))
                 active_vol[key] = active_vol.get(key, 0.0) + c["comp"][kind][1]
     for c in receivers:
         for kind, col in rd.ROLES.items():
+            if kind in rd.REPLACE_ROLES:
+                continue
             key = (kind, rd.group(kind, c["pos"]))
             if kind not in c["comp"] or lost.get(key, 0) <= 0 or active_vol.get(key, 0) <= 0:
                 continue
@@ -318,7 +336,7 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
     latest = df.sort_values("t").groupby("player_id").tail(1).set_index("player_id")
     by_player = {pid: g for pid, g in df.groupby("player_id")}
     logs = None
-    if rho and any(v > 0 for v in rho.values()):
+    if rho is not None:   # redistribution on (a quarterback replacement needs no fitted share)
         from . import redistribute as rd
         logs = rd.Logs(df)
     rows = []
@@ -337,7 +355,7 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
                 hist = hist.iloc[:]  # a view of the player's rows; attrs are set per use
                 hist.attrs["opp"] = other
                 members.append(dict(pid=pid, p=p, hist=hist, pos=p.position, comp=components(hist, p.position, priors, opp, sp, wx)))
-            if rho and any(v > 0 for v in rho.values()):
+            if rho is not None:
                 from . import redistribute as rd
                 # not absent: healthy members, and anyone active on another team's roster (traded away, not missing)
                 active = {pid for pid, tm in roster.items() if not (tm == team and pid in absent_ids)}

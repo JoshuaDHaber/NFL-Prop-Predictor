@@ -80,20 +80,9 @@ Yards = **volume x efficiency**:
 
 When a regular is out, his volume goes to his teammates and the books price that in. For each team-game the model finds absent regulars (ruled Out or Doubtful, sat out practice with no game status, or no longer on the active roster, and projected at 8+ carries), takes the volume they would have had, subtracts the part teammates' recent history already reflects (the longer someone has been out, the more of that is already in), and hands a fitted share of the rest to the active teammates **in the same position group** in proportion to their own projected carries. The share is fitted in the backtest (about 62% of the missing carries) and then shrunk by 35% (to about 40%), because the fit on volume overshoots once volume becomes yards; held-out weeks and a replay of past weeks both put the best share at 50-75% of the fit.
 
-It was tested on held-out weeks, market by market, and only rushing is switched on. In the backtest, rushing teammates of an absent back were under-projected by about 8 yards (+25%, ~3.5 standard errors); with redistribution that bias is about 0 to +1 yard on held-out weeks and in the replay, and average error is no worse (23.2 to 22.9 held out, unchanged in the replay; neither difference is statistically meaningful at ~200 games). Receiving (targets) and passing (attempts) were tried the same way and made held-out error worse (overshooting), so they're off. The Model check tab shows the numbers for the current run.
+It was tested on held-out weeks, market by market. Rushing is shared as above. Receiving (targets) made held-out error worse (overshooting), so it's off.
 
-### Weather
-
-Wind is the weather that moves yardage. The nflverse schedule records game-time temperature and wind for every outdoor game, so the effect is fitted on the walk-forward backtest's own misses: per market, the relative miss is regressed on wind above 10 mph and cold below 45°F, and each slope is shrunk toward zero by its own noise. Receiving yards are passing yards split among receivers, so those two markets share one effect. The adjustment multiplies the yardage projection only (never volume), so touchdown chances and injury redistribution are unchanged, and it is capped at ±25%.
-
-| Fitted on the current backtest | Passing / receiving | Rushing |
-|---|---|---|
-| Per mph of wind over 10 mph | −2.4% | +0.3% |
-| Per °F under 45°F | −0.4% | 0 |
-
-A 19 mph game therefore takes about 22% off passing and receiving projections. In backtested games the adjustment moved, passing bias went from −13.4 to +4.4 yards and average miss from 68.4 to 65.5; receiving from −2.1 to +1.3 (miss 22.9 to 22.1); rushing barely changed. Fitted on 2024 only and tested on later games, it cut the passing bias in those games from −13 to +1 yards. The Model check tab shows the numbers for the current run.
-
-For upcoming games the model fetches the [Open-Meteo](https://open-meteo.com) forecast at the stadium, averaged over the three hours from kickoff, each time it runs. Open-Meteo can refuse shared cloud hosts such as Render's (HTTP 429), so US stadiums fall back to the [National Weather Service](https://www.weather.gov/documentation/services-web-api) hourly forecast (free, no key, about a week ahead, no gusts), and any stadium, international ones included, finally to [MET Norway](https://api.met.no) (free, no key, worldwide, about nine days ahead; readings every six hours beyond two days are interpolated to the middle of the kickoff window). International games are located by stadium name, since nflverse sometimes gives them the home team's stadium code (a sync takes about a second, so re-sync near kickoff for a fresher forecast). Domes and closed roofs get no adjustment, and neither do retractable roofs, which are opened or closed on game day. Rain and snow are shown but not applied: nflverse has no history of them to fit against. A forecast that can't be fetched (network error, game more than 16 days out) leaves the game unadjusted.
+**Quarterbacks work differently: the replacement takes over.** When a starting QB is ruled out, the QB who plays throws about as many passes as the starter was projected for (a median of 29 attempts for a true backup, 32 overall, and only 5.9 yards per attempt for a true backup against about 7 for starters). A backup's own history is a handful of snaps, which projected him at 15 attempts and 104 yards when the market had him near 198; with his attempts set to the missing starter's, the backtest bias on those games goes from +132 yards to about 0 and the average miss from 135 to 68 yards. The lead active QB gets the starter's projected attempts (never fewer than his own); QBs further down the depth chart are untouched. His yards per attempt stay what his own record says (a 0.9 adjustment for backups didn't help).
 
 ### Anytime touchdown
 
@@ -214,7 +203,7 @@ frontend/src/      App, components (picks table, player drawer, line ladder, bet
 ## Limitations
 
 - **The backtest has no historical odds,** so it validates accuracy, not profitability. Sportsbook prop markets are efficient; a large apparent edge usually means the model is missing context.
-- **Teammate redistribution covers carries only:** when a back is out his carries move to his teammates, but a missing receiver's targets or quarterback's attempts are not redistributed (tested, and it made held-out error worse). Backups at those positions are still under-projected.
+- **Teammate redistribution covers carries and quarterback attempts:** a missing back's carries move to his teammates and a missing starting QB's attempts go to his replacement, but a missing receiver's targets are not redistributed (tested, and it made held-out error worse), so receiver backups are still under-projected. A replacement QB's receivers also aren't adjusted for his weaker passing.
 - **Heuristic adjustments:** opponent and game-script effects are reasonable but untuned.
 - **Weather is wind and cold only.** Rain and snow aren't modeled (no history to fit), retractable roofs are assumed closed, and the forecast is as of the last model run. The weather effect is fitted on a few hundred outdoor games with strong wind, so it's noisy, and sportsbooks price wind too.
 - **Rush + Rec** treats its two parts as independent, though they are often negatively correlated.

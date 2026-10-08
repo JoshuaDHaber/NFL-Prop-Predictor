@@ -11,6 +11,12 @@ the beneficiaries (and rates them as unders). For each team-game:
   * hand a fitted share rho of it to the active teammates in the SAME position group (running backs for
     carries, etc.), in proportion to their own projected volume.
 
+Quarterbacks are different: the replacement does not get a share, he takes over. When a starting QB is out, the
+QB who plays throws about as many passes as the starter was projected for (a median 29 for a true backup against a
+median 32 for the QB who plays when a starter is out, and unbiased at the starter's projected attempts: a backup's
+own history, a handful of snaps, misses by 130 yards). So the lead active QB's projected attempts are raised to the
+missing starter's (REPLACE_ROLES), with no fitted share; QBs further down the depth chart are untouched.
+
 rho per role (carries, targets, attempts) is fit in the walk-forward backtest. Only the roles where the
 held-out test shows an improvement are switched on (ACTIVE_ROLES): rushing, where teammates of an absent
 back averaged +8 yards over their projection and the correction removes that without hurting accuracy.
@@ -28,6 +34,7 @@ HIST_GAMES = 16
 LIFT_CAP = {"rush": 2.5, "rec": 2.5, "pass": None}   # a teammate's volume can't more than 2.5x from this alone
 DEFAULT_RHO = {"rush": 0.6, "rec": 0.0, "pass": 0.0}
 ACTIVE_ROLES = ("rush",)       # roles redistribution is applied to (see module docstring)
+REPLACE_ROLES = ("pass",)      # roles where the lead replacement takes over the missing starter's volume outright
 # The share fitted on volume overshoots once it is turned into yards (extra carries don't all come with average
 # efficiency, and projections regress toward the mean). Held-out weeks and a replay of past weeks both put the
 # best share at 50-75% of the fit (bias ~0, error no worse), so the fit is shrunk by this factor.
@@ -97,7 +104,10 @@ def lost_volume(absent: list, comp_fn) -> dict:
             c = comp.get(kind)
             if c and c[1] >= MIN_REGULAR[kind]:
                 key = (kind, group(kind, pos))
-                lost[key] = lost.get(key, 0.0) + c[1] * keep
+                if kind in REPLACE_ROLES:   # one replacement plays: the biggest missing starter's volume, not a sum, and no discount
+                    lost[key] = max(lost.get(key, 0.0), c[1])
+                else:
+                    lost[key] = lost.get(key, 0.0) + c[1] * keep
     return lost
 
 

@@ -4,7 +4,8 @@ import type { Kind } from "../api";
 
 function RedistributionCard({ r }: { r: NonNullable<Meta["redistribution"]> }) {
   const rush = r.by_kind.rush;
-  const off = Object.keys(r.rho).filter((k) => !r.active_roles.includes(k));
+  const qb = r.by_kind.pass;
+  const off = Object.keys(r.rho).filter((k) => !r.active_roles.includes(k) && !(r.replace_roles ?? []).includes(k));
   const label: Record<string, string> = { rush: "carries", rec: "targets", pass: "pass attempts" };
   return (
     <div className="card prose">
@@ -18,6 +19,12 @@ function RedistributionCard({ r }: { r: NonNullable<Meta["redistribution"]> }) {
           Rushing teammates of an absent regular were projected <b>{rush.bias_before.toFixed(1)} yds too low on average</b> before
           this ({rush.n} backtested games); with it the bias is {rush.bias_after >= 0 ? "+" : ""}{rush.bias_after.toFixed(1)} yds and the
           average miss moves from {rush.mae_before.toFixed(1)} to {rush.mae_after.toFixed(1)} yds.
+        </p>
+      )}
+      {qb && (r.replace_roles ?? []).includes("pass") && (
+        <p>
+          When a starting quarterback is out, his replacement takes over his attempts. Replacement quarterbacks were projected{" "}
+          <b>{qb.bias_before.toFixed(0)} yds too low</b> before this ({qb.n} backtested games) and {qb.bias_after >= 0 ? "+" : ""}{qb.bias_after.toFixed(0)} after.
         </p>
       )}
       {off.length > 0 && (
