@@ -11,6 +11,7 @@ import pandas as pd
 from . import config
 from .db import AltLine, OddsLine, Projection, Run, SessionLocal
 from .engine import data, model, odds
+from .engine import moneyline as mlm
 from .engine import redistribute as rd
 from .engine import td as tdm
 from .engine import weather as wxm
@@ -35,8 +36,8 @@ def reusable_calibration(season: int, now: datetime = None):
         cal, red = v.get("_calibration"), v.get("_redistribution") or {}
         if not cal or cal.get("season") != season or "rho" not in red or not isinstance(v.get("td"), list):
             return None
-        if not all(isinstance(v.get(k), dict) for k in ("rush", "rec", "pass", "rr")):
-            return None
+        if not all(isinstance(v.get(k), dict) for k in ("rush", "rec", "pass", "rr", "recs")):
+            return None  # fitted before a market existed (e.g. receptions)
         if not isinstance((v.get("_weather") or {}).get("coef"), dict):
             return None  # fitted before weather was modeled
         if (now - datetime.fromisoformat(cal["at"])).days > CALIBRATION_MAX_AGE_DAYS:
@@ -114,6 +115,16 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
                                       td_priors=td_pri, td_scale=td_scale, rho=rho, absent_ids=absent_ids,
                                       game_wx={g: w["factors"] for g, w in game_weather.items()})
 
+    # team win chances: cheap (seconds), so fitted fresh every run, fast or full
+    log("Team ratings and win probabilities...")
+    ml_bt = mlm.walk_forward(sched, season, week)
+    sigma = mlm.fit_sigma(ml_bt)
+    bt_sum = {**bt_sum, "ml": mlm.summary(ml_bt, sigma)}
+    var_params["_moneyline"] = dict(sigma=sigma, halflife=mlm.HALFLIFE, min_market_weight=mlm.ML_MIN_MARKET_WEIGHT)
+    teams = mlm.project(sched, season, week, sigma)
+    log(f"  {len(teams)} games; win-probability curve sd {sigma:.2f} pts, Brier {bt_sum['ml']['mae_model']:.3f}"
+        + (f" (closing moneyline {bt_sum['ml']['mae_market']:.3f})" if bt_sum["ml"].get("mae_market") is not None else ""))
+
     proj["status"] = proj.player_id.map(status).fillna("")
     proj.loc[proj.player_id.isin(manual_ids), "status"] = "Out"
     gone = proj[proj.status.isin(drop)]
@@ -122,7 +133,7 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
 
     with SessionLocal() as s:
         run = Run(season=season, week=week, backtest=bt_sum, variance=var_params,
-                  excluded=excluded, weather=game_weather)
+                  excluded=excluded, weather=game_weather, teams=teams)
         run.projections = [
             Projection(player_id=r.player_id, name=r.name, pos=r.pos, team=r.team, opp=r.opp, home=bool(r.home),
                        kind=r.kind, mu=float(r.mu), sd=float(r.sd), vol=float(r.vol), eff=float(r.eff),
@@ -207,7 +218,7 @@ THIN_MIN_AGE_HOURS = 3      # ...and "thin" games are only topped up if their li
 def sync_plan(session, games: pd.DataFrame, mode: str = "missing", now: datetime = None) -> dict:
     """What a sync would fetch, game by game. Costs one credit per market.
 
-    'missing': the main markets with no stored lines for a game, and its alternates if it has none.
+    'missing': the main markets with no stored lines for a game, and the alternate markets it has none of.
     'thin':    'missing', plus a full re-fetch of games whose stored lines are few and old (lines post gradually
                through the week, so an early fetch leaves some games sparse).
     'all':     everything for every game."""
@@ -220,25 +231,29 @@ def sync_plan(session, games: pd.DataFrame, mode: str = "missing", now: datetime
         for gid, n, t in session.query(model_.game_id, func.count(), func.max(model_.fetched_at)).group_by(model_.game_id):
             stored[gid] = stored.get(gid, 0) + n
             last[gid] = max(last[gid], t) if gid in last else t
-    have_alt = {g for (g,) in session.query(AltLine.game_id).distinct()}
+    have_alt = {}
+    for gid, market in session.query(AltLine.game_id, AltLine.market).distinct():
+        have_alt.setdefault(gid, set()).add(market)
     out = []
     for g in games.itertuples():
         gid = g.game_id
         reason = None
         if mode == "all":
-            need_main, need_alt, reason = sorted(ALL_MARKETS), True, "all"
+            need_main, need_alt, reason = sorted(ALL_MARKETS), sorted(ALT_KINDS), "all"
         else:
             need_main = sorted(ALL_MARKETS - have_main.get(gid, set()))
-            need_alt = gid not in have_alt
+            # a game with no alternates gets all of them; one that has some gets only markets added since (e.g. receptions)
+            need_alt = sorted(ALT_KINDS - have_alt[gid]) if gid in have_alt else sorted(ALT_KINDS)
             if need_main or need_alt:
                 reason = "missing"
             elif mode == "thin" and stored.get(gid, 0) < THIN_MIN_QUOTES and gid in last \
                     and (now - last[gid]).total_seconds() >= THIN_MIN_AGE_HOURS * 3600:
-                need_main, need_alt, reason = sorted(ALL_MARKETS), True, "thin"
+                need_main, need_alt, reason = sorted(ALL_MARKETS), sorted(ALT_KINDS), "thin"
         if reason:
             out.append(dict(game_id=gid, away=g.away_team, home=g.home_team, label=f"{g.away_team} @ {g.home_team}",
-                            gameday=str(getattr(g, "gameday", "")), need_main=need_main, need_alt=need_alt, reason=reason,
-                            stored_quotes=int(stored.get(gid, 0)), credits=len(need_main) + (len(ALT_KINDS) if need_alt else 0)))
+                            gameday=str(getattr(g, "gameday", "")), need_main=need_main, need_alt=bool(need_alt),
+                            alt_kinds=need_alt, reason=reason, stored_quotes=int(stored.get(gid, 0)),
+                            credits=len(need_main) + len(need_alt)))
     first = games.iloc[0] if len(games) else None
     has = first is not None and "season" in games.columns and "week" in games.columns
     return dict(season=int(first.season) if has else None, week=int(first.week) if has else None,
@@ -275,7 +290,7 @@ def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[in
             if not event_id:
                 log(f"  no sportsbook event yet for {g['label']}")
                 continue
-            long, remaining = odds.fetch_game_odds(key, event_id, g["need_main"], ALT_KINDS if g["need_alt"] else ())
+            long, remaining = odds.fetch_game_odds(key, event_id, g["need_main"], g["alt_kinds"])
             paired = odds.pair_with_links(long)
             is_alt = paired.alt.astype(bool)
             mains.append(paired[~is_alt].assign(game_id=g["game_id"]))
@@ -290,8 +305,8 @@ def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[in
             store_lines(main_df.drop(columns="alt"), s)
         alt_df = pd.concat([a for a in alts if not a.empty], ignore_index=True) if any(not a.empty for a in alts) else pd.DataFrame()
         if not alt_df.empty:
-            for gid in alt_df.game_id.unique():
-                s.query(AltLine).filter(AltLine.game_id == gid).delete()
+            for (gid, market), _ in alt_df.groupby(["game_id", "market"]):   # only the markets just fetched are replaced
+                s.query(AltLine).filter(AltLine.game_id == gid, AltLine.market == market).delete()
             s.add_all(AltLine(fetched_at=now, game_id=r.game_id, player=r.player, market=r.market, line=float(r.line),
                               over_odds=None if pd.isna(r.over_odds) else float(r.over_odds),
                               under_odds=None if pd.isna(r.under_odds) else float(r.under_odds), book=r.book,

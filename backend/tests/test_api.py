@@ -11,7 +11,9 @@ from app.db import AltLine, OddsLine, Projection, Run, SessionLocal
 def client():
     with SessionLocal() as s:
         run = Run(season=2026, week=4, backtest={"rush": dict(n=10, mae_model=20.0, mae_naive=25.0, bias=0.5)},
-                  variance={"rush": [1.0, 0.1]}, excluded=["Hurt Guy (Out)"])
+                  variance={"rush": [1.0, 0.1]}, excluded=["Hurt Guy (Out)"],
+                  teams={"2026_04_BBB_AAA": dict(home="AAA", away="BBB", gameday="2026-10-04", gametime="13:00", margin=4.0,
+                                                 p_home=0.6, home_rating=2.0, away_rating=-0.5, spread=3.5)})
         for i, (name, mu) in enumerate([("Alpha Back", 90.0), ("Beta Back", 40.0)]):
             run.projections.append(Projection(
                 player_id=f"p{i}", name=name, pos="RB", team="AAA", opp="BBB", home=True, kind="rush", mu=mu, sd=30.0,
@@ -20,7 +22,9 @@ def client():
         s.add(run)
         t = datetime(2026, 10, 3, 12)
         s.add_all([OddsLine(fetched_at=t, player="Alpha Back", market="rush", line=60.5, over_odds=-110, under_odds=-110, book="X", game_id="2026_04_BBB_AAA"),
-                   OddsLine(fetched_at=t, player="Beta Back", market="rush", line=40.5, over_odds=-110, under_odds=-110, book="X", game_id="2026_04_BBB_AAA")])
+                   OddsLine(fetched_at=t, player="Beta Back", market="rush", line=40.5, over_odds=-110, under_odds=-110, book="X", game_id="2026_04_BBB_AAA"),
+                   # moneyline: AAA/BBB aren't real teams, so the quotes use two real names mapped onto them below
+                   OddsLine(fetched_at=t, player="Arizona Cardinals", market="ml", line=0.0, over_odds=-150, under_odds=130, book="X", game_id="2026_04_BBB_AAA")])
         s.commit()
     with TestClient(main.app) as c:
         yield c
@@ -33,6 +37,17 @@ def test_meta_summarises_run_odds_and_games(client):
     assert m["games"][0]["label"] == "BBB @ AAA"
     assert m["backtest"]["rush"]["mae_naive"] == 25.0
     assert m["has_odds_key"] is False
+
+
+def test_moneylines_price_both_teams_of_every_game(client, monkeypatch):
+    monkeypatch.setitem(main.mlm.odds.TEAM_NAMES, "AAA", "Arizona Cardinals")
+    games = client.get("/api/moneylines").json()
+    assert len(games) == 1 and games[0]["label"] == "BBB @ AAA" and games[0]["margin"] == 4.0
+    away, home = games[0]["sides"]
+    assert (away["team"], home["team"]) == ("BBB", "AAA") and away["p_model"] == 0.4
+    assert home["odds"] == -150 and home["book"] == "X" and 0.55 < home["p_mkt"] < 0.6
+    assert away["odds"] is None and away["p_mkt"] is None   # no quote stored for BBB's side
+    assert client.get("/api/moneylines", params={"book": "Other"}).json()[0]["sides"][1]["odds"] is None
 
 
 def test_projections_filter_and_search(client):
@@ -300,8 +315,8 @@ def test_the_sync_plan_says_what_would_run_and_what_it_costs(client, monkeypatch
     p = client.get("/api/refresh/plan").json()
     assert p["season"] == 2026 and p["week"] == 5 and p["total_games"] == 2
     assert [g["label"] for g in p["games"]] == ["AAA @ BBB", "CCC @ DDD"]
-    assert p["games"][0]["need_main"] == ["pass", "rec", "rr", "rush", "td"] and p["games"][0]["need_alt"] is True
-    assert p["credits"] == 18 and p["will_run_projections"] is True
+    assert p["games"][0]["need_main"] == ["ml", "pass", "rec", "recs", "rr", "rush", "td"] and p["games"][0]["need_alt"] is True
+    assert p["credits"] == 24 and p["will_run_projections"] is True
     none = client.get("/api/refresh/plan", params={"odds": "none"}).json()
     assert none["credits"] == 0 and none["games"] == [] and none["week"] == 5
 

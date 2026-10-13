@@ -6,12 +6,12 @@ import pytest
 from app.engine import model, redistribute as rd
 
 COLS = ["player_id", "player_display_name", "position", "team", "opponent_team", "season", "week", "carries", "targets",
-        "attempts", "rushing_yards", "receiving_yards", "passing_yards", "rushing_tds", "receiving_tds"]
+        "attempts", "rushing_yards", "receiving_yards", "passing_yards", "rushing_tds", "receiving_tds", "receptions"]
 
 
 def row(pid, pos, week, carries=0, targets=0, attempts=0, team="AAA"):
     return dict(player_id=pid, player_display_name=pid, position=pos, team=team, opponent_team="BBB", season=2026, week=week,
-                carries=carries, targets=targets, attempts=attempts, rushing_yards=4.5 * carries, receiving_yards=7.0 * targets,
+                carries=carries, targets=targets, receptions=round(0.65 * targets), attempts=attempts, rushing_yards=4.5 * carries, receiving_yards=7.0 * targets,
                 passing_yards=7.0 * attempts, rushing_tds=0, receiving_tds=0)
 
 
@@ -123,7 +123,7 @@ def test_nothing_changes_when_nobody_is_absent_or_rho_is_off():
 def test_upcoming_projections_lift_teammates_of_players_ruled_out():
     df = league(rb1_weeks=range(1, 9))                       # rb1 has played every game through week 8
     s, pri = sched(), model.league_priors(df)
-    dist = {k: dict(mu=[1.0, 200.0], sd=[10.0, 10.0], z=[float(z) for z in np.linspace(-2, 2, 41)]) for k in ("rush", "rec", "pass", "rr")}
+    dist = {k: dict(mu=[1.0, 200.0], sd=[10.0, 10.0], z=[float(z) for z in np.linspace(-2, 2, 41)]) for k in ("rush", "rec", "pass", "rr", "recs")}
     roster = {pid: "AAA" for pid in ("rb1", "rb2", "qb", "wr")}
     rho = {"rush": 0.7, "rec": 0.0, "pass": 0.0}
 
@@ -209,7 +209,7 @@ def test_when_the_starter_is_healthy_the_backup_stays_a_backup():
 def test_live_a_ruled_out_starter_makes_his_backup_the_projected_starter():
     df = qb_league(qb1_weeks=range(1, 9))                          # qb1 has started every game so far
     s, pri = sched(), model.league_priors(df)
-    dist = {k: dict(mu=[1.0, 400.0], sd=[40.0, 40.0], z=[float(z) for z in np.linspace(-2, 2, 41)]) for k in ("rush", "rec", "pass", "rr")}
+    dist = {k: dict(mu=[1.0, 400.0], sd=[40.0, 40.0], z=[float(z) for z in np.linspace(-2, 2, 41)]) for k in ("rush", "rec", "pass", "rr", "recs")}
     roster = {pid: "AAA" for pid in ("qb1", "qb2", "qb3", "rb", "wr")}
     rho = {"rush": 0.5, "rec": 0.0, "pass": 0.0}
 

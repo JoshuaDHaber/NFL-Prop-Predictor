@@ -1,7 +1,7 @@
 import { getToken, setWaking } from "./auth";
 import { API_URL, BASE, IS_STATIC } from "./env";
 
-export type Kind = "rush" | "rec" | "pass" | "rr" | "td";
+export type Kind = "rush" | "rec" | "pass" | "rr" | "td" | "recs";
 
 export interface CalibrationBin { predicted: number; actual: number; n: number }
 /** Yardage kinds report mean absolute error in yards; anytime TD reports Brier scores (metric: "brier"). */
@@ -15,7 +15,7 @@ export interface Redistribution {
   summary: string;
 }
 
-export interface PlanGame { game_id: string; label: string; gameday: string; need_main: string[]; need_alt: boolean; credits: number; reason?: string; stored_quotes?: number }
+export interface PlanGame { game_id: string; label: string; gameday: string; need_main: string[]; need_alt: boolean; alt_kinds?: string[]; credits: number; reason?: string; stored_quotes?: number }
 /** What a sync would do right now and what it would cost (admin only). */
 export interface SyncPlan {
   season: number | null; week: number | null; total_games: number; games: PlanGame[]; credits: number;
@@ -24,7 +24,10 @@ export interface SyncPlan {
   calibration?: { at: string; season: number; week: number } | null;
 }
 
-export interface BacktestStat { n: number; mae_model: number; mae_naive: number; bias: number; metric?: "mae" | "brier"; calibration?: CalibrationBin[] }
+export interface BacktestStat {
+  n: number; mae_model: number; mae_naive: number; bias: number; metric?: "mae" | "brier"; calibration?: CalibrationBin[];
+  mae_market?: number | null; mae_model_market_games?: number | null; n_market?: number | null;  // moneyline: vs the closing line
+}
 /** Kickoff weather at the stadium (outdoor games), and the multiplier it puts on each market's yardage. */
 export interface GameWeather {
   stadium: string; roof: string; indoor: boolean;
@@ -91,6 +94,13 @@ export interface PlayerDetail {
 export interface QuoteSide { odds: number; prob: number; ev: number; link: string | null }
 export interface LadderRow { line: number; book: string; alt: boolean; event_link: string | null; over: QuoteSide | null; under: QuoteSide | null }
 export interface Ladder { kind: Kind; mu: number; sd: number; game_id: string; alt_fetched_at: string | null; quotes: LadderRow[] }
+/** One team's side of a game: win chance from the team model, the market (no-vig) and the blend, and the best moneyline. */
+export interface MoneylineSide {
+  team: string; name: string; home: boolean;
+  p_model: number; p_mkt: number | null; prob: number; books: number;
+  odds: number | null; book: string | null; ev: number | null; kelly: number | null; link: string | null; event_link: string | null;
+}
+export interface MoneylineGame { game_id: string; label: string; gameday: string; gametime: string; margin: number; spread: number | null; sides: MoneylineSide[] }
 export interface AltFetchResult { kinds: string[]; alt_quotes: number; linked: number; credits_remaining: string | null }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -132,6 +142,7 @@ const liveApi = {
       include_flagged: f.flagged, limit }),
   projections: (f: Filters) => get<Projection[]>("projections", { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, game_id: f.game, q: f.q }),
   player: (id: string, marketWeight: number) => get<PlayerDetail>(`players/${id}`, { market_weight: marketWeight }),
+  moneylines: (book: string, marketWeight: number) => get<MoneylineGame[]>("moneylines", { book, market_weight: marketWeight }),
   /** oddsRange hides prices outside -N..+N (American); 0 shows everything. */
   lines: (id: string, kind: Kind, oddsRange = 300) => get<Ladder>(`players/${id}/lines`, { kind, odds_range: oddsRange }),
   fetchAlt: async (id: string): Promise<AltFetchResult> => {
@@ -187,6 +198,7 @@ const staticApi: typeof liveApi = {
       && (f.game === "all" || p.game_id === f.game) && (!q || p.name.toLowerCase().includes(q)));
   },
   player: (id) => file<PlayerDetail>(`players/${id}.json`),
+  moneylines: (book) => file<MoneylineGame[]>(`moneylines/${book === "all" ? "all" : slug(book)}.json`).catch(() => []),
   lines: async (id, kind, range = 300) => {
     const l = await file<Ladder>(`ladders/${id}_${kind}.json`);
     return { ...l, quotes: limitOdds(l.quotes, range, kind) };

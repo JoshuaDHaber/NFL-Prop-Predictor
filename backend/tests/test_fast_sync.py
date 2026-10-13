@@ -41,7 +41,7 @@ def league():
                         stats.append(dict(player_id=f"{team}_{role}", player_display_name=f"{team} {role}", position=POS[role],
                                           season=season, week=week, season_type="REG", team=team, opponent_team=opp,
                                           carries=carries, rushing_yards=float(rng.gamma(4, 1.1 * max(carries, 0.1))),
-                                          rushing_tds=int(rng.random() < 0.05 * carries), targets=targets,
+                                          rushing_tds=int(rng.random() < 0.05 * carries), targets=targets, receptions=round(0.65 * targets),
                                           receiving_yards=float(rng.gamma(4, 1.8 * max(targets, 0.1))),
                                           receiving_tds=int(rng.random() < 0.06 * targets), attempts=attempts,
                                           passing_yards=float(rng.gamma(30, 7.0 * max(attempts, 0.1) / 30)) if attempts else 0.0))

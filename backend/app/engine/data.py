@@ -39,9 +39,9 @@ def _get_csv(url, name, max_age_hours=6, usecols=None):
     return _read(io.BytesIO(r.content), name, usecols)
 
 
-# the only stat columns the model reads; loading ~16 of nflverse's ~150 keeps a full refresh within a small server's memory
+# the only stat columns the model reads; loading ~17 of nflverse's ~150 keeps a full refresh within a small server's memory
 PIPELINE_COLUMNS = ["player_id", "player_display_name", "position", "season", "week", "season_type", "team", "opponent_team",
-                    "carries", "rushing_yards", "rushing_tds", "targets", "receiving_yards", "receiving_tds",
+                    "carries", "rushing_yards", "rushing_tds", "targets", "receptions", "receiving_yards", "receiving_tds",
                     "attempts", "passing_yards"]
 
 

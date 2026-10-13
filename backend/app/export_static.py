@@ -1,7 +1,7 @@
 """Export the current data as static JSON for the GitHub Pages demo:  python -m app.export_static [--out DIR]
 
 Everything the API would return (at its default settings) is written as files the React app can fetch
-without a server: meta, projections, priced picks per sportsbook, every player's detail and line ladder.
+without a server: meta, projections, priced picks and moneylines per sportsbook, every player's detail and line ladder.
 """
 import argparse
 import json
@@ -13,8 +13,8 @@ from pydantic import TypeAdapter
 from sqlalchemy import select
 
 from .db import Projection, SessionLocal
-from .main import all_picks, build_ladder_out, build_meta, build_player_detail, latest_run
-from .schemas import PickOut
+from .main import all_picks, build_ladder_out, build_meta, build_moneylines, build_player_detail, latest_run
+from .schemas import MoneylineGame, PickOut
 
 DEFAULT_OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "frontend", "public", "demo")
 MARKET_WEIGHT = 0.35
@@ -54,6 +54,9 @@ def export(out: str) -> dict:
             df = all_picks(db, run, MARKET_WEIGHT, book)
             rows = [PickOut(**r) for r in df.where(df.notna(), None).to_dict("records")] if not df.empty else []
             total += _write(os.path.join(out, "picks", f"{slug(book) if book else 'all'}.json"), adapter.dump_json(rows).decode())
+            ml = [MoneylineGame(**g) for g in build_moneylines(db, run, MARKET_WEIGHT, book)]
+            total += _write(os.path.join(out, "moneylines", f"{slug(book) if book else 'all'}.json"),
+                            TypeAdapter(list[MoneylineGame]).dump_json(ml).decode())
 
         players = {p.player_id for p in projs}
         for pid in sorted(players):

@@ -314,3 +314,27 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
 .gw-roof-art .roof { fill: color-mix(in srgb, var(--acc) 22%, transparent); stroke: var(--acc); stroke-width: 2; }
 .gw-roof-art .slide { stroke: var(--acc); stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
 @media (max-width: 600px) { .gw-body { gap: 12px; } .gw-stats { grid-template-columns: 1fr 1fr; width: 100%; } }
+
+/* moneyline tab */
+.ml-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); gap: 12px; }
+.ml-card { display: flex; flex-direction: column; }
+.ml-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 12px 14px 8px; }
+.ml-bar { display: flex; margin: 0 14px 6px; height: 26px; border-radius: 999px; overflow: hidden; font-size: 12px; font-weight: 700; }
+.ml-bar i { font-style: normal; display: flex; align-items: center; padding: 0 10px; white-space: nowrap; min-width: 0; overflow: hidden; }
+.ml-bar .away { background: color-mix(in srgb, var(--acc) 85%, transparent); color: #fff; }
+.ml-bar .home { background: color-mix(in srgb, var(--acc2) 80%, transparent); color: #fff; justify-content: flex-end; }
+.ml-table { width: 100%; border-collapse: collapse; }
+.ml-table td.ml-team, .ml-table th:first-child { text-align: left; }
+.ml-table th, .ml-table td { vertical-align: middle; padding: 8px 6px; }
+.ml-table th:first-child, .ml-table td:first-child { padding-left: 14px; } .ml-table th:last-child, .ml-table td:last-child { padding-right: 14px; }
+.ml-table .ev-pill { padding: 2px 7px; }
+.ml-foot { margin: 0; padding: 8px 14px 12px; }
+.ml-table .link { font-size: 13px; font-weight: 600; }
+@media (max-width: 560px) {
+  .ml-name { display: none; }
+  .ml-table th { font-size: 10px; letter-spacing: 0; }
+  .ml-table th, .ml-table td { padding: 7px 3px; font-size: 12px; }
+  .ml-table th:first-child, .ml-table td:first-child { padding-left: 10px; } .ml-table th:last-child, .ml-table td:last-child { padding-right: 10px; }
+  .ml-table td .mut { font-size: 10px; }
+  .ml-table .ev-pill { padding: 1px 5px; }
+}

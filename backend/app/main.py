@@ -25,9 +25,10 @@ from sqlalchemy.orm import Session
 from . import config, pipeline
 from .db import AltLine, OddsLine, Projection, Run, SessionLocal, current_lines
 from .engine import data, model, odds
+from .engine import moneyline as mlm
 from .engine.ladder import build_ladder
 from .engine.picks import build_picks
-from .schemas import (AltFetchResult, SyncPlan, GameLogEntry, LadderOut, Game, JobStatus, Kind, Meta, OddsInfo, PickOut, PlayerDetail, ProjectionOut,
+from .schemas import (AltFetchResult, SyncPlan, GameLogEntry, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, ProjectionOut,
                       RefreshRequest, RunInfo)
 
 @asynccontextmanager
@@ -310,6 +311,19 @@ def picks(kind: Optional[Kind] = None, exclude_kind: Optional[Kind] = None, side
     return records(df.head(limit))
 
 
+@app.get("/api/moneylines", response_model=list[MoneylineGame])
+def moneylines(book: Optional[str] = None, market_weight: float = Query(0.35, ge=0, le=1), db: Session = Depends(get_db)):
+    """Both teams' win chances for every game of the week (model, market, blend), with the best moneyline and its EV."""
+    run = latest_run(db)
+    return build_moneylines(db, run, market_weight, book)
+
+
+def build_moneylines(db: Session, run: Optional[Run], market_weight: float = 0.35, book: Optional[str] = None) -> list[dict]:
+    if not run or not run.teams:
+        return []
+    return mlm.price(run.teams, current_lines(db), market_weight, book)
+
+
 @app.get("/api/players/{player_id}", response_model=PlayerDetail)
 def player(player_id: str, market_weight: float = Query(0.35, ge=0, le=1), db: Session = Depends(get_db)):
     detail = build_player_detail(db, latest_run(db), player_id, market_weight)
@@ -384,7 +398,7 @@ def fetch_alt_lines(player_id: str, db: Session = Depends(get_db)):
 
 
 _LOG_COLUMNS = ["player_id", "season", "week", "season_type", "position", "team", "opponent_team", "rushing_yards",
-                "receiving_yards", "passing_yards", "carries", "targets", "attempts", "rushing_tds", "receiving_tds"]
+                "receiving_yards", "passing_yards", "receptions", "carries", "targets", "attempts", "rushing_tds", "receiving_tds"]
 
 
 @lru_cache(maxsize=1)

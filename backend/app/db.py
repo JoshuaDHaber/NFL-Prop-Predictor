@@ -24,6 +24,7 @@ class Run(Base):
     variance: Mapped[dict] = mapped_column(JSON)
     excluded: Mapped[list] = mapped_column(JSON, default=list)
     weather: Mapped[dict] = mapped_column(JSON, nullable=True)  # game_id -> roof, forecast and per-market multipliers
+    teams: Mapped[dict] = mapped_column(JSON, nullable=True)    # game_id -> team ratings and win probability (engine/moneyline.py)
     projections: Mapped[list["Projection"]] = relationship(back_populates="run", cascade="all, delete-orphan")
 
 
@@ -126,7 +127,7 @@ def ensure_columns(eng) -> bool:
         if added:
             conn.execute(text("ALTER TABLE odds_lines ADD COLUMN game_id VARCHAR(24)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_odds_lines_game_id ON odds_lines (game_id)"))
-    for table, col, sql_type in (("runs", "weather", "JSON"), ("projections", "wx", "FLOAT")):
+    for table, col, sql_type in (("runs", "weather", "JSON"), ("runs", "teams", "JSON"), ("projections", "wx", "FLOAT")):
         if col not in {c["name"] for c in inspect(eng).get_columns(table)}:
             with eng.begin() as conn:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {sql_type}"))

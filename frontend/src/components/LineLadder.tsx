@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { api, type Kind, type LadderRow, type QuoteSide } from "../api";
 import { useBetSlip } from "../BetSlipContext";
 import { IS_STATIC } from "../env";
-import { americanOdds, playLabel, signedPct, timeAgo } from "../format";
+import { americanOdds, fmtProj, playLabel, signedPct, timeAgo, unit } from "../format";
 import { legId, type Leg } from "../slip";
 
 export interface PlayerCtx { playerId: string; name: string; team: string; opp: string; home: boolean; gameId: string }
@@ -100,7 +100,7 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
             </div>
           )}
           <div className="mut ladder-note">
-            {isTd ? `Model chance of a TD ${(mu * 100).toFixed(0)}%. Win probability and EV lean at least 60% on the market's chance, since the model is a weak signal here.` : `Win probability and EV here use the model alone (no market blend). Projection ${mu.toFixed(0)} yds.`}
+            {isTd ? `Model chance of a TD ${(mu * 100).toFixed(0)}%. Win probability and EV lean at least 60% on the market's chance, since the model is a weak signal here.` : `Win probability and EV here use the model alone (no market blend). Projection ${fmtProj(kind, mu)} ${unit(kind)}.`}
             {ladder.data.alt_fetched_at && ` Alternates fetched ${timeAgo(ladder.data.alt_fetched_at)}.`}
           </div>
           <div className="scroll ladder">

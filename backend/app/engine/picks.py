@@ -12,6 +12,8 @@ PICK_COLUMNS = [
     "player_id", "name", "pos", "team", "opp", "home", "kind", "mu", "sd", "status", "game_id", "gameday", "gametime",
     "side", "line", "odds", "book", "p_model", "p_mkt", "prob", "ev", "kelly", "books", "edge_yds", "flagged", "wx",
 ]
+# a quote this far from the consensus line (or 30% of it) is an alternate or stale line; receptions are counted in catches
+STALE_MIN_GAP = {"recs": 1.5}
 
 
 def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 0.35, only_book: str = None,
@@ -44,7 +46,7 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
         if p is None or pd.isna(r.line):
             continue
         c = cons.loc[(r.key, r.market)]
-        if abs(r.line - c.line) > max(8.0, 0.3 * c.line):
+        if abs(r.line - c.line) > max(STALE_MIN_GAP.get(r.market, 8.0), 0.3 * c.line):
             continue  # alternate / stale line far from the market consensus
         if only_book and r.book != only_book:
             continue

@@ -2,8 +2,8 @@ import type { Filters, Game, Kind } from "../api";
 import { IS_STATIC } from "../env";
 import { KIND_SHORT, kickoff, pct, signedPct } from "../format";
 
-const KINDS: (Kind | "all")[] = ["all", "rush", "rec", "pass", "rr", "td"];
-const ICON: Record<Kind | "all", string> = { all: "📊", rush: "🏃", rec: "🙌", pass: "🎯", rr: "⚡", td: "🏈" };
+const KINDS: (Kind | "all")[] = ["all", "rush", "rec", "recs", "pass", "rr", "td"];
+const ICON: Record<Kind | "all", string> = { all: "📊", rush: "🏃", rec: "🙌", recs: "🧤", pass: "🎯", rr: "⚡", td: "🏈" };
 
 interface Props {
   filters: Filters;
@@ -21,7 +21,7 @@ export default function Controls({ filters, onChange, games, books, showPickCont
         {KINDS.map((k) => (
           <button key={k} role="tab" aria-selected={filters.kind === k} className={filters.kind === k ? "on" : ""}
             onClick={() => set({ kind: k })}>
-            <span className="ico" aria-hidden>{ICON[k]}</span>{k === "all" ? "All yardage" : KIND_SHORT[k]}
+            <span className="ico" aria-hidden>{ICON[k]}</span>{k === "all" ? "All over/unders" : KIND_SHORT[k]}
           </button>
         ))}
       </div>

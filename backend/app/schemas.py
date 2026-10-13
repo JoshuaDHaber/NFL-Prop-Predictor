@@ -2,7 +2,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel
 
-Kind = Literal["rush", "rec", "pass", "rr", "td"]
+Kind = Literal["rush", "rec", "pass", "rr", "td", "recs"]
 
 
 class RunInfo(BaseModel):
@@ -26,6 +26,9 @@ class BacktestStat(BaseModel):
     bias: float
     metric: str = "mae"  # "mae" or "brier"
     calibration: list[CalibrationBin] = []
+    mae_market: Optional[float] = None              # moneyline: Brier score of the closing moneyline...
+    mae_model_market_games: Optional[float] = None  # ...and the model's, on the games that have one
+    n_market: Optional[int] = None
 
 
 class OddsInfo(BaseModel):
@@ -201,6 +204,7 @@ class PlanGame(BaseModel):
     gameday: str
     need_main: list[str]
     need_alt: bool
+    alt_kinds: list[str] = []     # which alternate markets (a game may lack only newly added ones)
     credits: int
     reason: str = "missing"       # missing | thin | all
     stored_quotes: int = 0
@@ -216,3 +220,28 @@ class SyncPlan(BaseModel):
     has_odds_key: bool
     will_recalibrate: bool = False  # True: the model run refits its calibration (slow); False: it reuses the saved one
     calibration: Optional[dict] = None
+
+class MoneylineSide(BaseModel):
+    team: str
+    name: str
+    home: bool
+    p_model: float                 # the team-rating model's win chance
+    p_mkt: Optional[float] = None  # no-vig consensus across books (None: no two-way prices yet)
+    prob: float                    # the blend that prices EV (leans at least 80% on the market)
+    books: int = 0
+    odds: Optional[int] = None     # best price (at the chosen book, if one is chosen)
+    book: Optional[str] = None
+    ev: Optional[float] = None
+    kelly: Optional[float] = None
+    link: Optional[str] = None
+    event_link: Optional[str] = None
+
+
+class MoneylineGame(BaseModel):
+    game_id: str
+    label: str
+    gameday: str
+    gametime: str
+    margin: float                  # the model's predicted home margin, points
+    spread: Optional[float] = None # the market's (nflverse) home spread, points
+    sides: list[MoneylineSide]     # away, home

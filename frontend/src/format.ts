@@ -1,18 +1,26 @@
 import type { GameWeather, Kind } from "./api";
 
 export const KIND_LABEL: Record<Kind, string> = {
-  rush: "Rushing yds", rec: "Receiving yds", pass: "Passing yds", rr: "Rush+Rec yds", td: "Anytime TD",
+  rush: "Rushing yds", rec: "Receiving yds", pass: "Passing yds", rr: "Rush+Rec yds", td: "Anytime TD", recs: "Receptions",
 };
-export const KIND_SHORT: Record<Kind, string> = { rush: "Rushing", rec: "Receiving", pass: "Passing", rr: "Rush+Rec", td: "Anytime TD" };
+export const KIND_SHORT: Record<Kind, string> = { rush: "Rushing", rec: "Receiving", pass: "Passing", rr: "Rush+Rec", td: "Anytime TD", recs: "Receptions" };
+/** Any market key the API reports (props, plus the team moneyline). */
+export const marketLabel = (k: string) => (k === "ml" ? "Moneyline" : KIND_LABEL[k as Kind] ?? k);
 
-/** A projection as shown to a reader: yards, or for anytime TD the chance of scoring (mu is a probability there). */
-export const fmtProj = (kind: Kind, mu: number) => (kind === "td" ? `${(mu * 100).toFixed(0)}%` : mu.toFixed(0));
+/** Receptions are counted in catches (small numbers, so one decimal); the other over/under markets in yards. */
+export const isCount = (kind: Kind) => kind === "recs";
+export const unit = (kind: Kind) => (isCount(kind) ? "rec" : "yds");
+
+/** A projection as shown to a reader: yards (catches for receptions), or for anytime TD the chance of scoring (mu is a probability there). */
+export const fmtProj = (kind: Kind, mu: number) => (kind === "td" ? `${(mu * 100).toFixed(0)}%` : mu.toFixed(isCount(kind) ? 1 : 0));
+/** The typical miss around a projection. */
+export const fmtSd = (kind: Kind, sd: number) => `±${sd.toFixed(isCount(kind) ? 1 : 0)}`;
 
 /** What a play is called. Yardage is "Over 54.5"; anytime TD is stored as an over 0.5, shown as "Anytime TD" / "No TD". */
 export const playLabel = (kind: Kind, side: "Over" | "Under", line: number) =>
   kind === "td" ? (side === "Over" ? "Anytime TD" : "No TD") : `${side} ${line}`;
 
-/** Edge between the projection and the line: yards for yardage markets, percentage points for anytime TD. */
+/** Edge between the projection and the line: yards (catches for receptions), percentage points for anytime TD. */
 export const fmtEdge = (kind: Kind, edge: number) => `${edge >= 0 ? "+" : ""}${edge.toFixed(1)}${kind === "td" ? " pts" : ""}`;
 
 export const pct = (x: number, digits = 1) => `${(x * 100).toFixed(digits)}%`;

@@ -10,10 +10,12 @@ import pandas as pd
 import requests
 
 API = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl"
+# over/under markets that also have alternate lines (yardage, and receptions)
 YARD_MARKETS = {"player_rush_yds": "rush", "player_reception_yds": "rec",
-                "player_pass_yds": "pass", "player_rush_reception_yds": "rr"}
+                "player_pass_yds": "pass", "player_rush_reception_yds": "rr", "player_receptions": "recs"}
 # anytime TD has no line or alternates: books post a "Yes" price per player (some also "No")
-MARKETS = {**YARD_MARKETS, "player_anytime_td": "td"}
+# team moneyline ("h2h"): one row per team, its price as the over and the opponent's as the under (see engine/moneyline.py)
+MARKETS = {**YARD_MARKETS, "player_anytime_td": "td", "h2h": "ml"}
 ALT_MARKETS = {k + "_alternate": v for k, v in YARD_MARKETS.items()}
 TD_LINE = 0.5  # stored as an "Over 0.5": Yes is the over side, No (if posted) the under side
 
@@ -85,6 +87,9 @@ def fetch_game_odds(key, event_id, main_kinds, alt_kinds=(), regions="us"):
     for bk in r.json().get("bookmakers", []):
         for m in bk["markets"]:
             kind = {**MARKETS, **ALT_MARKETS}[m["key"]]
+            if kind == "ml":
+                rows.extend(_moneyline_rows(m["outcomes"], bk))
+                continue
             for o in m["outcomes"]:
                 is_td = kind == "td"
                 rows.append(dict(player=o["description"], market=kind, alt=m["key"].endswith("_alternate"),
@@ -92,6 +97,17 @@ def fetch_game_odds(key, event_id, main_kinds, alt_kinds=(), regions="us"):
                                  line=TD_LINE if is_td else o["point"], odds=o["price"], book=bk["title"],
                                  link=o.get("link"), event_link=bk.get("link")))
     return pd.DataFrame(rows), r.headers.get("x-requests-remaining")
+
+
+def _moneyline_rows(outcomes, bk):
+    """A two-way moneyline as two over/under-shaped rows: each team's price over, its opponent's under."""
+    rows = []
+    for o in outcomes:
+        for other in outcomes:
+            side = "over" if other is o else "under"
+            rows.append(dict(player=o["name"], market="ml", alt=False, side=side, line=0.0, odds=other["price"],
+                             book=bk["title"], link=other.get("link"), event_link=bk.get("link")))
+    return rows
 
 
 def pair_with_links(long):

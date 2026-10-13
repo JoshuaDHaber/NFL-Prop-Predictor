@@ -1,5 +1,5 @@
 import type { Meta } from "../api";
-import { KIND_LABEL, signed, timeAgo, weatherText, wxEffect } from "../format";
+import { isCount, marketLabel, signed, timeAgo, weatherText, wxEffect } from "../format";
 import type { Kind } from "../api";
 
 function RedistributionCard({ r }: { r: NonNullable<Meta["redistribution"]> }) {
@@ -95,17 +95,27 @@ export default function ModelCheck({ meta }: { meta: Meta }) {
           const b = meta.backtest[k];
           const better = ((b.mae_naive - b.mae_model) / b.mae_naive) * 100;
           const brier = b.metric === "brier";
+          const ml = (k as string) === "ml";
+          const count = !ml && isCount(k);
           return (
             <div className="card stat" key={k}>
-              <div className="mut">{KIND_LABEL[k]} · {b.n.toLocaleString()} backtested {brier ? "player-games" : "games"}</div>
-              <div className="big">{b.mae_model.toFixed(brier ? 3 : 1)} <small>{brier ? "Brier score" : "yds MAE"}</small></div>
+              <div className="mut">{marketLabel(k)} · {b.n.toLocaleString()} backtested {ml ? "games" : brier ? "player-games" : "games"}</div>
+              <div className="big">{b.mae_model.toFixed(brier ? 3 : count ? 2 : 1)} <small>{brier ? "Brier score" : count ? "rec MAE" : "yds MAE"}</small></div>
               <div className="mut">
-                {brier
+                {ml
+                  ? `vs ${b.mae_naive.toFixed(3)} for always giving the home team its usual win rate (${better.toFixed(1)}% better; lower is better)`
+                  : brier
                   ? `vs ${b.mae_naive.toFixed(3)} for always predicting the average TD rate (${better.toFixed(1)}% better; lower is better)`
-                  : `vs ${b.mae_naive.toFixed(1)} for a last-5 average (${better.toFixed(1)}% better)`} · bias {signed(b.bias, brier ? 3 : 1)}
+                  : `vs ${b.mae_naive.toFixed(count ? 2 : 1)} for a last-5 average (${better.toFixed(1)}% better)`} · bias {signed(b.bias, brier ? 3 : count ? 2 : 1)}
               </div>
+              {ml && b.mae_market != null && b.mae_model_market_games != null && (
+                <div className="mut">
+                  The closing moneyline scored <b>{b.mae_market.toFixed(3)}</b> on the {b.n_market?.toLocaleString()} games that have one
+                  (the model: {b.mae_model_market_games.toFixed(3)}). The market is sharper, so moneyline prices lean at least 80% on it.
+                </div>
+              )}
               {brier && b.calibration && b.calibration.length > 0 && (
-                <table className="calib" aria-label="Anytime TD calibration">
+                <table className="calib" aria-label={`${marketLabel(k)} calibration`}>
                   <thead><tr><th>Predicted</th><th>Actual</th><th>Games</th></tr></thead>
                   <tbody>
                     {b.calibration.map((c, i) => (
@@ -130,7 +140,7 @@ export default function ModelCheck({ meta }: { meta: Meta }) {
         <h3>How to read this</h3>
         <p>
           Every historical game from last season onward was projected using only data available before kickoff
-          (a walk-forward backtest). MAE is the average miss in yards; bias is average (actual − projection), so
+          (a walk-forward backtest). MAE is the average miss in yards (catches for receptions); bias is average (actual − projection), so
           near zero means the projections are not systematically high or low. The same residuals are used to fit
           the spread of outcomes behind every win probability.
         </p>
@@ -144,7 +154,7 @@ export default function ModelCheck({ meta }: { meta: Meta }) {
         <ul>
           {meta.run && <li>Projections computed {timeAgo(meta.run.created_at)} for {meta.run.season} week {meta.run.week}.</li>}
           {Object.entries(meta.odds).map(([k, o]) => (
-            <li key={k}>{KIND_LABEL[k as Kind]} lines: {o.lines.toLocaleString()} quotes, fetched {timeAgo(o.fetched_at)}.</li>
+            <li key={k}>{marketLabel(k)} lines: {o.lines.toLocaleString()} quotes, fetched {timeAgo(o.fetched_at)}.</li>
           ))}
         </ul>
         {meta.run && meta.run.excluded.length > 0 && (

@@ -1,6 +1,7 @@
-"""Projection model for rushing and receiving yards.
+"""Projection model for rushing, receiving and passing yards, and receptions.
 
 yards = volume (carries | targets) x efficiency (yds/carry | yds/target)
+receptions = targets x catch rate (the same machinery, with receptions in place of yards)
   * volume: exponentially recency-weighted average, shrunk toward a low prior
   * efficiency: recency-weighted, heavily shrunk toward the position mean
   * opponent: shrunk yards-allowed-per-game factor vs. league average
@@ -19,8 +20,8 @@ from . import td as tdm
 from . import weather as wxm
 
 HALFLIFE = 5.0          # games
-VOL_PRIOR_K = {"rush": 0.5, "rec": 0.5, "pass": 0.2}   # pseudo-games of shrinkage on volume (QB volume is stable)
-EFF_K = {"rush": 40.0, "rec": 30.0, "pass": 120.0}   # pseudo-attempts of shrinkage on efficiency
+VOL_PRIOR_K = {"rush": 0.5, "rec": 0.5, "pass": 0.2, "recs": 0.5}   # pseudo-games of shrinkage on volume (QB volume is stable)
+EFF_K = {"rush": 40.0, "rec": 30.0, "pass": 120.0, "recs": 30.0}   # pseudo-attempts of shrinkage on efficiency
 OPP_SHRINK_GAMES = 8.0
 OPP_STRENGTH = 0.5      # fraction of the (shrunk) opponent deviation applied
 SCRIPT_RUSH = 0.012     # per spread point (favorite = positive)
@@ -31,9 +32,10 @@ CFG = {
     "rush": dict(vol="carries", yds="rushing_yards", min_vol=4.0),
     "rec": dict(vol="targets", yds="receiving_yards", min_vol=3.0),
     "pass": dict(vol="attempts", yds="passing_yards", min_vol=15.0),
+    "recs": dict(vol="targets", yds="receptions", min_vol=3.0),   # receptions: "yards" here is the catch count
 }
-POSITIONS = {"rush": ("QB", "RB", "WR", "TE", "FB"), "rec": ("RB", "WR", "TE", "FB"), "pass": ("QB",)}
-SCRIPT = {"rush": SCRIPT_RUSH, "rec": SCRIPT_REC, "pass": SCRIPT_PASS}
+POSITIONS = {"rush": ("QB", "RB", "WR", "TE", "FB"), "rec": ("RB", "WR", "TE", "FB"), "pass": ("QB",), "recs": ("RB", "WR", "TE", "FB")}
+SCRIPT = {"rush": SCRIPT_RUSH, "rec": SCRIPT_REC, "pass": SCRIPT_PASS, "recs": SCRIPT_REC}
 
 
 def prep(stats):

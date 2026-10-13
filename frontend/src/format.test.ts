@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GameWeather } from "./api";
-import { compassPoint, skyIcon, americanOdds, fmtEdge, fmtProj, kickoff, notableWeather, pct, playLabel, signed, signedPct, timeAgo, weatherShort, weatherText, wxEffect } from "./format";
+import { compassPoint, skyIcon, americanOdds, fmtEdge, fmtProj, fmtSd, kickoff, marketLabel, unit, notableWeather, pct, playLabel, signed, signedPct, timeAgo, weatherShort, weatherText, wxEffect } from "./format";
 
 describe("format", () => {
   it("formats percentages and signs", () => {
@@ -76,5 +76,19 @@ describe("game weather panel", () => {
     expect(skyIcon("Mostly Cloudy")).toBe("☁️");
     expect(skyIcon("Clear", "20:20")).toBe("🌙");
     expect(skyIcon("Mostly Sunny", "13:00")).toBe("☀️");
+  });
+});
+
+describe("receptions and moneyline labels", () => {
+  it("shows receptions with one decimal and catches as the unit", () => {
+    expect(fmtProj("recs", 4.26)).toBe("4.3");
+    expect(fmtProj("rec", 54.6)).toBe("55");
+    expect(fmtSd("recs", 1.84)).toBe("±1.8");
+    expect(unit("recs")).toBe("rec");
+    expect(unit("rush")).toBe("yds");
+  });
+  it("names the moneyline market alongside the player props", () => {
+    expect(marketLabel("ml")).toBe("Moneyline");
+    expect(marketLabel("recs")).toBe("Receptions");
   });
 });

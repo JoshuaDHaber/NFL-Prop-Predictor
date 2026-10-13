@@ -5,6 +5,7 @@ import BetSlip from "./components/BetSlip";
 import Controls from "./components/Controls";
 import GameWeather from "./components/GameWeather";
 import ModelCheck from "./components/ModelCheck";
+import Moneylines from "./components/Moneylines";
 import ParlayTiles from "./components/ParlayTiles";
 import PicksTable from "./components/PicksTable";
 import ProjectionsTable from "./components/ProjectionsTable";
@@ -12,7 +13,7 @@ import RefreshButton from "./components/RefreshButton";
 import { useWaking } from "./auth";
 import AdminButton from "./components/AdminButton";
 import { API_URL, IS_STATIC } from "./env";
-import { KIND_LABEL, americanOdds, fmtProj, matchup, playLabel, signedPct, timeAgo } from "./format";
+import { KIND_LABEL, americanOdds, fmtProj, fmtSd, isCount, marketLabel, matchup, pct, playLabel, signedPct, timeAgo } from "./format";
 import ThemeToggle from "./components/ThemeToggle";
 import TopTiles, { type Tile } from "./components/TopTiles";
 import { buildBalancedLadders, buildLadderParlays, buildTdParlays, defaultBook, filterGames, ladderProps, ladderTargets, parlaysByBook } from "./parlays";
@@ -22,8 +23,8 @@ import { useDebounced } from "./useDebounced";
 // keeps the charting library out of the first load; a tab left open across a deploy reloads to the new build
 const PlayerDrawer = lazy(() => importOrReload(() => import("./components/PlayerDrawer")));
 
-type Tab = "picks" | "parlays" | "projections" | "model";
-const TABS: [Tab, string][] = [["picks", "Best props"], ["parlays", "Parlays"], ["projections", "Projections"], ["model", "Model check"]];
+type Tab = "picks" | "parlays" | "moneyline" | "projections" | "model";
+const TABS: [Tab, string][] = [["picks", "Best props"], ["parlays", "Parlays"], ["moneyline", "Moneyline"], ["projections", "Projections"], ["model", "Model check"]];
 // Parlays rank by win probability, not EV, so they price every play (any EV) at the default market weight
 const PARLAY_FILTERS: Filters = { kind: "all", side: "all", game: "all", book: "all", q: "", minEv: -1, marketWeight: 0.35, flagged: false };
 
@@ -77,6 +78,8 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBook, books, chosenGames, tdStamp]);
   const altProps = useMemo(() => activeBook ? ladderProps(ladderEntries, activeBook) : [], [activeBook, ladderEntries]);
+  const moneylines = useQuery({ queryKey: ["moneylines", debounced.book, debounced.marketWeight], queryFn: () => api.moneylines(debounced.book, debounced.marketWeight),
+    enabled: tab === "moneyline", placeholderData: (p) => p });
   const projections = useQuery({ queryKey: ["projections", debounced], queryFn: () => api.projections(debounced), enabled: tab === "projections", placeholderData: (p) => p });
 
   if (meta.isLoading) return (
@@ -97,16 +100,23 @@ export default function App() {
       onClick: () => setSelected({ id: p.player_id, kind: p.kind }),
     }))
     : tab === "parlays" ? []
+    : tab === "moneyline"
+      ? (moneylines.data ?? []).flatMap((g) => g.sides.map((s) => ({ g, s }))).filter(({ s }) => s.ev != null && s.ev > 0)
+        .sort((a, b) => b.s.ev! - a.s.ev!).slice(0, 3).map(({ g, s }) => ({
+          key: `${g.game_id}-${s.team}`, label: "Moneyline", name: s.name, meta: `${g.label} · ${s.home ? "home" : "away"}`,
+          value: <>{pct(s.prob, 0)} <em>{signedPct(s.ev!)} EV</em></>, caption: `${americanOdds(s.odds!)} at ${s.book}`,
+        }))
     : tab === "projections"
-      ? (filters.kind === "all" ? (["pass", "rush", "rec", "rr"] as Kind[]).map((k) => (projections.data ?? []).filter((p) => p.kind === k).sort((a, b) => b.mu - a.mu)[0])
+      ? (filters.kind === "all" ? (["pass", "rush", "rec", "recs"] as Kind[]).map((k) => (projections.data ?? []).filter((p) => p.kind === k).sort((a, b) => b.mu - a.mu)[0])
         : [...(projections.data ?? [])].sort((a, b) => b.mu - a.mu).slice(0, 3)).filter(Boolean).map((p) => ({
         key: `${p.player_id}-${p.kind}`, label: filters.kind === "all" ? `Top ${KIND_LABEL[p.kind]}` : KIND_LABEL[p.kind], name: p.name, meta: `${p.pos} ${p.team} ${matchup(p.opp, p.home)}`,
-        value: <>{fmtProj(p.kind, p.mu)} {p.kind !== "td" && <em>±{p.sd.toFixed(0)}</em>}</>, caption: p.kind === "td" ? "chance to score" : "projected yards",
+        value: <>{fmtProj(p.kind, p.mu)} {p.kind !== "td" && <em>{fmtSd(p.kind, p.sd)}</em>}</>, caption: p.kind === "td" ? "chance to score" : isCount(p.kind) ? "projected receptions" : "projected yards",
         onClick: () => setSelected({ id: p.player_id, kind: p.kind }),
       }))
-      : Object.entries(m.backtest).map(([k, b]) => ({ k, b, gain: (b.mae_naive - b.mae_model) / b.mae_naive * 100 }))
+      // the moneyline beats a naive baseline but not the market, so it isn't held up as a "best" market
+      : Object.entries(m.backtest).filter(([k]) => k !== "ml").map(([k, b]) => ({ k, b, gain: (b.mae_naive - b.mae_model) / b.mae_naive * 100 }))
         .sort((a, b) => b.gain - a.gain).slice(0, 3).map(({ k, b, gain }) => ({
-          key: k, label: "Best backtested market", name: KIND_LABEL[k as Kind], meta: `${b.n.toLocaleString()} games`,
+          key: k, label: "Best backtested market", name: marketLabel(k), meta: `${b.n.toLocaleString()} games`,
           value: <>{gain.toFixed(1)}% <em>better</em></>, caption: "than the naive baseline",
         }));
   const weatherByGame = Object.fromEntries(m.games.map((g) => [g.game_id, g.weather]));
@@ -146,7 +156,7 @@ export default function App() {
       )}
 
       {!IS_STATIC && !m.run && <div className="banner">No projections yet. Click <b>Refresh data</b> to run the model (takes about a minute).</div>}
-      {!IS_STATIC && m.run && !hasOdds && (tab === "picks" || tab === "parlays") && (
+      {!IS_STATIC && m.run && !hasOdds && (tab === "picks" || tab === "parlays" || tab === "moneyline") && (
         <div className="banner">No sportsbook lines are loaded, so there are no picks. Add an <code>ODDS_API_KEY</code> and refresh.</div>
       )}
 
@@ -158,7 +168,7 @@ export default function App() {
 
       <TopTiles tiles={tiles} />
 
-      {tab !== "model" && tab !== "parlays" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
+      {tab !== "model" && tab !== "parlays" && tab !== "moneyline" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
       {(tab === "picks" || tab === "projections") && selectedGame && <GameWeather game={selectedGame} fit={m.weather} />}
 
       {tab === "picks" && (picks.isLoading ? <p className="mut">Pricing plays…</p> :
@@ -166,14 +176,17 @@ export default function App() {
       {tab === "parlays" && (parlaysLoading ? <p className="mut">Building parlays…</p> :
         <ParlayTiles books={books} book={activeBook} onBook={setParlayBook} games={m.games} selectedGames={chosenGames} onGames={setParlayGames} parlays={(activeBook && byBook[activeBook]) || []} tdParlays={tdParlays}
           ladders={[...ladderParlays, ...balancedLadders]} altProps={altProps} laddersLoading={ladderQueries.some((q) => q.isLoading)} />)}
+      {tab === "moneyline" && (moneylines.isLoading ? <p className="mut">Pricing moneylines…</p> :
+        <Moneylines games={moneylines.data ?? []} books={m.books} book={filters.book} marketWeight={filters.marketWeight}
+          onBook={(b) => setFilters({ ...filters, book: b })} onMarketWeight={(w) => setFilters({ ...filters, marketWeight: w })} />)}
       {tab === "projections" && (projections.isLoading ? <p className="mut">Loading…</p> :
         <ProjectionsTable rows={projections.data ?? []} weather={weatherByGame} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
       {tab === "model" && <ModelCheck meta={m} />}
 
       <footer>
-        Yards = volume × efficiency, recency-weighted and shrunk to position means, adjusted for opponent, game
+        Yards (and receptions) = volume × efficiency, recency-weighted and shrunk to position means, adjusted for opponent, game
         script and, at outdoor stadiums, kickoff wind and cold. Win probabilities come from the backtest's own error distribution, blended with the
-        market's no-vig price. Large edges usually mean the model is missing context. Not betting advice.
+        market's no-vig price. Team win chances come from point-margin ratings and lean heavily on the moneyline market. Large edges usually mean the model is missing context. Not betting advice.
       </footer>
 
       {selected && (

@@ -2,7 +2,7 @@
 
 A full-stack web app that projects NFL player yardage, prices the projections against live sportsbook prop lines, and ranks the best bets of the week.
 
-**Markets:** rushing yards, receiving yards, passing yards, rush + receiving yards, and anytime touchdown.
+**Markets:** rushing yards, receiving yards, passing yards, rush + receiving yards, receptions, anytime touchdown, and team moneyline (each team's chance to win).
 
 - **Front end:** React + TypeScript (Vite, TanStack Query, Recharts).
 - **Back end:** FastAPI + SQLAlchemy (SQLite locally, Postgres-ready).
@@ -15,8 +15,9 @@ A full-stack web app that projects NFL player yardage, prices the projections ag
 
 - **Best props:** every Over/Under quote is priced and ranked by expected value, using the best price across sportsbooks. Filter by market, over/under ("Overs", "Unders"; "Anytime TD"/"No TD" on the TD tab), game and sportsbook (a book filter shows only that book's lines, still priced against the all-book market consensus, and carries into the player drawer's chart and line table), search by player, and adjust **minimum EV** and **how much to trust the market** with sliders that re-price the board live.
 - **Player drawer:** click any row for the last 12 games charted against the projection and the posted lines, plus every available play for that player.
-- **Alternate lines:** in the drawer, a ladder shows every posted line, main and alternate, across books, priced with the model's own win probability and EV. Refreshing odds fetches main and alternate lines for every game of the week (one API call per game, one credit per market, about 4 credits per game for alternates), so they're available by default. A "−300 to +300" toggle (on by default) hides prices outside that range, such as -2500 locks and +3900 longshots. *Load alternate lines* remains as a one-game fallback.
+- **Alternate lines:** in the drawer, a ladder shows every posted line, main and alternate, across books, priced with the model's own win probability and EV. Refreshing odds fetches main and alternate lines for every game of the week (one API call per game, one credit per market, about 5 credits per game for alternates), so they're available by default. A "−300 to +300" toggle (on by default) hides prices outside that range, such as -2500 locks and +3900 longshots. *Load alternate lines* remains as a one-game fallback.
 - **Betslip:** tap **+** on any quote to build a slip (saved in your browser). Each leg has a book switcher that lists every sportsbook offering that exact line, and "Put every leg at one book" moves the whole slip to a single book (showing how many legs it can take) so a parlay stays consistent. When that book doesn't offer a leg's exact line, the slip suggests the nearest lines the book does offer, with prices and EV, and one click swaps the leg. Selections are grouped by sportsbook with per-book parlay odds and payout, a stake box, and **Copy slip link**, which copies the same link "Open all in one tab" opens (a bare URL for one book, labelled per book otherwise) so you can open the slip on another device; **Copy phone link** copies a link that reopens the whole slip in this app on another device (the slip travels in the URL, nothing is stored on a server); tap each leg's button, or "Open all in one tab", on the phone to hand it to the sportsbook app. **Copy as text** copies a readable summary instead. **Get links** fetches missing betslip links for the slip's games on demand, **Open all in one tab** builds a single link that adds every linked leg to the slip for FanDuel and DraftKings (experimental: those multi-selection link formats are not yet confirmed against the live sites, so check the slip afterward), and each book's **Add leg N of M** button steps through its legs one new tab per click (browsers block extra pop-ups from a single click), skipping legs that have no link. **Add at book** opens the sportsbook with that selection added to its betslip where the Odds API provides a direct link (FanDuel and DraftKings do), and otherwise opens the book. The app never places bets; you sign in and confirm at the book.
+- **Moneyline:** every game of the week with both teams' chance to win: the team-rating model's, the market's (no-vig, across books) and the blend used for EV, with the best moneyline price and a link to the book. The sportsbook filter and market-trust slider apply here too (the blend never trusts the market less than 80%).
 - **Projections:** every projected player with the volume and efficiency behind the number, sortable.
 - **Weather:** outdoor games show the kickoff forecast; rows flag windy, cold or wet games with the adjustment made to that projection (for example "💨 19 mph · −22%"), and the player drawer spells it out.
 - **Model check:** backtest accuracy per market, the fitted weather effect with this week's outdoor forecasts, and the freshness of projections and odds.
@@ -48,6 +49,7 @@ A full-stack web app that projects NFL player yardage, prices the projections ag
 | `GET /api/meta` | Current run, backtest stats, odds freshness, game list, refresh job state |
 | `GET /api/picks` | Priced plays. Params: `kind`, `game_id`, `q`, `min_ev`, `market_weight`, `side` (Over/Under), `book`, `include_flagged`, `limit` |
 | `GET /api/projections` | Projections. Params: `kind`, `game_id`, `q` |
+| `GET /api/moneylines` | Both teams' win chances (model, market, blend) and best moneyline per game. Params: `book`, `market_weight` |
 | `GET /api/players/{id}` | One player: projections, available plays, recent game logs |
 | `GET /api/players/{id}/lines?kind=` | Every main and alternate quote for one player and market, priced, with betslip links |
 | `POST /api/players/{id}/alt-lines` | Fetch alternate lines and links for the player's game (spends API credits) |
@@ -68,6 +70,7 @@ Yards = **volume x efficiency**:
 | Receiving | targets | yards per target |
 | Passing | pass attempts | yards per attempt |
 | Rush + Receiving | both volumes, summed | summed projections |
+| Receptions | targets | catch rate (receptions per target) |
 
 - **Recency weighting:** exponential decay (5-game half-life) across seasons, so recent games dominate while last year anchors small samples.
 - **Shrinkage:** efficiency is pulled toward the position mean with a pseudo-count prior, because yards per attempt is noisy. Volume is shrunk only lightly (and not at all for most quarterback volume), since roles are stable.
@@ -91,6 +94,16 @@ For each player with a real rushing or receiving role, the expected touchdowns i
 
 The backtest scores it with a Brier score against always predicting the average TD rate, and shows a calibration table on the Model check tab. It's a weak signal: it has no red-zone or goal-line usage, and books price the market sharply. So TD plays always lean at least 60% on the market's chance (books post a lone "Yes" price with a large margin, which the app estimates and strips), are priced in their own tab rather than in "All yardage", and large edges are flagged. Prices aren't limited to -300..+300 for this market, since +400 to +2000 are ordinary.
 
+### Receptions
+
+Receptions use the same machinery as yardage with catches in place of yards: projected targets x a recency-weighted catch rate shrunk toward the position average (about 63% for wide receivers, 72% for tight ends, 79% for running backs), with the same opponent and game-script adjustments. Weather isn't applied (it was fitted on yards, not catches). Win probabilities come from the backtest's own errors, as for yardage; in the backtest, a predicted 48% chance of going over a line hit 48% of the time, and every band was within a few points.
+
+### Team moneyline
+
+Each team gets a rating in points from a ridge regression of recent games' point margins (home rating - away rating + home field), recency-weighted with a 10-week half-life, with earlier seasons counting half as much. The predicted margin becomes a win probability through a normal curve whose spread (about 14 points) is fitted on a walk-forward backtest every run; it takes a couple of seconds, so even a fast sync refits it.
+
+It's honest about how weak that is: over the last two seasons it scores a Brier of about 0.222, against 0.249 for always giving the home team its usual win rate, but the closing moneyline scores about 0.209 on the same games, and no blend of the two beat the market alone. The ratings know nothing about injuries, quarterbacks or rest. So moneyline prices always lean at least 80% on the market's no-vig chance (the blend that came closest to the market's own score), and the Model check tab shows the comparison.
+
 ### Probabilities and EV
 
 The chance of beating a line comes from the backtest's own errors, not an assumed curve. For each market the walk-forward backtest gives a robust spread of the errors (binned by projection size, so passing and rushing each get their own) and the empirical distribution of the standardized errors, which carries the real skew and the blow-up games. The probability of going over a line is read straight off that table, so it matches how often actual yardage beat the projection. Whole-number lines leave room for a push, and no probability is allowed to reach 0 or 100%. (An earlier version assumed a gamma curve, which was too skewed and made unders look better than they were; passing was hit hardest, with actuals beating the model's median 67% of the time instead of ~50%.) The model's win probability is then blended (35% by default, adjustable in the UI) with the market's no-vig probability. EV and quarter-Kelly come from that blend and the best available price.
@@ -109,9 +122,11 @@ Walk-forward: every game from 2025 week 6 onward is projected using only earlier
 | Receiving | 1,866 | 23.4 | 24.8 | +0.4 |
 | Passing | 489 | 67.0 | 70.4 | +0.6 |
 | Rush + Rec | 234 | 33.0 | 36.6 | +4.0 |
+| Receptions | 2,116 | 1.69 | 1.78 | -0.0 |
 | Anytime TD (Brier score, lower is better) | 2,634 | 0.190 | 0.201 | 0.000 |
+| Moneyline (Brier; baseline is the home team's usual win rate; the closing line scores 0.209) | 621 | 0.222 | 0.249 | -0.021 |
 
-MAE is mean absolute error in yards; bias is the mean of (actual - projection). The passing market initially ran ~9 yards low because volume shrinkage pulled quarterback attempts toward zero; a per-market setting fixed it.
+MAE is mean absolute error in yards (catches for receptions); bias is the mean of (actual - projection). The passing market initially ran ~9 yards low because volume shrinkage pulled quarterback attempts toward zero; a per-market setting fixed it.
 
 ## Running it
 
@@ -125,7 +140,7 @@ Requires Python 3.9+ and Node 20+. Everything goes through one script:
 
 `./run.sh lan` starts the app so your phone on the same Wi-Fi can open it (other devices are read-only: refreshes and API-credit-spending fetches stay limited to this machine). Other commands: `./run.sh dev` (API with auto-reload plus the Vite dev server on :5173), `./run.sh build`, `./run.sh test`, and `./run.sh refresh --odds none --exclude "Player Name"`. Run `./run.sh help` for the list.
 
-**Odds:** get a free key at [the-odds-api.com](https://the-odds-api.com) (about 500 credits a month; all four markets for a full slate cost roughly 60) and put it in `backend/.env`. Without a key the app still shows projections. In the UI, *Refresh data* fetches only markets that have no stored lines; *Re-fetch all odds* is the explicit paid action.
+**Odds:** get a free key at [the-odds-api.com](https://the-odds-api.com) (about 500 credits a month; a full sync costs about 12 credits per game: seven main markets, including the moneyline, plus five alternate-line markets) and put it in `backend/.env`. Without a key the app still shows projections. In the UI, *Refresh data* fetches only markets that have no stored lines; *Re-fetch all odds* is the explicit paid action.
 
 **Tests and CI:** `./run.sh test` runs the backend suite (pytest: model math, pricing logic, API behavior) and the frontend typecheck and tests. GitHub Actions runs the same on every push.
 
@@ -152,7 +167,7 @@ GitHub Pages (React)  ──HTTPS──▶  Render (FastAPI)  ──▶  Neon Po
 4. **GitHub:** Settings → Secrets and variables → Actions → **Variables** → new variable `API_URL` = the Render URL. Settings → Pages → Source: **GitHub Actions**. Merge to `main` (or run the "Deploy demo to GitHub Pages" workflow). If your GitHub user isn't `JoshuaDHaber`, change `CORS_ORIGINS` in Render to your Pages origin.
 5. **Open the site, click Admin, enter the admin password.** Refresh controls appear for you only (it stays in that browser).
 
-**Syncing a new week from the site (no code or push needed).** Once the API has been deployed with `PROJECTIONS_ON_SERVER=1`, open the site, unlock **Admin**, and click **Sync next week**. It works out the next week with unplayed games, shows exactly what it will do and what it costs in Odds API credits (for example "15 of 15 games, about 135 credits"), and when you confirm it runs the model, stores the new projections in Neon, and fetches odds for every game that doesn't have them yet: main lines, anytime TD and alternate lines. A repeat costs nothing, because odds are stored per game and only the missing ones are bought. The menu also has "Model only" (no credits) and "Re-fetch all odds for the week". The sync shows its progress: a live timer, which step it is on ("Step 1 of 2 · Running the model"), the current sub-step, and a bar through the odds fetch.
+**Syncing a new week from the site (no code or push needed).** Once the API has been deployed with `PROJECTIONS_ON_SERVER=1`, open the site, unlock **Admin**, and click **Sync next week**. It works out the next week with unplayed games, shows exactly what it will do and what it costs in Odds API credits (for example "15 of 15 games, about 180 credits"), and when you confirm it runs the model, stores the new projections in Neon, and fetches odds for every game that doesn't have them yet: main lines, anytime TD, moneylines and alternate lines. A repeat costs nothing, because odds are stored per game and market and only the missing ones are bought (so a game synced before receptions and moneylines were added only buys those, about 3 credits). The menu also has "Model only" (no credits) and "Re-fetch all odds for the week". The sync shows its progress: a live timer, which step it is on ("Step 1 of 2 · Running the model"), the current sub-step, and a bar through the odds fetch.
 
 **Fast by default.** The slow part of a model run is the walk-forward backtest that calibrates it (error tables, the touchdown scale, the injury-redistribution share, the weather effect). Those change very little from one week to the next, so a normal sync reuses the previous run's calibration and only computes the new week's projections: about 0.7 seconds instead of 14 on a laptop, with projections identical to a full run on the same data. On Render's free tier the full run took about 8 minutes, so expect this to take a fraction of that. Tick **Recalibrate the model** in the confirm step (or choose "Recalibrate model" from the menu) to refit it; it is also refit automatically if the saved calibration is missing, from another season, older than 21 days, or from before the weather model (so the first sync after this update does a full run). The weather forecast itself is fetched fresh on every run, fast or full. The Model check tab says which week the calibration was last fitted for.
 
@@ -195,7 +210,7 @@ backend/
     cli.py         run the pipeline without the web app
     export_static.py  write the data as static JSON for the Pages demo
     copy_db.py     copy the local database to a hosted Postgres (./run.sh push-data)
-    engine/        model.py (projections, backtest, probabilities) · td.py (anytime touchdown) · weather.py (fitted wind/cold effect, stadium forecasts) · picks.py (pricing) · ladder.py (alt-line pricing) · odds.py · data.py
+    engine/        model.py (projections, backtest, probabilities) · td.py (anytime touchdown) · moneyline.py (team ratings, win probability) · weather.py (fitted wind/cold effect, stadium forecasts) · picks.py (pricing) · ladder.py (alt-line pricing) · odds.py · data.py
   tests/           pytest suite
 frontend/src/      App, components (picks table, player drawer, line ladder, betslip, controls, refresh), betslip math in slip.ts, typed API client
 ```
@@ -217,5 +232,6 @@ frontend/src/      App, components (picks table, player drawer, line ladder, bet
 - Model team-level pass/run volume explicitly, then split it among players.
 - Pace and offensive-line context; precipitation, once there's a history of it to fit.
 - Store pick history and track closing-line value as an out-of-sample test.
-- Scheduled refreshes, auth for a shared deployment, more markets (receptions, attempts, touchdowns).
+- Scheduled refreshes, auth for a shared deployment, more markets (attempts, touchdowns).
+- A team model that knows about injuries and quarterbacks (for example, built up from the player projections), and moneylines in the betslip.
 - Multi-leg deep links per sportsbook (today each selection opens as its own link) and correlation-aware same-game parlay pricing.
