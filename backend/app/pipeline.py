@@ -64,7 +64,9 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
     status = {}
     if not inj.empty:
         cur_inj = inj[inj.week == week]
-        dnp = cur_inj.practice_status.fillna("").str.startswith("Did Not") & cur_inj.report_status.isna()
+        # a veteran's rest day ("Not injury related - resting player") is a DNP that says nothing about Sunday
+        resting = cur_inj.practice_primary_injury.fillna("").str.contains("resting", case=False)
+        dnp = cur_inj.practice_status.fillna("").str.startswith("Did Not") & cur_inj.report_status.isna() & ~resting
         status = dict(zip(cur_inj.gsis_id, cur_inj.report_status.where(~dnp, "DNP")))
     drop = {"Out", "Doubtful"} | (set() if keep_dnp else {"DNP"})
     names = {odds.norm(n) for n in exclude}
