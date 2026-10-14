@@ -10,7 +10,7 @@ import ParlayTiles from "./components/ParlayTiles";
 import PicksTable from "./components/PicksTable";
 import ProjectionsTable from "./components/ProjectionsTable";
 import RefreshButton from "./components/RefreshButton";
-import { useWaking } from "./auth";
+import { useToken, useWaking } from "./auth";
 import AdminButton from "./components/AdminButton";
 import { API_URL, IS_STATIC } from "./env";
 import { KIND_LABEL, americanOdds, fmtProj, fmtSd, isCount, marketLabel, matchup, pct, playLabel, signedPct, timeAgo } from "./format";
@@ -30,6 +30,7 @@ const PARLAY_FILTERS: Filters = { kind: "all", side: "all", game: "all", book: "
 
 export default function App() {
   const waking = useWaking();
+  const token = useToken();
   const [tab, setTab] = useState<Tab>("picks");
   const [filters, setFilters] = useState<Filters>({ kind: "all", side: "all", game: "all", book: "all", q: "", minEv: 0.03, marketWeight: 0.35, flagged: false });
   const [selected, setSelected] = useState<{ id: string; kind: Kind } | null>(null);
@@ -139,7 +140,8 @@ export default function App() {
           {IS_STATIC ? <div className="demo-tag" title="This page reads a saved snapshot, not a live server">Demo snapshot</div> : (
             <>
               {m.can_write && <RefreshButton meta={m} />}
-              {API_URL && <AdminButton canWrite={m.can_write} />}
+              {/* hidden only on the owner's own machine, where writes are already allowed without a password */}
+              {(API_URL || !m.can_write || token) && <AdminButton canWrite={m.can_write} />}
             </>
           )}
         </div>

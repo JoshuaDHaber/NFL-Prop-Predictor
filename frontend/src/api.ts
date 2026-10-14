@@ -109,7 +109,7 @@ const WAKE_TRIES = 30; // x 3 s: a sleeping free host takes up to about a minute
 /** fetch against the API. Reads are retried while a hosted API wakes up; writes never are (they can spend credits). */
 export async function request(path: string, init: RequestInit = {}): Promise<Response> {
   const token = getToken();
-  const headers = { ...(init.headers as Record<string, string>), ...(token && API_URL ? { Authorization: `Bearer ${encodeURIComponent(token)}` } : {}) };
+  const headers = { ...(init.headers as Record<string, string>), ...(token ? { Authorization: `Bearer ${encodeURIComponent(token)}` } : {}) };
   const canRetry = !!API_URL && (init.method ?? "GET") === "GET";
   for (let attempt = 1; ; attempt++) {
     try {

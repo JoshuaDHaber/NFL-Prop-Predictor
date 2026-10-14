@@ -74,14 +74,22 @@ describe("request against a hosted API", () => {
   });
 });
 
-describe("request against the same origin (local app)", () => {
-  it("does not retry or add a token", async () => {
-    const { request, setToken } = await load("");
-    setToken("ignored");
+describe("request against the same origin (local app, or one container on a host)", () => {
+  it("does not retry", async () => {
+    const { request } = await load("");
     const fetchMock = vi.fn().mockResolvedValue(res(503));
     vi.stubGlobal("fetch", fetchMock);
     expect((await request("/api/meta")).status).toBe(503);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBeUndefined();
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBeUndefined(); // no password saved
+  });
+
+  it("sends the admin token when one is saved, so a hosted single-container app can unlock writes", async () => {
+    const { request, setToken } = await load("");
+    setToken("s3cret");
+    const fetchMock = vi.fn().mockResolvedValue(res(200));
+    vi.stubGlobal("fetch", fetchMock);
+    await request("/api/meta");
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer s3cret");
   });
 });
