@@ -1,9 +1,11 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
-import { Suspense, lazy, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Filters, type Kind } from "./api";
 import BetSlip from "./components/BetSlip";
 import Controls from "./components/Controls";
+import GameOverview from "./components/GameOverview";
 import GameWeather from "./components/GameWeather";
+import Games from "./components/Games";
 import Injuries from "./components/Injuries";
 import ModelCheck from "./components/ModelCheck";
 import Moneylines from "./components/Moneylines";
@@ -15,10 +17,10 @@ import { API_URL, BASE, IS_STATIC } from "./env";
 import { KIND_LABEL, americanOdds, fmtProj, fmtSd, isCount, marketLabel, matchup, pct, playLabel, signedPct, timeAgo } from "./format";
 import ThemeToggle from "./components/ThemeToggle";
 import TopTiles, { type Tile } from "./components/TopTiles";
-import { buildBalancedLadders, buildLadderParlays, buildTdParlays, defaultBook, filterGames, ladderProps, ladderTargets, parlaysByBook } from "./parlays";
 import { importOrReload } from "./staleChunk";
 import { localWhen } from "./sync";
 import { useDebounced } from "./useDebounced";
+import { PARLAY_FILTERS, useParlayBoard } from "./useParlayBoard";
 
 // keeps the charting library out of the first load; a tab left open across a deploy reloads to the new build
 const PlayerDrawer = lazy(() => importOrReload(() => import("./components/PlayerDrawer")));
@@ -26,11 +28,11 @@ const AdminPage = lazy(() => importOrReload(() => import("./components/AdminPage
 /** The owner's sync page lives at <base>/admin; everything else is the public app. */
 const IS_ADMIN_PAGE = !IS_STATIC && window.location.pathname.slice(BASE.length - 1).replace(/\/+$/, "") === "/admin";
 
-type Tab = "picks" | "parlays" | "moneyline" | "injuries" | "projections" | "model" | "admin";
-const TABS: [Tab, string][] = [["picks", "Best props"], ["parlays", "Parlays"], ["moneyline", "Moneyline"], ["injuries", "Injuries"], ["projections", "Projections"], ["model", "Model check"],
+type Tab = "games" | "picks" | "parlays" | "moneyline" | "injuries" | "projections" | "model" | "admin";
+const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["moneyline", "Moneyline"], ["injuries", "Injuries"], ["projections", "Projections"], ["model", "Model check"],
   ...(IS_STATIC ? [] : [["admin", "Admin"] as [Tab, string]])];
-// Parlays rank by win probability, not EV, so they price every play (any EV) at the default market weight
-const PARLAY_FILTERS: Filters = { kind: "all", side: "all", game: "all", book: "all", q: "", minEv: -1, marketWeight: 0.35, flagged: false };
+/** A game's overview page lives at #game=<game_id>, so the browser's back button returns to the slate and the page can be linked. */
+const gameFromHash = () => new URLSearchParams(window.location.hash.slice(1)).get("game");
 
 export default function App() {
   return IS_ADMIN_PAGE ? <Suspense fallback={null}><AdminPage /></Suspense> : <PublicApp />;
@@ -38,57 +40,40 @@ export default function App() {
 
 function PublicApp() {
   const waking = useWaking();
-  const [tab, setTab] = useState<Tab>("picks");
+  const [tab, setTab] = useState<Tab>("games");
+  const [gameId, setGameId] = useState<string | null>(gameFromHash);
+  // true while a game page sits on top of the slate in history, so "All games" can go back instead of stacking another entry
+  const pushedGame = useRef(false);
+  useEffect(() => {
+    const sync = () => { const id = gameFromHash(); pushedGame.current = !!id; setGameId(id); if (id) setTab("games"); };
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, []);
+  const openGame = (id: string | null) => {
+    if (id === gameId) return;
+    pushedGame.current = !!id;
+    const url = window.location.pathname + window.location.search + (id ? `#game=${encodeURIComponent(id)}` : "");
+    if (id) window.history.pushState(null, "", url); else window.history.replaceState(null, "", url);
+    setGameId(id);
+    window.scrollTo({ top: 0 });
+  };
+  const goTab = (t: Tab) => { openGame(null); setTab(t); };
   const [filters, setFilters] = useState<Filters>({ kind: "all", side: "all", game: "all", book: "all", q: "", minEv: 0.03, marketWeight: 0.35, flagged: false });
   const [selected, setSelected] = useState<{ id: string; kind: Kind } | null>(null);
   const debounced = useDebounced(filters, 250);
 
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
   const picks = useQuery({ queryKey: ["picks", debounced], queryFn: () => api.picks(debounced), enabled: tab === "picks", placeholderData: (p) => p });
-  // one pricing per sportsbook, so every parlay's legs sit at a single book
-  const books = meta.data?.books ?? [];
-  const parlayQueries = useQueries({
-    queries: books.map((book) => ({ queryKey: ["parlay-picks", book], queryFn: () => api.picks({ ...PARLAY_FILTERS, book }, 1000), enabled: tab === "parlays" })),
-  });
-  // anytime-TD picks per book (the plain picks above leave TDs out)
-  const tdQueries = useQueries({
-    queries: books.map((book) => ({ queryKey: ["parlay-td", book], queryFn: () => api.picks({ ...PARLAY_FILTERS, kind: "td", book }, 1000), enabled: tab === "parlays" })),
-  });
-  const parlaysLoading = parlayQueries.some((q) => q.isLoading);
-  const [parlayBook, setParlayBook] = useState<string | null>(null);
-  const parlayStamp = parlayQueries.map((q) => q.dataUpdatedAt).join();
-  const allPicksByBook = useMemo(() => Object.fromEntries(books.map((b, i) => [b, parlayQueries[i]?.data ?? []])),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [books.join(), parlayStamp]);
   const [parlayGames, setParlayGames] = useState<string[]>([]);
   // only games still on the slate count; every parlay and ladder is built from the chosen games' picks
   const chosenGames = useMemo(() => parlayGames.filter((id) => meta.data?.games.some((g) => g.game_id === id)), [parlayGames, meta.data]);
-  const gamePicks = useMemo(() => filterGames(allPicksByBook, chosenGames), [allPicksByBook, chosenGames]);
-  const byBook = useMemo(() => parlaysByBook(gamePicks), [gamePicks]);
-  const activeBook = parlayBook && books.includes(parlayBook) ? parlayBook : defaultBook(byBook, gamePicks);
-  // ladder parlays need each likely player's line ladder (alternate lines); shares the drawer's and slip's query cache
-  const targets = useMemo(() => ladderTargets(activeBook ? gamePicks[activeBook] ?? [] : [], Math.min(24, Math.max(12, chosenGames.length * 8))), [activeBook, gamePicks, chosenGames]);
-  const ladderQueries = useQueries({
-    queries: targets.map((t) => ({ queryKey: ["ladder", t.player_id, t.kind, 0], queryFn: () => api.lines(t.player_id, t.kind, 0), enabled: tab === "parlays" })),
-  });
-  const ladderStamp = ladderQueries.map((q) => q.dataUpdatedAt).join();
-  const ladderEntries = useMemo(() => targets.map((base, i) => ({ base, ladder: ladderQueries[i]?.data })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [targets, ladderStamp]);
-  const ladderParlays = useMemo(() => activeBook ? buildLadderParlays(ladderEntries, activeBook) : [], [activeBook, ladderEntries]);
-  // with games chosen, one more ladder per game that uses both teams
-  const balancedLadders = useMemo(() => activeBook ? buildBalancedLadders(ladderEntries, activeBook, chosenGames.slice(0, 4), ladderParlays) : [],
-    [activeBook, ladderEntries, chosenGames, ladderParlays]);
-  const tdStamp = tdQueries.map((q) => q.dataUpdatedAt).join();
-  const tdParlays = useMemo(() => {
-    const i = books.indexOf(activeBook ?? "");
-    return activeBook && i >= 0 ? buildTdParlays(tdQueries[i]?.data ?? [], activeBook, chosenGames) : [];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeBook, books, chosenGames, tdStamp]);
-  const altProps = useMemo(() => activeBook ? ladderProps(ladderEntries, activeBook) : [], [activeBook, ladderEntries]);
+  const board = useParlayBoard(meta.data?.books ?? [], chosenGames, tab === "parlays" && !gameId);
+  // positive-EV plays across the slate, for the game tiles' top prop and counts
+  const slatePicks = useQuery({ queryKey: ["slate-picks", debounced.book, debounced.marketWeight],
+    queryFn: () => api.picks({ ...PARLAY_FILTERS, book: debounced.book, marketWeight: debounced.marketWeight, minEv: 0 }, 1000), enabled: tab === "games" && !gameId });
   const moneylines = useQuery({ queryKey: ["moneylines", debounced.book, debounced.marketWeight], queryFn: () => api.moneylines(debounced.book, debounced.marketWeight),
-    enabled: tab === "moneyline", placeholderData: (p) => p });
-  const injuries = useQuery({ queryKey: ["injuries"], queryFn: api.injuries, enabled: tab === "injuries", refetchInterval: 15 * 60_000 });
+    enabled: tab === "moneyline" || (tab === "games" && !gameId), placeholderData: (p) => p });
+  const injuries = useQuery({ queryKey: ["injuries"], queryFn: api.injuries, enabled: tab === "injuries" || (tab === "games" && !gameId), refetchInterval: 15 * 60_000 });
   const projections = useQuery({ queryKey: ["projections", debounced], queryFn: () => api.projections(debounced), enabled: tab === "projections", placeholderData: (p) => p });
 
   if (meta.isLoading) return (
@@ -108,7 +93,7 @@ function PublicApp() {
       value: <>{playLabel(p.kind, p.side, p.line)} <em>{signedPct(p.ev)} EV</em></>, caption: `${americanOdds(p.odds)} at ${p.book}`,
       onClick: () => setSelected({ id: p.player_id, kind: p.kind }),
     }))
-    : tab === "parlays" || tab === "admin" || tab === "injuries" ? []
+    : tab === "games" || tab === "parlays" || tab === "admin" || tab === "injuries" ? []
     : tab === "moneyline"
       ? (moneylines.data ?? []).flatMap((g) => g.sides.map((s) => ({ g, s }))).filter(({ s }) => s.ev != null && s.ev > 0)
         .sort((a, b) => b.s.ev! - a.s.ev!).slice(0, 3).map(({ g, s }) => ({
@@ -130,6 +115,7 @@ function PublicApp() {
         }));
   const weatherByGame = Object.fromEntries(m.games.map((g) => [g.game_id, g.weather]));
   const selectedGame = m.games.find((g) => g.game_id === filters.game);
+  const openedGame = gameId ? m.games.find((g) => g.game_id === gameId) : undefined;
   const hasOdds = Object.keys(m.odds).length > 0;
   const latestOdds = Object.values(m.odds).map((o) => o.fetched_at).sort().at(-1);
 
@@ -161,26 +147,32 @@ function PublicApp() {
       )}
 
       {!IS_STATIC && !m.run && <div className="banner">No projections yet. They appear after the next scheduled sync{m.auto_sync?.next_at ? ` (${localWhen(m.auto_sync.next_at)})` : ""}.</div>}
-      {!IS_STATIC && m.run && !hasOdds && (tab === "picks" || tab === "parlays" || tab === "moneyline") && (
+      {!IS_STATIC && m.run && !hasOdds && (tab === "games" || tab === "picks" || tab === "parlays" || tab === "moneyline") && (
         <div className="banner">No sportsbook lines are loaded yet, so there are no picks. Books post props mid-week; the scheduled syncs fetch them as they appear.</div>
       )}
 
       <nav className="tabs" role="tablist" aria-label="Sections">
         {TABS.map(([k, label]) => (
-          <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{label}</button>
+          <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => goTab(k)}>{label}</button>
         ))}
       </nav>
 
+      {openedGame ? (
+        <GameOverview key={openedGame.game_id} game={openedGame} books={m.books} book={debounced.book} marketWeight={debounced.marketWeight} fit={m.weather}
+          onBack={() => (pushedGame.current ? window.history.back() : openGame(null))}
+          onSelect={(id, kind) => setSelected({ id, kind })} />
+      ) : <>
       <TopTiles tiles={tiles} />
 
-      {tab !== "model" && tab !== "parlays" && tab !== "moneyline" && tab !== "admin" && tab !== "injuries" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
+      {tab === "games" && <Games games={m.games} picks={slatePicks.data ?? []} moneylines={moneylines.data ?? []} injuries={injuries.data} onOpen={openGame} />}
+      {tab !== "games" && tab !== "model" && tab !== "parlays" && tab !== "moneyline" && tab !== "admin" && tab !== "injuries" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
       {(tab === "picks" || tab === "projections") && selectedGame && <GameWeather game={selectedGame} fit={m.weather} />}
 
       {tab === "picks" && (picks.isLoading ? <p className="mut">Pricing plays…</p> :
         <PicksTable picks={picks.data ?? []} weather={weatherByGame} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
-      {tab === "parlays" && (parlaysLoading ? <p className="mut">Building parlays…</p> :
-        <ParlayTiles books={books} book={activeBook} onBook={setParlayBook} games={m.games} selectedGames={chosenGames} onGames={setParlayGames} parlays={(activeBook && byBook[activeBook]) || []} tdParlays={tdParlays}
-          ladders={[...ladderParlays, ...balancedLadders]} altProps={altProps} laddersLoading={ladderQueries.some((q) => q.isLoading)} />)}
+      {tab === "parlays" && (board.loading ? <p className="mut">Building parlays…</p> :
+        <ParlayTiles books={m.books} book={board.book} onBook={board.setBook} games={m.games} selectedGames={chosenGames} onGames={setParlayGames} parlays={board.parlays} tdParlays={board.tdParlays}
+          ladders={board.ladders} altProps={board.altProps} laddersLoading={board.laddersLoading} />)}
       {tab === "moneyline" && (moneylines.isLoading ? <p className="mut">Pricing moneylines…</p> :
         <Moneylines games={moneylines.data ?? []} books={m.books} book={filters.book} marketWeight={filters.marketWeight}
           onBook={(b) => setFilters({ ...filters, book: b })} onMarketWeight={(w) => setFilters({ ...filters, marketWeight: w })} />)}
@@ -190,6 +182,7 @@ function PublicApp() {
         <ProjectionsTable rows={projections.data ?? []} weather={weatherByGame} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
       {tab === "model" && <ModelCheck meta={m} />}
       {tab === "admin" && <Suspense fallback={<p className="mut">Loading…</p>}><AdminPage embedded /></Suspense>}
+      </>}
 
       <footer>
         Yards (and receptions) = volume × efficiency, recency-weighted and shrunk to position means, adjusted for opponent, game

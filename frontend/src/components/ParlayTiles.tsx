@@ -69,7 +69,9 @@ function AltProps({ props }: { props: ParlayLeg[] }) {
 
 interface Props {
   books: string[]; book: string | null; onBook: (b: string) => void;
-  games: Game[]; selectedGames: string[]; onGames: (ids: string[]) => void;
+  games: Game[]; selectedGames: string[];
+  /** Omit to hide the game picker (a single game's page builds from that game only). */
+  onGames?: (ids: string[]) => void;
   parlays: Parlay[]; tdParlays: Parlay[]; ladders: Parlay[]; altProps: ParlayLeg[]; laddersLoading: boolean;
 }
 
@@ -83,6 +85,7 @@ export default function ParlayTiles({ books, book, onBook, games, selectedGames,
         ))}
       </div>
 
+      {onGames && <>
       <div className="games" role="group" aria-label="Games to build from">
         <button aria-pressed={!selectedGames.length} className={`game${!selectedGames.length ? " on" : ""}`} onClick={() => onGames([])}>
           <b>All games</b><small>{games.length} this week</small>
@@ -98,6 +101,7 @@ export default function ParlayTiles({ books, book, onBook, games, selectedGames,
         })}
       </div>
       <p className="mut parlay-scope">{selectedGames.length ? `Building from ${selectedGames.length} selected game${selectedGames.length > 1 ? "s" : ""}. Tap a game to add or remove it.` : "Building from every game. Tap games to pick which ones to build from."}</p>
+      </>}
 
       <h2 className="parlay-h">Likely plays</h2>
       {parlays.length

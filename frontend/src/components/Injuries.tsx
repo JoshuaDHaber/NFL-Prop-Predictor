@@ -72,6 +72,29 @@ function Team({ team, home, players, side, showReserve, onSelect }: {
   );
 }
 
+/** One game's card: both teams' injury reports side by side. */
+export function GameInjuries({ game, report, side = "all", showReserve = false, onSelect }: {
+  game: Game; report: InjuryReport; side?: Side; showReserve?: boolean; onSelect: Props["onSelect"];
+}) {
+  const [, , away, home] = game.game_id.split("_");
+  return (
+    <article className="card inj-card">
+      <header className="ml-head"><b>{game.label}</b><span className="mut">{kickoff(game.gameday, game.gametime)}</span></header>
+      <div className="inj-teams">
+        <Team team={away} home={false} players={report.teams[away] ?? []} side={side} showReserve={showReserve} onSelect={onSelect} />
+        <Team team={home} home players={report.teams[home] ?? []} side={side} showReserve={showReserve} onSelect={onSelect} />
+      </div>
+    </article>
+  );
+}
+
+/** Players listed Out, Doubtful or Questionable (the reserve lists left out). */
+export const gameStatusCounts = (players: InjuredPlayer[]) => ({
+  out: players.filter((p) => p.status === "Out").length,
+  doubtful: players.filter((p) => p.status === "Doubtful").length,
+  questionable: players.filter((p) => p.status === "Questionable").length,
+});
+
 export default function Injuries({ report, games, onSelect }: Props) {
   const [game, setGame] = useState("all");
   const [side, setSide] = useState<Side>("all");
@@ -100,18 +123,7 @@ export default function Injuries({ report, games, onSelect }: Props) {
       </section>
       {!shown.length ? <div className="card empty">No games on the slate.</div> : (
         <div className="inj-grid">
-          {shown.map((g) => {
-            const [, , away, home] = g.game_id.split("_");
-            return (
-              <article className="card inj-card" key={g.game_id}>
-                <header className="ml-head"><b>{g.label}</b><span className="mut">{kickoff(g.gameday, g.gametime)}</span></header>
-                <div className="inj-teams">
-                  <Team team={away} home={false} players={report.teams[away] ?? []} side={side} showReserve={showReserve} onSelect={onSelect} />
-                  <Team team={home} home players={report.teams[home] ?? []} side={side} showReserve={showReserve} onSelect={onSelect} />
-                </div>
-              </article>
-            );
-          })}
+          {shown.map((g) => <GameInjuries key={g.game_id} game={g} report={report} side={side} showReserve={showReserve} onSelect={onSelect} />)}
         </div>
       )}
     </div>

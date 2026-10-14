@@ -6,12 +6,12 @@ import SortBar from "./SortBar";
 import Spark from "./Spark";
 import WeatherChip from "./WeatherChip";
 
-export default function PicksTable({ picks, onSelect, weather = {} }: { picks: Pick[]; onSelect: (p: Pick) => void; weather?: Record<string, GameWeather | null | undefined> }) {
+export default function PicksTable({ picks, onSelect, weather = {}, empty }: { picks: Pick[]; onSelect: (p: Pick) => void; weather?: Record<string, GameWeather | null | undefined>; empty?: string }) {
   const { sorted, toggle, arrow } = useSort(picks, "ev");
   const th = (key: string, label: string, title?: string) => (
     <th scope="col" onClick={() => toggle(key)} title={title} aria-sort="none" className="sortable">{label}{arrow(key)}</th>
   );
-  if (!picks.length) return <div className="card empty">No plays clear the current filters. Try lowering Min EV (it can go below 0) to see the closest ones.</div>;
+  if (!picks.length) return <div className="card empty">{empty ?? <>No plays clear the current filters. Try lowering Min EV (it can go below 0) to see the closest ones.</>}</div>;
   return (
     <>
     <SortBar toggle={toggle} arrow={arrow} options={[["ev", "EV"], ["prob", "Win prob"], ["edge_yds", "Edge"], ["mu", "Proj"], ["name", "Name"]]} />

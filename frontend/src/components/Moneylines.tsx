@@ -14,7 +14,7 @@ interface Props {
 }
 
 /** "LV by 3.0" from a home margin; "Pick'em" near zero. */
-function favored(g: MoneylineGame, m: number, digits = 1) {
+export function favored(g: MoneylineGame, m: number, digits = 1) {
   const [away, home] = g.sides;
   return Math.abs(m) < 0.05 ? "Pick'em" : `${(m > 0 ? home : away).team} by ${Math.abs(m).toFixed(digits)}`;
 }
@@ -35,6 +35,34 @@ function SideRow({ s }: { s: MoneylineSide }) {
       </td>
       <td data-label="EV">{s.ev == null ? "–" : <span className={s.ev > 0 ? "ev-pill" : "mut"}>{signedPct(s.ev)}</span>}</td>
     </tr>
+  );
+}
+
+/** One game: both teams' win chances as a bar, then each side's model, market and blended chance with the best price. */
+export function MoneylineCard({ g }: { g: MoneylineGame }) {
+  const [away, home] = g.sides;
+  return (
+    <article className="card ml-card">
+      <header className="ml-head">
+        <b>{g.label}</b><span className="mut">{kickoff(g.gameday, g.gametime)}</span>
+      </header>
+      <div className="ml-bar" role="img" aria-label={`${away.team} ${pct(away.prob, 0)}, ${home.team} ${pct(home.prob, 0)}`}>
+        <i className="away" style={{ width: `${away.prob * 100}%` }}>{away.team} {pct(away.prob, 0)}</i>
+        <i className="home" style={{ width: `${home.prob * 100}%` }}>{home.team} {pct(home.prob, 0)}</i>
+      </div>
+      <div className="scroll">
+        <table className="ml-table">
+          <thead><tr><th>Team</th><th title="The team-rating model alone">Model</th><th title="No-vig consensus across every book">Market</th>
+            <th title="Chance to win: the blend used for EV">Win %</th><th title="Best moneyline">Price</th><th>EV</th></tr></thead>
+          <tbody><SideRow s={away} /><SideRow s={home} /></tbody>
+        </table>
+      </div>
+      <p className="mut ml-foot">
+        Model margin: {favored(g, g.margin)}
+        {g.spread != null && <> · market spread: {favored(g, g.spread)}</>}
+        {away.books > 0 && <> · {away.books} book{away.books === 1 ? "" : "s"}</>}
+      </p>
+    </article>
   );
 }
 
@@ -61,32 +89,7 @@ export default function Moneylines({ games, books, book, marketWeight, onBook, o
       </section>
       {!games.length ? <div className="card empty">No team win probabilities yet. Run the model (Refresh data) to compute them.</div> : (
         <div className="ml-grid">
-          {games.map((g) => {
-            const [away, home] = g.sides;
-            return (
-              <article className="card ml-card" key={g.game_id}>
-                <header className="ml-head">
-                  <b>{g.label}</b><span className="mut">{kickoff(g.gameday, g.gametime)}</span>
-                </header>
-                <div className="ml-bar" role="img" aria-label={`${away.team} ${pct(away.prob, 0)}, ${home.team} ${pct(home.prob, 0)}`}>
-                  <i className="away" style={{ width: `${away.prob * 100}%` }}>{away.team} {pct(away.prob, 0)}</i>
-                  <i className="home" style={{ width: `${home.prob * 100}%` }}>{home.team} {pct(home.prob, 0)}</i>
-                </div>
-                <div className="scroll">
-                  <table className="ml-table">
-                    <thead><tr><th>Team</th><th title="The team-rating model alone">Model</th><th title="No-vig consensus across every book">Market</th>
-                      <th title="Chance to win: the blend used for EV">Win %</th><th title="Best moneyline">Price</th><th>EV</th></tr></thead>
-                    <tbody><SideRow s={away} /><SideRow s={home} /></tbody>
-                  </table>
-                </div>
-                <p className="mut ml-foot">
-                  Model margin: {favored(g, g.margin)}
-                  {g.spread != null && <> · market spread: {favored(g, g.spread)}</>}
-                  {away.books > 0 && <> · {away.books} book{away.books === 1 ? "" : "s"}</>}
-                </p>
-              </article>
-            );
-          })}
+          {games.map((g) => <MoneylineCard key={g.game_id} g={g} />)}
         </div>
       )}
     </div>
