@@ -7,6 +7,8 @@ const leg = (o: Partial<Leg> = {}): Leg => ({
   odds: 100, book: "DraftKings", link: null, eventLink: null, alt: false, prob: 0.5, ev: 0, gameId: "g1", ...o,
 });
 
+const cl = (urls: string[]) => urls.map((url, i) => ({ url, gameId: `g${i}`, eventLink: null }));
+
 describe("odds math", () => {
   it("converts between American and decimal odds", () => {
     expect(toDecimal(150)).toBeCloseTo(2.5);
@@ -128,39 +130,46 @@ describe("open-all stepping", () => {
 
 describe("combined links", () => {
   it("builds one FanDuel URL carrying every selection", () => {
-    const c = combinedLink("FanDuel", [
+    const c = combinedLink("FanDuel", cl([
       "https://sportsbook.fanduel.com/addToBetslip?marketId=42.1&selectionId=11",
       "https://sportsbook.fanduel.com/addToBetslip?marketId=42.2&selectionId=22",
-    ]);
+    ]));
     expect(c?.url).toBe("https://sportsbook.fanduel.com/addToBetslip?marketId[0]=42.1&selectionId[0]=11&marketId[1]=42.2&selectionId[1]=22");
     expect(c?.count).toBe(2);
   });
-  it("joins DraftKings outcome ids into one URL", () => {
-    const c = combinedLink("DraftKings", [
-      "https://sportsbook.draftkings.com/?outcomes=0QA1%232_13L1Q1Q20",
-      "https://sportsbook.draftkings.com/?outcomes=0QA3%234_13L1Q2Q20",
-    ]);
-    expect(c?.url).toBe("https://sportsbook.draftkings.com/?outcomes=0QA1%232_13L1Q1Q20,0QA3%234_13L1Q2Q20");
+  const dkA = "https://sportsbook.draftkings.com/?outcomes=0QA1%232_13L1Q1Q20";
+  const dkB = "https://sportsbook.draftkings.com/?outcomes=0QA3%234_13L1Q2Q20";
+  it("joins DraftKings outcome ids from different games with '+'", () => {
+    const c = combinedLink("DraftKings", [{ url: dkA, gameId: "g1", eventLink: null }, { url: dkB, gameId: "g2", eventLink: null }]);
+    expect(c?.url).toBe("https://sportsbook.draftkings.com/featured?outcomes=0QA1%232_13L1Q1Q20+0QA3%234_13L1Q2Q20");
+    expect(c?.count).toBe(2);
+  });
+  it("opens same-game DraftKings legs as an SGP on the event page", () => {
+    const ev = "https://sportsbook.draftkings.com/event/34118279";
+    const c = combinedLink("DraftKings", [{ url: dkA, gameId: "g1", eventLink: ev }, { url: dkB, gameId: "g1", eventLink: ev }]);
+    expect(c?.url).toBe("https://sportsbook.draftkings.com/event/34118279?sgpmode=true&sgpselections=0QA1%232_13L1Q1Q20+0QA3%234_13L1Q2Q20");
   });
   it("declines when it can't combine safely", () => {
-    expect(combinedLink("FanDuel", ["https://x/addToBetslip?marketId=1&selectionId=2"])).toBeNull(); // single leg
-    expect(combinedLink("BetMGM", ["https://a", "https://b"])).toBeNull(); // format unknown
-    expect(combinedLink("FanDuel", ["https://x/y", "https://x/z"])).toBeNull(); // missing ids
+    expect(combinedLink("FanDuel", cl(["https://x/addToBetslip?marketId=1&selectionId=2"]))).toBeNull(); // single leg
+    expect(combinedLink("BetMGM", cl(["https://a", "https://b"]))).toBeNull(); // format unknown
+    expect(combinedLink("FanDuel", cl(["https://x/y", "https://x/z"]))).toBeNull(); // missing ids
+    expect(combinedLink("DraftKings", [{ url: dkA, gameId: "g1", eventLink: null }, { url: dkB, gameId: "g1", eventLink: null }])).toBeNull(); // SGP, no event id
+    expect(combinedLink("DraftKings", [dkA, dkB, dkA].map((url, i) => ({ url, gameId: i < 2 ? "g1" : "g2", eventLink: null })))).toBeNull(); // SGP inside a parlay
   });
 });
 
 describe("copy slip links", () => {
-  const dk = (id: string, o: string) => leg({ id, book: "DraftKings", link: `https://sportsbook.draftkings.com/?outcomes=${o}` });
+  const dk = (id: string, o: string) => leg({ id, book: "DraftKings", gameId: id, link: `https://sportsbook.draftkings.com/?outcomes=${o}` });
   const fd = (id: string, m: string, s: string) => leg({ id, book: "FanDuel", link: `https://sportsbook.fanduel.com/addToBetslip?marketId=${m}&selectionId=${s}` });
   it("copies the bare combined URL for a single book", () => {
-    expect(slipLinksText([dk("a", "A1"), dk("b", "B2")], "")).toBe("https://sportsbook.draftkings.com/?outcomes=A1,B2");
+    expect(slipLinksText([dk("a", "A1"), dk("b", "B2")], "")).toBe("https://sportsbook.draftkings.com/featured?outcomes=A1+B2");
   });
   it("copies the single link for a one-leg slip", () => {
     expect(slipLinksText([dk("a", "A1")], "")).toBe("https://sportsbook.draftkings.com/?outcomes=A1");
   });
   it("labels each book when several are on the slip", () => {
     const t = slipLinksText([dk("a", "A1"), dk("b", "B2"), fd("c", "42.1", "9")], "");
-    expect(t).toBe("DraftKings:\nhttps://sportsbook.draftkings.com/?outcomes=A1,B2\n\nFanDuel:\nhttps://sportsbook.fanduel.com/addToBetslip?marketId=42.1&selectionId=9");
+    expect(t).toBe("DraftKings:\nhttps://sportsbook.draftkings.com/featured?outcomes=A1+B2\n\nFanDuel:\nhttps://sportsbook.fanduel.com/addToBetslip?marketId=42.1&selectionId=9");
   });
   it("lists individual links for books without a combined format, and skips unlinked legs", () => {
     const m = (id: string, u: string) => leg({ id, book: "BetMGM", link: u });

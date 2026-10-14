@@ -46,8 +46,11 @@ export default function BetSlip() {
   const shareBase = onLocalhost && !IS_STATIC ? lanUrl : (window.location.origin + BASE).replace(/\/$/, "");
   // All of a book's linked legs in a single tab (only for books whose multi-selection link format we know)
   const combineFor = (book: string) => {
-    const links = openProgress(legs, book, state, []).direct.map((l) => legLink(l, state)).filter((u): u is string => !!u);
-    return combinedLink(book, links);
+    const direct = openProgress(legs, book, state, []).direct.flatMap((l) => {
+      const url = legLink(l, state);
+      return url ? [{ ...l, url }] : [];
+    });
+    return combinedLink(book, direct);
   };
   const noteCombined = (book: string, count: number) =>
     setCombinedMsg({ ...combinedMsg, [book]: `Opened one tab with ${count} legs. Check that all ${count} are on the ${book} slip before placing; if any are missing, use "one at a time".` });

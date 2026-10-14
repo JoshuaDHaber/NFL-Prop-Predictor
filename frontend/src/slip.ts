@@ -137,17 +137,18 @@ export function openProgress(legs: Leg[], book: string, state: string, opened: s
 }
 
 export interface CombinedLink { url: string; count: number; verified: boolean }
+export type CombinableLeg = { url: string } & Pick<Leg, "gameId" | "eventLink">;
 
 /**
  * One URL that adds several selections to a book's slip at once, built from the per-selection links the Odds API gives us.
  * Only books whose multi-selection format we know are supported; `verified: false` marks formats not yet confirmed against the live site.
  */
-export function combinedLink(book: string, links: string[]): CombinedLink | null {
-  if (links.length < 2) return null;
+export function combinedLink(book: string, legs: CombinableLeg[]): CombinedLink | null {
+  if (legs.length < 2) return null;
   if (book === "FanDuel") {
-    const pairs = links.map((l) => {
+    const pairs = legs.map(({ url }) => {
       try {
-        const u = new URL(l);
+        const u = new URL(url);
         return [u.searchParams.get("marketId"), u.searchParams.get("selectionId")] as const;
       } catch { return [null, null] as const; }
     });
@@ -156,9 +157,19 @@ export function combinedLink(book: string, links: string[]): CombinedLink | null
     return { url: `https://sportsbook.fanduel.com/addToBetslip?${q}`, count: pairs.length, verified: false };
   }
   if (book === "DraftKings") {
-    const ids = links.map((l) => l.split("outcomes=")[1]);
+    // DraftKings' own share code joins ids with "+" (each URI-encoded); same-game legs only combine as an SGP on the event page.
+    const ids = legs.map(({ url }) => {
+      try { return new URL(url).searchParams.get("outcomes"); } catch { return null; }
+    });
     if (ids.some((i) => !i)) return null;
-    return { url: `https://sportsbook.draftkings.com/?outcomes=${ids.join(",")}`, count: ids.length, verified: false };
+    const joined = ids.map((i) => encodeURIComponent(i!)).join("+");
+    const games = new Set(legs.map((l) => l.gameId));
+    if (games.size === legs.length)
+      return { url: `https://sportsbook.draftkings.com/featured?outcomes=${joined}`, count: ids.length, verified: false };
+    const eventId = /\/event\/(\d+)/.exec(legs[0].eventLink ?? "")?.[1];
+    if (games.size === 1 && eventId)
+      return { url: `https://sportsbook.draftkings.com/event/${eventId}?sgpmode=true&sgpselections=${joined}`, count: ids.length, verified: false };
+    return null;  // a same-game group inside a wider parlay (SGPx) has no URL form
   }
   return null;
 }
@@ -170,8 +181,9 @@ export function combinedLink(book: string, links: string[]): CombinedLink | null
  */
 export function slipLinksText(legs: Leg[], state: string): string {
   const blocks = groupByBook(legs).map(([book, ls]) => {
-    const urls = ls.filter((l) => linkStatus(l, state) === "direct").map((l) => legLink(l, state)!);
-    const combined = combinedLink(book, urls);
+    const direct = ls.filter((l) => linkStatus(l, state) === "direct").map((l) => ({ ...l, url: legLink(l, state)! }));
+    const urls = direct.map((l) => l.url);
+    const combined = combinedLink(book, direct);
     const out = combined ? [combined.url] : urls;
     return { book, urls: out, skipped: ls.length - urls.length };
   }).filter((b) => b.urls.length > 0);
