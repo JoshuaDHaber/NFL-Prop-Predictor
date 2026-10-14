@@ -85,6 +85,17 @@ def load_roster(season):
     return dict(zip(r[r.status == "ACT"].gsis_id, r[r.status == "ACT"].team))
 
 
+def load_reserve(season):
+    """Players on a reserve list (IR, PUP, ...), from each team's latest week in the roster file. Empty if unavailable."""
+    try:
+        r = _get_csv(f"{BASE}/rosters/roster_{season}.csv", f"roster_{season}.csv", max_age_hours=3,
+                     usecols=["team", "week", "status", "status_description_abbr", "gsis_id", "full_name", "position"])
+    except Exception:
+        return pd.DataFrame()
+    r = r[r.week == r.groupby("team").week.transform("max")]
+    return r[r.status == "RES"].copy()
+
+
 def load_headshots(season):
     return _headshots(season, int(time.time() // 3600))
 

@@ -381,3 +381,18 @@ def test_the_plan_says_whether_the_model_will_refit_and_what_calibration_it_has(
     assert client.get("/api/refresh/plan").json()["will_recalibrate"] is True            # nothing to reuse: it must refit
     thin = client.get("/api/refresh/plan", params={"odds": "thin"}).json()
     assert thin["games"] and all(g["reason"] in ("missing", "thin") for g in thin["games"])
+
+
+def test_injury_report_covers_teams_on_the_slate(client, monkeypatch):
+    rows = [dict(week=4, team=t, gsis_id=pid, full_name=n, position=pos, report_status=st, report_primary_injury="Knee",
+                 practice_primary_injury="Knee", practice_status="Did Not Participate In Practice")
+            for t, pid, n, pos, st in [("AAA", "p0", "Alpha Back", "RB", "Questionable"), ("BBB", "x1", "Their Corner", "CB", "Out"),
+                                       ("ZZZ", "x2", "Not Playing", "WR", "Out")]]
+    monkeypatch.setattr(main.data, "load_injuries", lambda season: main.pd.DataFrame(rows))
+    monkeypatch.setattr(main.data, "load_reserve", lambda season: main.pd.DataFrame())
+    main._injury_report.cache_clear()
+    rep = client.get("/api/injuries").json()
+    main._injury_report.cache_clear()
+    assert rep["week"] == 4 and rep["report_week"] == 4 and set(rep["teams"]) == {"AAA", "BBB"}
+    assert rep["teams"]["AAA"][0]["kind"] == "rush"            # projected: the UI can open his drawer
+    assert rep["teams"]["BBB"][0]["side"] == "def" and rep["teams"]["BBB"][0]["kind"] is None

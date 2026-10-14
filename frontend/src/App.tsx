@@ -4,6 +4,7 @@ import { api, type Filters, type Kind } from "./api";
 import BetSlip from "./components/BetSlip";
 import Controls from "./components/Controls";
 import GameWeather from "./components/GameWeather";
+import Injuries from "./components/Injuries";
 import ModelCheck from "./components/ModelCheck";
 import Moneylines from "./components/Moneylines";
 import ParlayTiles from "./components/ParlayTiles";
@@ -25,8 +26,8 @@ const AdminPage = lazy(() => importOrReload(() => import("./components/AdminPage
 /** The owner's sync page lives at <base>/admin; everything else is the public app. */
 const IS_ADMIN_PAGE = !IS_STATIC && window.location.pathname.slice(BASE.length - 1).replace(/\/+$/, "") === "/admin";
 
-type Tab = "picks" | "parlays" | "moneyline" | "projections" | "model" | "admin";
-const TABS: [Tab, string][] = [["picks", "Best props"], ["parlays", "Parlays"], ["moneyline", "Moneyline"], ["projections", "Projections"], ["model", "Model check"],
+type Tab = "picks" | "parlays" | "moneyline" | "injuries" | "projections" | "model" | "admin";
+const TABS: [Tab, string][] = [["picks", "Best props"], ["parlays", "Parlays"], ["moneyline", "Moneyline"], ["injuries", "Injuries"], ["projections", "Projections"], ["model", "Model check"],
   ...(IS_STATIC ? [] : [["admin", "Admin"] as [Tab, string]])];
 // Parlays rank by win probability, not EV, so they price every play (any EV) at the default market weight
 const PARLAY_FILTERS: Filters = { kind: "all", side: "all", game: "all", book: "all", q: "", minEv: -1, marketWeight: 0.35, flagged: false };
@@ -87,6 +88,7 @@ function PublicApp() {
   const altProps = useMemo(() => activeBook ? ladderProps(ladderEntries, activeBook) : [], [activeBook, ladderEntries]);
   const moneylines = useQuery({ queryKey: ["moneylines", debounced.book, debounced.marketWeight], queryFn: () => api.moneylines(debounced.book, debounced.marketWeight),
     enabled: tab === "moneyline", placeholderData: (p) => p });
+  const injuries = useQuery({ queryKey: ["injuries"], queryFn: api.injuries, enabled: tab === "injuries", refetchInterval: 15 * 60_000 });
   const projections = useQuery({ queryKey: ["projections", debounced], queryFn: () => api.projections(debounced), enabled: tab === "projections", placeholderData: (p) => p });
 
   if (meta.isLoading) return (
@@ -106,7 +108,7 @@ function PublicApp() {
       value: <>{playLabel(p.kind, p.side, p.line)} <em>{signedPct(p.ev)} EV</em></>, caption: `${americanOdds(p.odds)} at ${p.book}`,
       onClick: () => setSelected({ id: p.player_id, kind: p.kind }),
     }))
-    : tab === "parlays" || tab === "admin" ? []
+    : tab === "parlays" || tab === "admin" || tab === "injuries" ? []
     : tab === "moneyline"
       ? (moneylines.data ?? []).flatMap((g) => g.sides.map((s) => ({ g, s }))).filter(({ s }) => s.ev != null && s.ev > 0)
         .sort((a, b) => b.s.ev! - a.s.ev!).slice(0, 3).map(({ g, s }) => ({
@@ -171,7 +173,7 @@ function PublicApp() {
 
       <TopTiles tiles={tiles} />
 
-      {tab !== "model" && tab !== "parlays" && tab !== "moneyline" && tab !== "admin" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
+      {tab !== "model" && tab !== "parlays" && tab !== "moneyline" && tab !== "admin" && tab !== "injuries" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
       {(tab === "picks" || tab === "projections") && selectedGame && <GameWeather game={selectedGame} fit={m.weather} />}
 
       {tab === "picks" && (picks.isLoading ? <p className="mut">Pricing plays…</p> :
@@ -182,6 +184,8 @@ function PublicApp() {
       {tab === "moneyline" && (moneylines.isLoading ? <p className="mut">Pricing moneylines…</p> :
         <Moneylines games={moneylines.data ?? []} books={m.books} book={filters.book} marketWeight={filters.marketWeight}
           onBook={(b) => setFilters({ ...filters, book: b })} onMarketWeight={(w) => setFilters({ ...filters, marketWeight: w })} />)}
+      {tab === "injuries" && (injuries.isLoading ? <p className="mut">Loading the injury report…</p> : injuries.error ? <p className="err">Couldn't load the injury report.</p> :
+        <Injuries report={injuries.data!} games={m.games} onSelect={(id, kind) => setSelected({ id, kind })} />)}
       {tab === "projections" && (projections.isLoading ? <p className="mut">Loading…</p> :
         <ProjectionsTable rows={projections.data ?? []} weather={weatherByGame} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
       {tab === "model" && <ModelCheck meta={m} />}

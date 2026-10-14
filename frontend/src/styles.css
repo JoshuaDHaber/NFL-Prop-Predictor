@@ -337,3 +337,24 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
 .admin-signin p { margin: 0; } .admin-signin input { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; }
 @media (max-width: 600px) { .admin-signin input { font-size: 16px; } }
 .admin-signout { display: flex; justify-content: flex-end; }
+
+/* ---------- injuries ---------- */
+.inj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 520px), 1fr)); gap: 12px; }
+.inj-teams { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line); }
+.inj-team { padding: 10px 14px 12px; min-width: 0; } .inj-team + .inj-team { border-left: 1px solid var(--line); }
+.inj-team h4 { margin: 0; font-size: 15px; } .inj-sum { margin: 2px 0 6px; }
+.inj-team h5 { margin: 10px 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--mut); }
+.inj-list { list-style: none; margin: 0; padding: 0; }
+.inj-row { display: grid; grid-template-columns: 84px 34px 1fr; gap: 6px; align-items: baseline; padding: 4px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.inj-row:last-child { border-bottom: 0; }
+.inj-row .pos-pill { font-size: 10px; padding: 1px 0; text-align: center; }
+.inj-name { min-width: 0; overflow-wrap: anywhere; } .inj-name .link { font-size: inherit; font-weight: 600; text-align: left; }
+.inj-badge { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; text-align: center; white-space: nowrap; justify-self: start; }
+.inj-badge.out { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
+.inj-badge.doubt { background: color-mix(in srgb, #ea580c 16%, transparent); color: #c2410c; }
+.inj-badge.quest { background: var(--warn-bg); color: var(--warn); }
+.inj-badge.banged { background: var(--chip); color: var(--acc); }
+.inj-badge.rest { background: color-mix(in srgb, var(--mut) 14%, transparent); color: var(--mut); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .inj-badge.doubt { color: #fb923c; } }
+:root[data-theme="dark"] .inj-badge.doubt { color: #fb923c; }
+@media (max-width: 560px) { .inj-teams { grid-template-columns: 1fr; } .inj-team + .inj-team { border-left: 0; border-top: 1px solid var(--line); } }

@@ -107,6 +107,14 @@ export interface MoneylineSide {
   odds: number | null; book: string | null; ev: number | null; kelly: number | null; link: string | null; event_link: string | null;
 }
 export interface MoneylineGame { game_id: string; label: string; gameday: string; gametime: string; margin: number; spread: number | null; sides: MoneylineSide[] }
+/** This week's injury report per team (both sides of the ball) plus reserve lists. Times are UTC without a zone suffix. */
+export interface InjuredPlayer {
+  player_id: string; name: string; pos: string; team: string; side: "off" | "def" | "st";
+  status: string;     // Out | Doubtful | Questionable | "" (no game status) | IR | PUP | NFI | Reserve
+  injury: string; practice: "DNP" | "Limited" | "Full" | ""; rest: boolean;
+  kind: Kind | null;  // a market the app projects for him (opens his drawer)
+}
+export interface InjuryReport { season: number | null; week: number | null; report_week: number | null; fetched_at: string | null; teams: Record<string, InjuredPlayer[]> }
 export interface AltFetchResult { kinds: string[]; alt_quotes: number; linked: number; credits_remaining: string | null }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -149,6 +157,7 @@ const liveApi = {
   projections: (f: Filters) => get<Projection[]>("projections", { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, game_id: f.game, q: f.q }),
   player: (id: string, marketWeight: number) => get<PlayerDetail>(`players/${id}`, { market_weight: marketWeight }),
   moneylines: (book: string, marketWeight: number) => get<MoneylineGame[]>("moneylines", { book, market_weight: marketWeight }),
+  injuries: () => get<InjuryReport>("injuries"),
   /** oddsRange hides prices outside -N..+N (American); 0 shows everything. */
   lines: (id: string, kind: Kind, oddsRange = 300) => get<Ladder>(`players/${id}/lines`, { kind, odds_range: oddsRange }),
   fetchAlt: async (id: string): Promise<AltFetchResult> => {
@@ -206,6 +215,7 @@ const staticApi: typeof liveApi = {
   },
   player: (id) => file<PlayerDetail>(`players/${id}.json`),
   moneylines: (book) => file<MoneylineGame[]>(`moneylines/${book === "all" ? "all" : slug(book)}.json`).catch(() => []),
+  injuries: () => file<InjuryReport>("injuries.json").catch(() => ({ season: null, week: null, report_week: null, fetched_at: null, teams: {} })),
   lines: async (id, kind, range = 300) => {
     const l = await file<Ladder>(`ladders/${id}_${kind}.json`);
     return { ...l, quotes: limitOdds(l.quotes, range, kind) };

@@ -24,10 +24,11 @@ from sqlalchemy.orm import Session
 from . import config, pipeline, scheduler
 from .db import AltLine, OddsLine, Projection, Run, SessionLocal, SyncRun, current_lines
 from .engine import data, model, odds
+from .engine import injuries as injm
 from .engine import moneyline as mlm
 from .engine.ladder import build_ladder
 from .engine.picks import build_picks
-from .schemas import (AdminState, AltFetchResult, AutoSync, CreditStatus, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, ProjectionOut,
+from .schemas import (AdminState, AltFetchResult, AutoSync, CreditStatus, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, InjuryReport, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, ProjectionOut,
                       RefreshRequest, RunInfo)
 
 @asynccontextmanager
@@ -185,6 +186,7 @@ _job = scheduler._job
 def _release_memory():
     """Hand a finished job's memory back to the OS (matters on a 512 MB host) and drop caches the new data outdates."""
     import gc
+    _injury_report.cache_clear()
     _stats.cache_clear()   # game logs in the player drawer come from the stats files, which a sync just refreshed
     _pick_cache.clear()
     gc.collect()
@@ -294,6 +296,34 @@ def build_moneylines(db: Session, run: Optional[Run], market_weight: float = 0.3
     if not run or not run.teams:
         return []
     return mlm.price(run.teams, current_lines(db), market_weight, book)
+
+
+@app.get("/api/injuries", response_model=InjuryReport)
+def injuries(db: Session = Depends(get_db)):
+    """This week's injury report for every team on the slate, both sides of the ball, plus reserve lists (IR, PUP)."""
+    return build_injuries(db, latest_run(db))
+
+
+def build_injuries(db: Session, run: Optional[Run]) -> InjuryReport:
+    if not run:
+        return InjuryReport()
+    games = [g for (g,) in db.execute(select(Projection.game_id).where(Projection.run_id == run.id).distinct())]
+    teams = {t for g in games for t in g.split("_")[2:4]}
+    order = {"pass": 0, "rush": 1, "rec": 2, "recs": 3, "rr": 4, "td": 5}
+    props = {}
+    for pid, kind in db.execute(select(Projection.player_id, Projection.kind).where(Projection.run_id == run.id)):
+        if pid not in props or order.get(kind, 9) < order.get(props[pid], 9):
+            props[pid] = kind
+    rep = _injury_report(run.season, run.week, int(time.time() // 900))  # the injury file is re-fetched at most hourly
+    path = os.path.join(data.CACHE, f"injuries_{run.season}.csv")
+    fetched = datetime.utcfromtimestamp(os.path.getmtime(path)).isoformat() if os.path.exists(path) else None
+    out = {t: [dict(p, kind=props.get(p["player_id"])) for p in ps] for t, ps in rep["teams"].items() if t in teams}
+    return InjuryReport(season=run.season, week=run.week, report_week=rep["report_week"], fetched_at=fetched, teams=out)
+
+
+@lru_cache(maxsize=2)
+def _injury_report(season: int, week: int, _slot: int) -> dict:
+    return injm.build(data.load_injuries(season), data.load_reserve(season), week)
 
 
 @app.get("/api/players/{player_id}", response_model=PlayerDetail)

@@ -244,6 +244,27 @@ class MoneylineSide(BaseModel):
     event_link: Optional[str] = None
 
 
+class InjuredPlayer(BaseModel):
+    player_id: str
+    name: str
+    pos: str
+    team: str
+    side: Literal["off", "def", "st"]
+    status: str             # Out | Doubtful | Questionable | "" (no game status) | IR | PUP | NFI | Reserve
+    injury: str
+    practice: str           # DNP | Limited | Full | "" (not on the practice report)
+    rest: bool              # a veteran's rest day, not an injury
+    kind: Optional[str] = None  # a market the app projects for him (opens his player drawer)
+
+
+class InjuryReport(BaseModel):
+    season: Optional[int] = None
+    week: Optional[int] = None
+    report_week: Optional[int] = None   # the week the report is from (earlier than week until this week's is out)
+    fetched_at: Optional[str] = None
+    teams: dict[str, list[InjuredPlayer]] = {}
+
+
 class MoneylineGame(BaseModel):
     game_id: str
     label: str
