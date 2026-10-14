@@ -3,7 +3,7 @@ import json
 import os
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, create_engine
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 from . import config
@@ -134,6 +134,15 @@ def ensure_columns(eng) -> bool:
     return added
 
 
+def _sqlite_pragmas(dbapi_conn, _record):
+    """WAL lets the site keep reading while a sync writes; busy_timeout waits out a lock instead of failing."""
+    cur = dbapi_conn.cursor()
+    cur.execute("PRAGMA journal_mode=WAL")
+    cur.execute("PRAGMA synchronous=NORMAL")  # safe with WAL; fewer fsyncs per commit
+    cur.execute("PRAGMA busy_timeout=10000")
+    cur.close()
+
+
 def make_engine(url=None):
     url = url or config.DATABASE_URL
     if url.startswith("sqlite:///") and not url.endswith(":memory:"):
@@ -143,6 +152,8 @@ def make_engine(url=None):
         from sqlalchemy.pool import StaticPool
         kwargs["poolclass"] = StaticPool
     eng = create_engine(url, **kwargs)
+    if url.startswith("sqlite") and not url.endswith(":memory:"):
+        event.listen(eng, "connect", _sqlite_pragmas)
     Base.metadata.create_all(eng)
     if ensure_columns(eng):
         backfill_game_ids(eng)
