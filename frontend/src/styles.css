@@ -336,3 +336,4 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
 .admin-signin { max-width: 360px; margin-top: 20px; padding: 16px; display: flex; flex-direction: column; gap: 10px; overflow: visible; }
 .admin-signin p { margin: 0; } .admin-signin input { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; }
 @media (max-width: 600px) { .admin-signin input { font-size: 16px; } }
+.admin-signout { display: flex; justify-content: flex-end; }

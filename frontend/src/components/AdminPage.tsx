@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fragment, useEffect, useState } from "react";
+import React, { Fragment, useEffect, useState } from "react";
 import { api, type ScheduleSlot, type SyncRun } from "../api";
 import { setToken, useToken } from "../auth";
 import { BASE } from "../env";
@@ -41,8 +41,9 @@ function SignIn({ wrong }: { wrong: boolean }) {
   );
 }
 
-/** Owner-only page: what the schedule will run and when, what each run did, and the Odds API key's balance. */
-export default function AdminPage() {
+/** Owner-only page: what the schedule will run and when, what each run did, and the Odds API key's balance.
+ *  Standalone at /admin, or `embedded` as a tab of the main app (no page header of its own). */
+export default function AdminPage({ embedded = false }: { embedded?: boolean }) {
   const qc = useQueryClient();
   const token = useToken();
   const [open, setOpen] = useState<number | null>(null);
@@ -54,19 +55,23 @@ export default function AdminPage() {
   const runNow = useMutation({ mutationFn: api.runSlotNow, onSuccess: () => qc.invalidateQueries({ queryKey: ["admin"] }) });
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
 
-  const header = (
+  const signOut = token && <button className="link" onClick={() => { setToken(""); qc.removeQueries({ queryKey: ["admin"] }); }}>Sign out</button>;
+  const header = embedded ? null : (
     <header>
       <div>
         <h1><span className="logo">🏈</span> Sync <span className="grad">admin</span></h1>
         <div className="sub"><a href={BASE}>← Back to the site</a></div>
       </div>
-      {token && <button className="link" onClick={() => { setToken(""); qc.removeQueries({ queryKey: ["admin"] }); }}>Sign out</button>}
+      {signOut}
     </header>
   );
+  const page = (children: React.ReactNode, cls = "") => embedded
+    ? <div className={`admin-page ${cls}`}>{children}</div>
+    : <div className={`wrap admin-page ${cls}`}><ThemeToggle />{header}{children}</div>;
   const status = (state.error as { status?: number } | null)?.status;
-  if (status === 403 || status === 429) return <div className="wrap"><ThemeToggle />{header}<SignIn wrong={!!token} /></div>;
-  if (state.isLoading) return <div className="wrap"><ThemeToggle />{header}<p className="mut">Loading…</p></div>;
-  if (state.error || !state.data) return <div className="wrap"><ThemeToggle />{header}<p className="err">{(state.error as Error)?.message}</p></div>;
+  if (status === 403 || status === 429) return page(<SignIn wrong={!!token} />);
+  if (state.isLoading) return page(<p className="mut">Loading…</p>);
+  if (state.error || !state.data) return page(<p className="err">{(state.error as Error)?.message}</p>);
 
   const d = state.data;
   const job = d.job;
@@ -78,9 +83,8 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="wrap admin-page">
-      <ThemeToggle />
-      {header}
+    page(<>
+      {embedded && signOut && <div className="admin-signout">{signOut}</div>}
 
       {c.low && (
         <div className="banner">
@@ -165,6 +169,6 @@ export default function AdminPage() {
           </tbody>
         </table>
       </div>
-    </div>
+    </>)
   );
 }
