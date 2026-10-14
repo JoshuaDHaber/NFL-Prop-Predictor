@@ -15,14 +15,19 @@ export interface Redistribution {
   summary: string;
 }
 
-export interface PlanGame { game_id: string; label: string; gameday: string; need_main: string[]; need_alt: boolean; alt_kinds?: string[]; credits: number; reason?: string; stored_quotes?: number }
-/** What a sync would do right now and what it would cost (admin only). */
-export interface SyncPlan {
-  season: number | null; week: number | null; total_games: number; games: PlanGame[]; credits: number;
-  will_run_projections: boolean; has_odds_key: boolean;
-  will_recalibrate?: boolean;   // true: the model run refits its calibration (slow); false: reuses the saved one
-  calibration?: { at: string; season: number; week: number } | null;
+/** The sync schedule's state for the admin page. Times are UTC without a zone suffix, like the rest of the API. */
+export interface AutoSync { enabled: boolean; next_at: string | null; next_label: string | null }
+export interface CreditStatus { remaining: number | null; floor: number; low: boolean; key_hint: string | null; checked_at: string | null; error: string | null }
+export interface SyncRun {
+  id: number; slot: string; label: string; trigger: "schedule" | "catch-up" | "manual";
+  scheduled_for: string | null; started_at: string; finished_at: string | null;
+  status: "running" | "ok" | "partial" | "error" | "skipped";
+  odds_mode: string; full: boolean; season: number | null; week: number | null;
+  games_fetched: number; credits_before: number | null; credits_after: number | null; summary: string; error: string | null;
 }
+export interface SyncRunDetail extends SyncRun { log: string[] }
+export interface ScheduleSlot { id: string; label: string; when: string; odds_mode: string; full: boolean; why: string; next_at: string; last_run: SyncRun | null }
+export interface AdminState { auto_sync: AutoSync; timezone: string; credits: CreditStatus; slots: ScheduleSlot[]; runs: SyncRun[]; job: JobStatus; can_run_projections: boolean }
 
 export interface BacktestStat {
   n: number; mae_model: number; mae_naive: number; bias: number; metric?: "mae" | "brier"; calibration?: CalibrationBin[];
@@ -70,6 +75,7 @@ export interface Meta {
   calibration?: { at: string; season: number; week: number; reused_from_run?: number } | null;
   can_write: boolean;
   can_run_projections: boolean;
+  auto_sync?: AutoSync | null;
 }
 export interface Projection {
   player_id: string; name: string; pos: string; team: string; opp: string; home: boolean; kind: Kind;
@@ -150,15 +156,16 @@ const liveApi = {
     if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail);
     return res.json();
   },
-  refreshPlan: async (odds: "none" | "missing" | "thin" | "all", full = false): Promise<SyncPlan> => {
-    const res = await request(`/api/refresh/plan?odds=${odds}&full=${full}`); // not get(): that helper drops the value "all"
-    if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail);
+  /** Admin page (needs the admin password). 403 means the password is missing or wrong. */
+  admin: async (): Promise<AdminState> => {
+    const res = await request("/api/admin");
+    if (!res.ok) throw Object.assign(new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail), { status: res.status });
     return res.json();
   },
-  refresh: async ({ odds, full = false }: { odds: "none" | "missing" | "thin" | "all"; full?: boolean }): Promise<JobStatus> => {
-    const res = await request("/api/refresh", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ odds, full }) });
-    if (!res.ok) throw new Error(await res.text());
+  adminRun: (id: number) => get<SyncRunDetail>(`admin/runs/${id}`),
+  runSlotNow: async (slot: string): Promise<JobStatus> => {
+    const res = await request(`/api/admin/run/${slot}`, { method: "POST" });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail);
     return res.json();
   },
   status: () => get<JobStatus>("refresh/status"),
@@ -204,8 +211,9 @@ const staticApi: typeof liveApi = {
     return { ...l, quotes: limitOdds(l.quotes, range, kind) };
   },
   fetchAlt: async () => unavailable(),
-  refresh: async () => unavailable(),
-  refreshPlan: async () => unavailable(),
+  admin: async () => unavailable(),
+  adminRun: async () => unavailable(),
+  runSlotNow: async () => unavailable(),
   status: async () => ({ state: "idle", started_at: null, finished_at: null, log: [], error: null }),
 };
 

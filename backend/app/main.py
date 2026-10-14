@@ -1,7 +1,6 @@
 """FastAPI app: JSON API for projections, priced picks and data refresh (+ serves the built React app)."""
 import hmac
 import os
-import threading
 import time
 from urllib.parse import unquote
 from contextlib import asynccontextmanager
@@ -22,13 +21,13 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import config, pipeline
-from .db import AltLine, OddsLine, Projection, Run, SessionLocal, current_lines
+from . import config, pipeline, scheduler
+from .db import AltLine, OddsLine, Projection, Run, SessionLocal, SyncRun, current_lines
 from .engine import data, model, odds
 from .engine import moneyline as mlm
 from .engine.ladder import build_ladder
 from .engine.picks import build_picks
-from .schemas import (AltFetchResult, SyncPlan, GameLogEntry, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, ProjectionOut,
+from .schemas import (AdminState, AltFetchResult, AutoSync, CreditStatus, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, ProjectionOut,
                       RefreshRequest, RunInfo)
 
 @asynccontextmanager
@@ -37,7 +36,11 @@ async def lifespan(_: FastAPI):
         n = pipeline.seed_odds_from_csv(CSV_SEED, s)
         if n:
             print(f"Seeded {n} odds lines from {CSV_SEED}")
+    scheduler.after_job = _release_memory
+    if scheduler.start():
+        print("Scheduled syncs are on (AUTO_SYNC)")
     yield
+    scheduler.stop()
 
 
 app = FastAPI(title="NFL Prop Predictor", version="1.0", lifespan=lifespan)
@@ -175,10 +178,8 @@ def records(df: pd.DataFrame) -> list[dict]:
     return df.replace({np.nan: None}).to_dict("records")
 
 
-# ---------- job runner ----------
-_job = {"state": "idle", "started_at": None, "finished_at": None, "log": [], "error": None,
-        "stage": None, "step": 0, "steps": 0, "detail": None, "progress": None}
-_lock = threading.Lock()
+# ---------- job runner (app/scheduler.py runs jobs; the same state object is shared here) ----------
+_job = scheduler._job
 
 
 def _release_memory():
@@ -192,35 +193,6 @@ def _release_memory():
         ctypes.CDLL("libc.so.6").malloc_trim(0)
     except (OSError, AttributeError):
         pass  # not glibc (e.g. macOS): nothing to trim
-
-
-def _run_job(odds_mode: str, full: bool = False):
-    run_model = config.PROJECTIONS_ON_SERVER()
-    steps = int(run_model) + int(odds_mode != "none")
-    _job.update(steps=steps, step=0, stage=None, detail=None, progress=None)
-
-    def log(msg):
-        _job["log"].append(msg)
-        _job["detail"] = msg.strip()
-
-    def odds_progress(done: int, total: int):
-        _job.update(progress=(done / total) if total else 1.0, detail=f"game {min(done + 1, total)} of {total}")
-
-    try:
-        if run_model:
-            _job.update(step=1, stage="Running the model" + (" (full recalibration)" if full else ""), progress=None)
-            pipeline.run_projections(log=log, full=full)
-        else:
-            log("Projections run off-server on this host; fetching odds only")
-        if odds_mode != "none":
-            _job.update(step=steps, stage="Fetching odds", detail=None, progress=0.0)
-            pipeline.refresh_odds(odds_mode, log=log, progress=odds_progress)
-        _job.update(state="done", stage="Done", detail=None, progress=1.0)
-    except Exception as e:  # surfaced to the UI
-        _job["state"], _job["error"] = "error", f"{type(e).__name__}: {e}"
-    finally:
-        _job["finished_at"] = datetime.utcnow().isoformat()
-        _release_memory()
 
 
 # ---------- routes ----------
@@ -247,7 +219,7 @@ def build_meta(db: Session, lan_url: Optional[str] = None) -> Meta:
                 run=None if not run else RunInfo(id=run.id, season=run.season, week=run.week,
                                                   created_at=run.created_at.isoformat(), excluded=run.excluded),
                 backtest=backtest, odds=_odds_info(db), games=games, has_odds_key=bool(config.ODDS_API_KEY()),
-                job=JobStatus(**_job), lan_url=lan_url,
+                job=JobStatus(**_job), lan_url=lan_url, auto_sync=_auto_sync(),
                 books=sorted(b for (b,) in db.execute(select(OddsLine.book).distinct()).all()))
 
 
@@ -425,12 +397,9 @@ def _game_logs(player_id: str, kinds: list[str], season: int, n: int = 12) -> di
 
 @app.post("/api/refresh", response_model=JobStatus, status_code=202)
 def refresh(req: RefreshRequest, bg: BackgroundTasks):
-    with _lock:
-        if _job["state"] == "running":
-            raise HTTPException(409, "A refresh is already running")
-        _job.update(state="running", started_at=datetime.utcnow().isoformat(), finished_at=None, log=[], error=None,
-                    stage="Starting", step=0, steps=0, detail=None, progress=None)
-    bg.add_task(_run_job, req.odds, req.full)
+    if not scheduler.claim():
+        raise HTTPException(409, "A refresh is already running")
+    bg.add_task(scheduler.run, req.odds, req.full)
     return JobStatus(**_job)
 
 
@@ -454,6 +423,83 @@ def refresh_plan(request: Request, odds: Literal["none", "missing", "thin", "all
     will_recalibrate = bool(full) or season is None or pipeline.reusable_calibration(season) is None
     return SyncPlan(**plan, will_run_projections=config.PROJECTIONS_ON_SERVER(), has_odds_key=bool(config.ODDS_API_KEY()),
                     will_recalibrate=will_recalibrate, calibration=cal)
+
+
+def _auto_sync() -> AutoSync:
+    if not config.AUTO_SYNC():
+        return AutoSync(enabled=False)
+    at, slot = scheduler.upcoming()[0]
+    return AutoSync(enabled=True, next_at=at.isoformat(), next_label=slot.label)
+
+
+# ---------- admin page: the schedule, the run log, the key's credits ----------
+def require_admin(request: Request):
+    verdict = check_admin(request)
+    if verdict == "throttled":
+        raise HTTPException(429, "Too many wrong passwords. Wait a minute.")
+    if verdict != "ok":
+        raise HTTPException(403, "Admin only")
+
+
+_credits: dict = {}   # key -> (checked_at, remaining or error): the admin page polls, the balance changes slowly
+
+
+def _credit_status() -> CreditStatus:
+    key, floor = config.ODDS_API_KEY(), config.ODDS_CREDIT_FLOOR()
+    if not key:
+        return CreditStatus(floor=floor, error="No ODDS_API_KEY set")
+    now = time.time()
+    if key not in _credits or now - _credits[key][0] > 60 or _job["state"] == "running":
+        try:
+            _credits[key] = (now, odds.credits_remaining(key), None)
+        except Exception as e:
+            _credits[key] = (now, None, f"Couldn't check the balance: {e}")
+    checked, left, err = _credits[key]
+    return CreditStatus(remaining=left, floor=floor, key_hint=key[-4:], error=err, low=left is not None and left <= floor,
+                        checked_at=datetime.utcfromtimestamp(checked).isoformat())
+
+
+def _run_out(r: SyncRun) -> dict:
+    return dict(id=r.id, slot=r.slot, label=scheduler.BY_ID[r.slot].label if r.slot in scheduler.BY_ID else "Manual sync",
+                trigger=r.trigger, scheduled_for=r.scheduled_for.isoformat() if r.scheduled_for else None,
+                started_at=r.started_at.isoformat(), finished_at=r.finished_at.isoformat() if r.finished_at else None,
+                status=r.status, odds_mode=r.odds_mode, full=r.full, season=r.season, week=r.week,
+                games_fetched=r.games_fetched, credits_before=r.credits_before, credits_after=r.credits_after,
+                summary=r.summary, error=r.error)
+
+
+@app.get("/api/admin", response_model=AdminState, dependencies=[Depends(require_admin)])
+def admin_state(limit: int = Query(60, ge=1, le=500), db: Session = Depends(get_db)):
+    runs = db.scalars(select(SyncRun).order_by(SyncRun.id.desc()).limit(limit)).all()
+    last = {}
+    for r in runs:
+        last.setdefault(r.slot, r)
+    slots = [SlotOut(id=s.id, label=s.label, when=scheduler.describe(s), odds_mode=s.odds, full=s.full, why=s.why,
+                     next_at=at.isoformat(), last_run=SyncRunOut(**_run_out(last[s.id])) if s.id in last else None)
+             for at, s in scheduler.upcoming()]
+    return AdminState(auto_sync=_auto_sync(), timezone="America/New_York", credits=_credit_status(), slots=slots,
+                      runs=[SyncRunOut(**_run_out(r)) for r in runs], job=JobStatus(**_job),
+                      can_run_projections=config.PROJECTIONS_ON_SERVER())
+
+
+@app.get("/api/admin/runs/{run_id}", response_model=SyncRunDetail, dependencies=[Depends(require_admin)])
+def admin_run(run_id: int, db: Session = Depends(get_db)):
+    r = db.get(SyncRun, run_id)
+    if not r:
+        raise HTTPException(404, "No such run")
+    return SyncRunDetail(**_run_out(r), log=r.log or [])
+
+
+@app.post("/api/admin/run/{slot_id}", response_model=JobStatus, status_code=202)
+def admin_run_now(slot_id: str, bg: BackgroundTasks):
+    """Run one schedule slot right now (logged as a manual run of that slot)."""
+    slot = scheduler.BY_ID.get(slot_id)
+    if not slot:
+        raise HTTPException(404, "No such schedule slot")
+    if not scheduler.claim():
+        raise HTTPException(409, "A sync is already running")
+    bg.add_task(scheduler.run, slot.odds, slot.full, slot.id, "manual")
+    return JobStatus(**_job)
 
 
 @app.get("/healthz", include_in_schema=False)

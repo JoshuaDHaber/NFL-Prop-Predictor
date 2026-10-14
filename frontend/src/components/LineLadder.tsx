@@ -117,12 +117,12 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
               </tbody>
             </table>
           </div>
-          {!hasAlt && !IS_STATIC && !isTd && (
+          {!hasAlt && !IS_STATIC && !isTd && meta?.can_write && (
             <div className="alt-cta">
-              <button className="primary" onClick={load} disabled={!meta?.has_odds_key || !meta?.can_write || fetchAlt.isPending}>
+              <button className="primary" onClick={load} disabled={!meta?.has_odds_key || fetchAlt.isPending}>
                 {fetchAlt.isPending ? "Fetching…" : "Load alternate lines"}
               </button>
-              <span className="mut">{!meta?.can_write ? "Admin only" : meta?.has_odds_key ? `Uses ~${cost} API credits · adds betslip links` : "Needs ODDS_API_KEY"}</span>
+              <span className="mut">{meta?.has_odds_key ? `Uses ~${cost} API credits · adds betslip links` : "Needs ODDS_API_KEY"}</span>
             </div>
           )}
           {fetchAlt.error && <p className="err">{(fetchAlt.error as Error).message}</p>}

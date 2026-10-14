@@ -117,10 +117,11 @@ export default function BetSlip() {
               <section className="suggest">
                 <b>{missing.length} {missing.length === 1 ? "leg has" : "legs have"} no betslip link yet.</b>
                 <p className="mut">Without one, "Add all" can't add {missing.length === 1 ? "it" : "them"} to the sportsbook slip.</p>
-                <button className="primary" disabled={!hasKey || linking === "Fetching links…"} onClick={getLinks}>
-                  {linking === "Fetching links…" ? "Fetching…" : `Get links (~${missingGames.length * 2} credits)`}
-                </button>
-                {!hasKey && <span className="mut"> {metaFlags?.can_write === false ? "Admin only" : "Needs ODDS_API_KEY"}</span>}
+                {hasKey ? (
+                  <button className="primary" disabled={linking === "Fetching links…"} onClick={getLinks}>
+                    {linking === "Fetching links…" ? "Fetching…" : `Get links (~${missingGames.length * 2} credits)`}
+                  </button>
+                ) : <p className="mut">The next scheduled odds sync usually adds them.</p>}
                 {linking && linking !== "Fetching links…" && <p className="err">{linking}</p>}
               </section>
             )}

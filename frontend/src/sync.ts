@@ -1,49 +1,4 @@
-import type { JobStatus, SyncPlan } from "./api";
-
-export type SyncMode = "none" | "missing" | "thin" | "all";
-
-export interface PlanSummary {
-  title: string;
-  lines: string[];       // what will happen, in order
-  credits: number;       // Odds API credits it will spend
-  blocked: string | null; // why the odds part can't run, if it can't
-  nothingToDo: boolean;
-}
-
-/** Plain-English description of a sync, built from the server's plan, for the confirm step. */
-export function planSummary(plan: SyncPlan, mode: SyncMode, full = false): PlanSummary {
-  const lines: string[] = [];
-  const week = plan.week ? `${plan.season} week ${plan.week}` : "the next week";
-  if (plan.will_run_projections) {
-    const refit = full || plan.will_recalibrate;
-    lines.push(refit
-      ? `Run the model for ${week}'s games and refit its calibration: a few minutes on a small server (about 8 on the free one).`
-      : `Run the model for ${week}'s games using the saved calibration${plan.calibration ? ` (week ${plan.calibration.week})` : ""}: about a minute.`);
-    if (!full && plan.will_recalibrate) lines.push("The saved calibration is missing or too old, so it has to be refit.");
-  } else {
-    lines.push("The model run is not done on this host: only odds are fetched.");
-  }
-  let credits = 0;
-  let blocked: string | null = null;
-  if (mode !== "none") {
-    credits = plan.credits;
-    const n = plan.games.length;
-    const thin = plan.games.filter((g) => g.reason === "thin").length;
-    if (n === 0) {
-      lines.push(mode === "thin"
-        ? `No game needs topping up: every game has enough lines, or they were fetched less than 3 hours ago. No API credits spent.`
-        : `Odds are already stored for all ${plan.total_games} games: no API credits spent.`);
-    } else {
-      const what = mode === "thin" && thin > 0 ? `${thin} thin and ${n - thin} missing` : `${n} of ${plan.total_games}`;
-      lines.push(`Fetch odds for ${what} games (main lines, anytime TD and alternate lines): about ${credits} Odds API credits.`);
-      if (!plan.has_odds_key) blocked = "No Odds API key is configured on the server, so odds can't be fetched.";
-    }
-  } else {
-    lines.push("No odds are fetched: no API credits spent.");
-  }
-  const nothingToDo = mode !== "none" && !plan.will_run_projections && plan.games.length === 0;
-  return { title: `Sync ${week}`, lines, credits, blocked, nothingToDo };
-}
+import type { JobStatus } from "./api";
 
 /** 83 -> "1:23" */
 export function mmss(seconds: number): string {
@@ -74,4 +29,18 @@ export function slowHint(job: Pick<JobStatus, "stage" | "detail">, elapsed: numb
   return job.stage?.includes("recalibration") || /Walk-forward/.test(job.detail ?? "")
     ? "Refitting the calibration is the slow part on a small server (about 8 minutes on the free one). The page keeps updating."
     : "Still working: the model is running on a small server.";
+}
+
+/** "in 30 min", "in 3 h", "in 2 d" until a UTC time from the server; "now" once it has passed. */
+export function untilText(iso: string, now = Date.now()): string {
+  const mins = Math.round((Date.parse(iso + "Z") - now) / 60000);
+  if (mins < 1) return "now";
+  if (mins < 60) return `in ${mins} min`;
+  if (mins < 60 * 48) return `in ${Math.round(mins / 60)} h`;
+  return `in ${Math.round(mins / 1440)} d`;
+}
+
+/** A server UTC time as the viewer's local weekday and clock: "Wed 10:00 AM". */
+export function localWhen(iso: string): string {
+  return new Date(iso + "Z").toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
 }

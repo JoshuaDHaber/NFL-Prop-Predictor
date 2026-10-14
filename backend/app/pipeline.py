@@ -260,25 +260,35 @@ def sync_plan(session, games: pd.DataFrame, mode: str = "missing", now: datetime
                 total_games=len(games), games=out, credits=sum(g["credits"] for g in out))
 
 
-def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[int, int], None] = None) -> None:
+def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[int, int], None] = None,
+                 credit_floor: Optional[int] = None) -> dict:
     """Fetch prop lines, main and alternate, for the upcoming week's games (one API call per game).
 
     'missing' fetches only what each game lacks (so a new week is fetched in full and a repeat costs nothing);
     'thin' also tops up games whose stored lines are few and old; 'all' refetches everything for the week; 'none'
     skips. Costs one credit per market per game. progress(done, total) is called after each game.
+
+    With credit_floor set, the key's balance is checked first (free) and a game is only fetched if its cost leaves at
+    least that many credits, so a free key is never run dry. Returns what happened, for the sync log.
     """
+    out = dict(games=0, fetched=0, skipped_for_credits=0, credits_before=None, credits_after=None)
     if mode == "none":
-        return
+        return out
     key = config.ODDS_API_KEY()
     games = upcoming_games()
     with SessionLocal() as s:
         plan = sync_plan(s, games, mode)
+        out["games"] = len(plan["games"])
         if not plan["games"]:
             log("Odds already cover every game")
-            return
+            return out
         if not key:
             log("No ODDS_API_KEY set; skipping odds fetch")
-            return
+            return out
+        remaining = None
+        if credit_floor is not None:
+            remaining = out["credits_before"] = out["credits_after"] = odds.credits_remaining(key)
+            log(f"Odds API key has {remaining} credits left (floor {credit_floor})")
         events = {(e["away"], e["home"]): e["id"] for e in odds.list_events(key)}
         todo = [(g, events.get((g["away"], g["home"]))) for g in plan["games"]]
         cost = sum(g["credits"] for g, e in todo if e)
@@ -290,12 +300,19 @@ def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[in
             if not event_id:
                 log(f"  no sportsbook event yet for {g['label']}")
                 continue
-            long, remaining = odds.fetch_game_odds(key, event_id, g["need_main"], g["alt_kinds"])
+            if credit_floor is not None and remaining is not None and remaining - g["credits"] < credit_floor:
+                out["skipped_for_credits"] += 1
+                log(f"  skipped {g['label']}: {g['credits']} credits would leave {remaining - g['credits']}, under the floor of {credit_floor}")
+                continue
+            long, left = odds.fetch_game_odds(key, event_id, g["need_main"], g["alt_kinds"])
+            out["fetched"] += 1
+            if left is not None:
+                remaining = out["credits_after"] = int(float(left))
             paired = odds.pair_with_links(long)
             is_alt = paired.alt.astype(bool)
             mains.append(paired[~is_alt].assign(game_id=g["game_id"]))
             alts.append(paired[is_alt].assign(game_id=g["game_id"]))
-            log(f"  {g['label']}: {len(paired)} quotes (credits left: {remaining})")
+            log(f"  {g['label']}: {len(paired)} quotes (credits left: {left})")
         if progress:
             progress(len(todo), len(todo))
         now = datetime.utcnow()
@@ -314,6 +331,7 @@ def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[in
                       for r in alt_df.itertuples())
             s.commit()
         log(f"Stored {len(main_df)} main and {len(alt_df)} alternate quotes")
+    return out
 
 
 def seed_odds_from_csv(path: str, session) -> int:

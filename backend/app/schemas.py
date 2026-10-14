@@ -75,6 +75,12 @@ class JobStatus(BaseModel):
     progress: Optional[float] = None # 0..1 within the odds step (None while the model runs)
 
 
+class AutoSync(BaseModel):
+    enabled: bool
+    next_at: Optional[str] = None     # UTC, when the next scheduled sync runs
+    next_label: Optional[str] = None
+
+
 class Meta(BaseModel):
     run: Optional[RunInfo]
     backtest: dict[str, BacktestStat]
@@ -90,6 +96,7 @@ class Meta(BaseModel):
     weather: Optional[dict] = None  # the fitted weather effect and what it did in the backtest (see engine/weather.py)
     can_write: bool = False  # this client may refresh data / fetch alt lines (local, or sent the admin token)
     can_run_projections: bool = True  # False on small hosts that only fetch odds
+    auto_sync: Optional[AutoSync] = None
 
 
 class ProjectionOut(BaseModel):
@@ -245,3 +252,57 @@ class MoneylineGame(BaseModel):
     margin: float                  # the model's predicted home margin, points
     spread: Optional[float] = None # the market's (nflverse) home spread, points
     sides: list[MoneylineSide]     # away, home
+
+
+class CreditStatus(BaseModel):
+    remaining: Optional[int] = None   # credits left on the current ODDS_API_KEY
+    floor: int                        # odds fetches stop before the balance drops under this
+    low: bool = False                 # at or under the floor: time to rotate the key
+    key_hint: Optional[str] = None    # last 4 characters, to tell keys apart
+    checked_at: Optional[str] = None
+    error: Optional[str] = None
+
+
+class SyncRunOut(BaseModel):
+    id: int
+    slot: str
+    label: str
+    trigger: str                      # schedule | catch-up | manual
+    scheduled_for: Optional[str] = None
+    started_at: str
+    finished_at: Optional[str] = None
+    status: str                       # running | ok | partial | error | skipped
+    odds_mode: str
+    full: bool
+    season: Optional[int] = None
+    week: Optional[int] = None
+    games_fetched: int = 0
+    credits_before: Optional[int] = None
+    credits_after: Optional[int] = None
+    summary: str = ""
+    error: Optional[str] = None
+
+
+class SyncRunDetail(SyncRunOut):
+    log: list[str] = []
+
+
+class SlotOut(BaseModel):
+    id: str
+    label: str
+    when: str                         # "Wed 10:00 AM ET"
+    odds_mode: str
+    full: bool
+    why: str
+    next_at: str
+    last_run: Optional[SyncRunOut] = None
+
+
+class AdminState(BaseModel):
+    auto_sync: AutoSync
+    timezone: str
+    credits: CreditStatus
+    slots: list[SlotOut]
+    runs: list[SyncRunOut]
+    job: JobStatus
+    can_run_projections: bool

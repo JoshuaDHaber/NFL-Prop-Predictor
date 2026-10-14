@@ -59,11 +59,6 @@ tr.clickable { cursor: pointer; } tr.clickable:hover, tr.clickable:focus { backg
 footer { margin-top: 28px; color: var(--mut); font-size: 12px; max-width: 80ch; }
 button.primary { background: var(--acc); color: #fff; border: 0; padding: 8px 14px; border-radius: 8px; font: inherit; cursor: pointer; }
 button.primary:disabled { opacity: .55; cursor: default; }
-.refresh { position: relative; text-align: right; } .split { display: inline-flex; }
-.split .primary:first-child { border-radius: 8px 0 0 8px; } .split .caret { border-radius: 0 8px 8px 0; border-left: 1px solid rgba(255,255,255,.35); padding: 8px 10px; }
-.menu { position: absolute; right: 0; top: 40px; z-index: 5; background: var(--card); border: 1px solid var(--line); border-radius: 10px; min-width: 260px; box-shadow: 0 8px 24px rgba(0,0,0,.18); overflow: hidden; }
-.menu button { display: flex; justify-content: space-between; gap: 12px; width: 100%; background: none; border: 0; color: var(--ink); padding: 10px 12px; font: inherit; cursor: pointer; text-align: left; }
-.menu button:hover:not(:disabled) { background: var(--chip); } .menu button:disabled { opacity: .5; } .menu small { color: var(--mut); }
 .job { margin-top: 8px; font-size: 12px; color: var(--mut); max-width: 320px; }
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 10; display: flex; justify-content: flex-end; }
 .drawer { background: var(--bg); width: min(520px, 100%); height: 100%; overflow-y: auto; padding: 22px 20px; position: relative; border-left: 1px solid var(--line); }
@@ -113,8 +108,6 @@ button.primary.outline { background: transparent; color: var(--acc); border: 1px
 .demo-tag { border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; color: var(--mut); font-size: 12px; }
 .banner a { color: inherit; text-decoration: underline; }
 .head-actions { display: flex; align-items: flex-start; gap: 14px; }
-.admin { position: relative; padding-top: 8px; } .admin-pop { position: absolute; right: 0; top: 34px; z-index: 6; width: 260px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.18); display: flex; flex-direction: column; gap: 8px; }
-.admin-pop p { margin: 0; } .admin-pop input { padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; }
 table.calib { width: 100%; margin-top: 8px; font-size: 12px; } table.calib th, table.calib td { padding: 3px 6px; text-align: right; } table.calib th:first-child, table.calib td:first-child { text-align: left; }
 .td-note { margin: 0; padding: 8px 12px; border-radius: 8px; background: var(--chip); font-size: 12px; max-width: 80ch; }
 
@@ -218,14 +211,9 @@ tr.clickable:hover td:last-child { border-top-right-radius: 10px; border-bottom-
 
 /* ---------- small screens: popovers stay on screen ---------- */
 @media (max-width: 600px) {
-  .admin-pop, .menu { position: fixed; left: 16px; right: 16px; top: 64px; width: auto; min-width: 0; max-width: none; }
-  .admin-pop input { font-size: 16px; padding: 10px 12px; } /* 16px stops iOS zooming the page on focus */
   .head-actions { width: 100%; justify-content: flex-end; }
 }
 
-/* popovers sit above the sticky nav (z 8) and theme toggle (z 9) */
-.admin-pop, .menu { z-index: 12; }
-@media (max-width: 600px) { .admin-pop, .menu { box-shadow: 0 16px 40px rgba(0,0,0,.35); } }
 
 /* ---------- phones: table rows become tappable cards ---------- */
 .sortbar { display: none; }
@@ -265,15 +253,8 @@ tr.clickable:hover td:last-child { border-top-right-radius: 10px; border-bottom-
 /* phones: the toggle scrolls away with the header instead of covering the sticky nav */
 @media (max-width: 700px) { .theme-toggle { position: absolute; } }
 
-/* weekly sync confirm panel + result */
-.sync-panel { position: absolute; right: 0; top: 44px; z-index: 7; width: min(380px, 92vw); text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: 0 10px 28px rgba(0,0,0,.2); display: flex; flex-direction: column; gap: 8px; }
-.sync-panel ul { margin: 0; padding-left: 18px; } .sync-panel li { margin: 3px 0; } .sync-panel details { font-size: 12px; } .sync-panel summary { cursor: pointer; color: var(--mut); }
-.sync-actions { display: flex; align-items: center; gap: 14px; margin-top: 4px; }
-.job.done { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
-.refresh { z-index: 60; } .sync-panel, .menu { z-index: 61; }
 .job.progress { display: flex; flex-direction: column; gap: 4px; align-items: stretch; min-width: 260px; }
 .job .bar { height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; } .job .bar i { display: block; height: 100%; background: var(--acc); transition: width .4s; }
-.menu-note { padding: 8px 12px; font-size: 11px; border-top: 1px solid var(--line); }
 .parlay-scope { margin: 2px 0 0; }
 .altprops { padding: 4px 14px; } .altprops .parlay-legs { border-top: 0; } .altprops li:last-child { border-bottom: 0; } .altprops .add { margin: 0 0 0 4px; }
 .wx-chip { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; margin-left: 6px; background: var(--chip); color: var(--acc); white-space: nowrap; }
@@ -338,3 +319,20 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
   .ml-table td .mut { font-size: 10px; }
   .ml-table .ev-pill { padding: 1px 5px; }
 }
+
+/* ---------- admin page (/admin): schedule, run log, credits ---------- */
+.admin-page h2 { font-size: 16px; margin: 24px 0 8px; } .admin-page h2 small { font-weight: 400; margin-left: 6px; }
+.admin-page .sub a { color: var(--acc); text-decoration: none; }
+.admin-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 16px; }
+.admin-card { padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; overflow: visible; }
+.admin-card .big.under { color: var(--bad); } .admin-card .job { max-width: none; }
+.admin-table td, .admin-table th { text-align: left; } .admin-table .wrap-cell { white-space: normal; min-width: 240px; }
+.admin-table button.link:disabled { color: var(--mut); cursor: default; }
+.st { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 6px; background: var(--chip); color: var(--acc); }
+.st-ok { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
+.st-partial, .st-skipped { background: var(--warn-bg); color: var(--warn); }
+.st-error { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
+.runlog { margin: 0; max-height: 320px; overflow: auto; font-size: 11px; line-height: 1.5; white-space: pre-wrap; color: var(--mut); }
+.admin-signin { max-width: 360px; margin-top: 20px; padding: 16px; display: flex; flex-direction: column; gap: 10px; overflow: visible; }
+.admin-signin p { margin: 0; } .admin-signin input { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; }
+@media (max-width: 600px) { .admin-signin input { font-size: 16px; } }

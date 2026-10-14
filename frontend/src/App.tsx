@@ -9,19 +9,21 @@ import Moneylines from "./components/Moneylines";
 import ParlayTiles from "./components/ParlayTiles";
 import PicksTable from "./components/PicksTable";
 import ProjectionsTable from "./components/ProjectionsTable";
-import RefreshButton from "./components/RefreshButton";
-import { useToken, useWaking } from "./auth";
-import AdminButton from "./components/AdminButton";
-import { API_URL, IS_STATIC } from "./env";
+import { useWaking } from "./auth";
+import { API_URL, BASE, IS_STATIC } from "./env";
 import { KIND_LABEL, americanOdds, fmtProj, fmtSd, isCount, marketLabel, matchup, pct, playLabel, signedPct, timeAgo } from "./format";
 import ThemeToggle from "./components/ThemeToggle";
 import TopTiles, { type Tile } from "./components/TopTiles";
 import { buildBalancedLadders, buildLadderParlays, buildTdParlays, defaultBook, filterGames, ladderProps, ladderTargets, parlaysByBook } from "./parlays";
 import { importOrReload } from "./staleChunk";
+import { localWhen } from "./sync";
 import { useDebounced } from "./useDebounced";
 
 // keeps the charting library out of the first load; a tab left open across a deploy reloads to the new build
 const PlayerDrawer = lazy(() => importOrReload(() => import("./components/PlayerDrawer")));
+const AdminPage = lazy(() => importOrReload(() => import("./components/AdminPage")));
+/** The owner's sync page lives at <base>/admin; everything else is the public app. */
+const IS_ADMIN_PAGE = !IS_STATIC && window.location.pathname.slice(BASE.length - 1).replace(/\/+$/, "") === "/admin";
 
 type Tab = "picks" | "parlays" | "moneyline" | "projections" | "model";
 const TABS: [Tab, string][] = [["picks", "Best props"], ["parlays", "Parlays"], ["moneyline", "Moneyline"], ["projections", "Projections"], ["model", "Model check"]];
@@ -29,8 +31,11 @@ const TABS: [Tab, string][] = [["picks", "Best props"], ["parlays", "Parlays"], 
 const PARLAY_FILTERS: Filters = { kind: "all", side: "all", game: "all", book: "all", q: "", minEv: -1, marketWeight: 0.35, flagged: false };
 
 export default function App() {
+  return IS_ADMIN_PAGE ? <Suspense fallback={null}><AdminPage /></Suspense> : <PublicApp />;
+}
+
+function PublicApp() {
   const waking = useWaking();
-  const token = useToken();
   const [tab, setTab] = useState<Tab>("picks");
   const [filters, setFilters] = useState<Filters>({ kind: "all", side: "all", game: "all", book: "all", q: "", minEv: 0.03, marketWeight: 0.35, flagged: false });
   const [selected, setSelected] = useState<{ id: string; kind: Kind } | null>(null);
@@ -134,16 +139,11 @@ export default function App() {
           <div className="sub">
             {m.run ? `${m.run.season} Week ${m.run.week} · projections ${timeAgo(m.run.created_at)}` : "No projections yet"}
             {latestOdds && ` · odds ${timeAgo(latestOdds)}`}
+            {m.auto_sync?.enabled && m.auto_sync.next_at && ` · next update ${localWhen(m.auto_sync.next_at)}`}
           </div>
         </div>
         <div className="head-actions">
-          {IS_STATIC ? <div className="demo-tag" title="This page reads a saved snapshot, not a live server">Demo snapshot</div> : (
-            <>
-              {m.can_write && <RefreshButton meta={m} />}
-              {/* hidden only on the owner's own machine, where writes are already allowed without a password */}
-              {(API_URL || !m.can_write || token) && <AdminButton canWrite={m.can_write} />}
-            </>
-          )}
+          {IS_STATIC && <div className="demo-tag" title="This page reads a saved snapshot, not a live server">Demo snapshot</div>}
         </div>
       </header>
 
@@ -157,9 +157,9 @@ export default function App() {
         </div>
       )}
 
-      {!IS_STATIC && !m.run && <div className="banner">No projections yet. Click <b>Refresh data</b> to run the model (takes about a minute).</div>}
+      {!IS_STATIC && !m.run && <div className="banner">No projections yet. They appear after the next scheduled sync{m.auto_sync?.next_at ? ` (${localWhen(m.auto_sync.next_at)})` : ""}.</div>}
       {!IS_STATIC && m.run && !hasOdds && (tab === "picks" || tab === "parlays" || tab === "moneyline") && (
-        <div className="banner">No sportsbook lines are loaded, so there are no picks. Add an <code>ODDS_API_KEY</code> and refresh.</div>
+        <div className="banner">No sportsbook lines are loaded yet, so there are no picks. Books post props mid-week; the scheduled syncs fetch them as they appear.</div>
       )}
 
       <nav className="tabs" role="tablist" aria-label="Sections">

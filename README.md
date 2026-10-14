@@ -21,7 +21,8 @@ A full-stack web app that projects NFL player yardage, prices the projections ag
 - **Projections:** every projected player with the volume and efficiency behind the number, sortable.
 - **Weather:** outdoor games show the kickoff forecast; rows flag windy, cold or wet games with the adjustment made to that projection (for example "💨 19 mph · −22%"), and the player drawer spells it out.
 - **Model check:** backtest accuracy per market, the fitted weather effect with this week's outdoor forecasts, and the freshness of projections and odds.
-- **Refresh from the UI:** recompute projections and fetch odds (projections only, missing markets only, or everything) with live job status. Odds are stored in the database, so re-running the model never spends API credits.
+- **Scheduled syncs:** the server runs the model and fetches odds on a weekly schedule (below), so the public site has no buttons that spend credits. The header shows when the next update is due. Odds are stored in the database, so re-running the model never spends API credits.
+- **Admin page** (`/admin`, behind the admin password): the schedule with each slot's next and last run and a *Run now* button, a log of every sync (trigger, week, games fetched, credits used, full output), and the Odds API key's remaining credits.
 
 ## Architecture
 
@@ -157,7 +158,23 @@ The `Dockerfile` builds the React app and the API into one container, so on Rail
 5. **Bring your data** (optional): in the service's *Console*, copy an existing database onto the volume so the odds you already paid for come along: `python -m app.copy_db --from 'postgresql://…' --to sqlite:////srv/backend/data/app.db`.
 6. **GitHub Pages:** delete the `API_URL` repository variable so the Pages site goes back to the static demo (or turn Pages off).
 
+**Scheduled syncs** (`backend/app/scheduler.py`) run inside the web process, on by default on Railway (`AUTO_SYNC=1`) and off elsewhere, so a laptop never spends credits by itself. Times are Eastern:
+
+| When | Sync | Odds |
+|---|---|---|
+| Daily 9:00 AM | Model + top-up | games with no lines, or under 100 lines at least 3 h old |
+| Tue 10:00 AM | New week: recalibrate and project | none |
+| Wed, Thu 10:00 AM | Model + missing odds | games and markets with no lines yet |
+| Thu 4:00 PM, Sat 10:00 AM, Sun 11:00 AM | Model only (injury reports, game statuses) | none |
+| Sun 11:30 AM | Model + top-up before the early kickoffs | as the daily top-up |
+
+A slot missed by a redeploy (within 3 hours) runs when the server comes back. Every sync, scheduled or *Run now*, is logged on the admin page.
+
+**Credit floor and key rotation.** Before fetching odds, a sync checks the key's balance (a free call) and skips any game whose cost would take it under `ODDS_CREDIT_FLOOR` (default 75). Those syncs are logged as *Partial*, and the admin page shows a banner. To switch keys, replace `ODDS_API_KEY` in the service's *Variables* and deploy. A free key's 500 credits a month covers roughly two to three weeks of syncs (a full week is about 180 credits before top-ups), so expect to rotate keys during the season.
+
 ## Going live: Render API + GitHub Pages site
+
+> The older setup. The *Admin* button and *Sync next week* menu described below have since been replaced by scheduled syncs and the `/admin` page (see the Railway section). On Render the free service sleeps, so the schedule would not run reliably there.
 
 The React app is served from GitHub Pages and calls the API hosted on Render, so the public site is the real, working app. Anyone can browse; refreshing data and fetching alternate lines (which spend Odds API credits) need your **admin password**. It's the `ADMIN_TOKEN` environment variable on Render: Render generates a random one, but you can replace it with a password only you know (Environment tab → edit `ADMIN_TOKEN` → Save; use 12+ characters). Repeated wrong guesses from one client are slowed down (429), and the right password always works.
 
@@ -243,6 +260,6 @@ frontend/src/      App, components (picks table, player drawer, line ladder, bet
 - Model team-level pass/run volume explicitly, then split it among players.
 - Pace and offensive-line context; precipitation, once there's a history of it to fit.
 - Store pick history and track closing-line value as an out-of-sample test.
-- Scheduled refreshes, auth for a shared deployment, more markets (attempts, touchdowns).
+- More markets (attempts, touchdowns).
 - A team model that knows about injuries and quarterbacks (for example, built up from the player projections), and moneylines in the betslip.
 - Multi-leg deep links per sportsbook (today each selection opens as its own link) and correlation-aware same-game parlay pricing.

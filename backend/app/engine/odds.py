@@ -69,6 +69,14 @@ def list_events(key):
     return [dict(id=e["id"], away=by_name.get(e["away_team"]), home=by_name.get(e["home_team"])) for e in r.json()]
 
 
+def credits_remaining(key):
+    """Credits left on this key, read from the usage headers of the sports list (a call that costs nothing)."""
+    r = requests.get(API.rsplit("/", 1)[0], params={"apiKey": key}, timeout=30)
+    r.raise_for_status()
+    left = r.headers.get("x-requests-remaining")
+    return int(float(left)) if left is not None else None
+
+
 def find_event_id(key, away, home):
     """Odds API event id for a game given nflverse team abbreviations."""
     return next((e["id"] for e in list_events(key) if e["away"] == away and e["home"] == home), None)

@@ -29,4 +29,8 @@ CORS_ORIGINS = lambda: [o.strip() for o in os.environ.get("CORS_ORIGINS", "http:
 # the weekly model run needs ~400 MB; small hosts set this to 0 and run it elsewhere against the same database
 PROJECTIONS_ON_SERVER = lambda: os.environ.get("PROJECTIONS_ON_SERVER", "1") != "0"
 ODDS_API_KEY = lambda: os.environ.get("ODDS_API_KEY")  # read lazily so tests can set it
+# Scheduled syncs (app/scheduler.py): on by default on Railway, off elsewhere so a laptop never spends credits by itself
+AUTO_SYNC = lambda: os.environ.get("AUTO_SYNC", "1" if os.environ.get("RAILWAY_ENVIRONMENT_NAME") else "0") == "1"
+# odds fetches stop before a key drops under this many credits; rotate ODDS_API_KEY when the admin page says so
+ODDS_CREDIT_FLOOR = lambda: int(os.environ.get("ODDS_CREDIT_FLOOR", "75"))
 FRONTEND_DIST = os.path.join(os.path.dirname(BASE_DIR), "frontend", "dist")

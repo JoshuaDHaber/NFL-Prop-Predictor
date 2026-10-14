@@ -190,3 +190,17 @@ def test_progress_is_reported_game_by_game(clean_and_stub, monkeypatch):
     seen = []
     pipeline.refresh_odds("missing", log=lambda m: None, progress=lambda done, total: seen.append((done, total)))
     assert seen == [(0, 2), (1, 2), (2, 2)]
+
+
+def test_credit_floor_skips_games_that_would_drain_the_key(clean_and_stub, monkeypatch):
+    monkeypatch.setattr(pipeline.odds, "credits_remaining", lambda key: 80)
+    res = pipeline.refresh_odds("missing", log=lambda m: None, credit_floor=75)
+    assert clean_and_stub == []   # the game costs 12 credits: 80 - 12 is under the floor
+    assert res["skipped_for_credits"] == 1 and res["fetched"] == 0 and res["credits_before"] == 80
+
+
+def test_credit_floor_lets_a_fetch_through_and_reports_the_balance(clean_and_stub, monkeypatch):
+    monkeypatch.setattr(pipeline.odds, "credits_remaining", lambda key: 412)
+    res = pipeline.refresh_odds("missing", log=lambda m: None, credit_floor=75)
+    assert len(clean_and_stub) == 1
+    assert res == dict(games=1, fetched=1, skipped_for_credits=0, credits_before=412, credits_after=400)

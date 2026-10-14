@@ -89,6 +89,28 @@ class AltLine(Base):
     event_link: Mapped[str] = mapped_column(String(500), nullable=True)
 
 
+class SyncRun(Base):
+    """One sync (model run and/or odds fetch), scheduled or started by hand: the admin page's run log."""
+    __tablename__ = "sync_runs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    slot: Mapped[str] = mapped_column(String(32), index=True)      # schedule slot id, or "manual"
+    trigger: Mapped[str] = mapped_column(String(12))               # schedule | catch-up | manual
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime, nullable=True, index=True)  # UTC slot time it ran for
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    finished_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    status: Mapped[str] = mapped_column(String(12), default="running")  # running | ok | partial | error | skipped
+    odds_mode: Mapped[str] = mapped_column(String(8))
+    full: Mapped[bool] = mapped_column(Boolean, default=False)
+    season: Mapped[int] = mapped_column(Integer, nullable=True)
+    week: Mapped[int] = mapped_column(Integer, nullable=True)
+    games_fetched: Mapped[int] = mapped_column(Integer, default=0)
+    credits_before: Mapped[int] = mapped_column(Integer, nullable=True)
+    credits_after: Mapped[int] = mapped_column(Integer, nullable=True)
+    summary: Mapped[str] = mapped_column(String(500), default="")
+    log: Mapped[list] = mapped_column(JSON, default=list)
+    error: Mapped[str] = mapped_column(String(1000), nullable=True)
+
+
 def backfill_game_ids(eng) -> int:
     """Tag quotes stored before game_id existed with the game that was upcoming when they were fetched.
 
