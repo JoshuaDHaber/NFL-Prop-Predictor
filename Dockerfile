@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/app ./app
 COPY --from=web /web/dist /srv/frontend/dist
 ENV NFLPROPS_CACHE=/srv/backend/.cache DATABASE_URL=sqlite:////srv/backend/data/app.db
-VOLUME ["/srv/backend/data", "/srv/backend/.cache"]
+# Mount persistent storage at /srv/backend/data (docker run -v, or a Railway volume). No VOLUME line: Railway rejects it.
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Hosts like Railway assign the port in $PORT
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

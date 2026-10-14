@@ -2,6 +2,10 @@
 
     DATABASE_URL=postgresql://user:pass@host/db python -m app.copy_db [--from sqlite:///path/app.db]
 
+or the other way, e.g. on a host whose database is a SQLite file on a volume:
+
+    python -m app.copy_db --from postgresql://user:pass@host/db --to sqlite:////srv/backend/data/app.db
+
 Reads the source, creates the tables in the target if needed, and replaces the target's rows, so the odds you
 already paid API credits for travel with the projections. Safe to re-run.
 """
@@ -46,11 +50,11 @@ def copy(source_url: str, target_url: str, log=print) -> dict:
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--from", dest="source", default=f"sqlite:///{os.path.join(config.BASE_DIR, 'data', 'app.db')}")
+    ap.add_argument("--from", dest="source", type=config.normalize_db_url, default=f"sqlite:///{os.path.join(config.BASE_DIR, 'data', 'app.db')}")
     ap.add_argument("--to", dest="target", default=None, help="defaults to $DATABASE_URL")
     a = ap.parse_args()
     target = config.normalize_db_url(a.target or os.environ.get("DATABASE_URL", ""))
-    if not target or target.startswith("sqlite"):
+    if not target or (target.startswith("sqlite") and not a.target):  # a SQLite target only when named with --to
         sys.exit("Set DATABASE_URL (or --to) to the hosted database URL.")
     print("Copying to", target.split("@")[-1])
     print(copy(a.source, target))

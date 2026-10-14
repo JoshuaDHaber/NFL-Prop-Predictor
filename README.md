@@ -146,6 +146,17 @@ Requires Python 3.9+ and Node 20+. Everything goes through one script:
 
 **Docker** (untested so far): `docker build -t nfl-props . && docker run -p 8000:8000 -v nfl-data:/srv/backend/data nfl-props`. Set `DATABASE_URL` to a Postgres URL (and add a driver such as `psycopg`) when deploying beyond one instance.
 
+## Going live: Railway (one service, no sleep)
+
+The `Dockerfile` builds the React app and the API into one container, so on Railway the whole app is one service at one URL: no GitHub Pages, no CORS, no Neon. `railway.json` tells Railway to build the `Dockerfile` and health-check `/healthz`. Use the **Hobby** plan: the Free plan caps a service at 0.5 GB of RAM and $1 of usage a month, which this app outgrows. Leave **Serverless** off so the app never sleeps.
+
+1. **New project → Deploy from GitHub repo** → this repo. Every push to `main` redeploys.
+2. **Volume:** right-click the service → *Attach volume*, mount path `/srv/backend/data`. The SQLite database lives there and survives redeploys.
+3. **Variables:** `ODDS_API_KEY` and `ADMIN_TOKEN` (your admin password, 12+ characters). Leave `DATABASE_URL` unset to use the SQLite file on the volume.
+4. **Settings → Networking → Generate domain** for a public `*.up.railway.app` URL.
+5. **Bring your data** (optional): in the service's *Console*, copy an existing database onto the volume so the odds you already paid for come along: `python -m app.copy_db --from 'postgresql://…' --to sqlite:////srv/backend/data/app.db`.
+6. **GitHub Pages:** delete the `API_URL` repository variable so the Pages site goes back to the static demo (or turn Pages off).
+
 ## Going live: Render API + GitHub Pages site
 
 The React app is served from GitHub Pages and calls the API hosted on Render, so the public site is the real, working app. Anyone can browse; refreshing data and fetching alternate lines (which spend Odds API credits) need your **admin password**. It's the `ADMIN_TOKEN` environment variable on Render: Render generates a random one, but you can replace it with a password only you know (Environment tab → edit `ADMIN_TOKEN` → Save; use 12+ characters). Repeated wrong guesses from one client are slowed down (429), and the right password always works.
