@@ -13,7 +13,9 @@ import ProjectionsTable from "./ProjectionsTable";
 interface Props {
   game: Game;
   books: string[];
+  /** The page's sportsbook ("all" = best price anywhere): props, moneyline and parlays all follow it. */
   book: string;
+  onBook: (book: string) => void;
   marketWeight: number;
   fit?: WeatherFit | null;
   onBack: () => void;
@@ -34,7 +36,7 @@ function KindSeg({ value, onChange }: { value: Kind | "all"; onChange: (k: Kind 
 }
 
 /** Everything about one game on a single page: weather, win chances, its best props and parlays, projections and both injury reports. */
-export default function GameOverview({ game, books, book, marketWeight, fit, onBack, onSelect }: Props) {
+export default function GameOverview({ game, books, book, onBook, marketWeight, fit, onBack, onSelect }: Props) {
   const id = game.game_id;
   const [propKind, setPropKind] = useState<Kind | "all">("all");
   const [projKind, setProjKind] = useState<Kind | "all">("all");
@@ -54,7 +56,8 @@ export default function GameOverview({ game, books, book, marketWeight, fit, onB
     placeholderData: (p) => p,
   });
   const chosen = useMemo(() => [id], [id]);
-  const board = useParlayBoard(books, chosen, true);
+  // parlays need one book; with "all books" they fall back to the board's own default
+  const board = useParlayBoard(books, chosen, true, book === "all" ? undefined : book);
 
   const ml = moneylines.data?.find((g) => g.game_id === id);
   const shownPicks = allProps ? picks.data ?? [] : (picks.data ?? []).slice(0, PROPS_SHOWN);
@@ -64,6 +67,13 @@ export default function GameOverview({ game, books, book, marketWeight, fit, onB
     <div className="stack go">
       <div className="go-head">
         <button className="link go-back" onClick={onBack}>← All games</button>
+        <label className="go-book">
+          <span className="mut">Sportsbook</span>
+          <select value={book} onChange={(e) => onBook(e.target.value)} aria-label="Sportsbook for this page">
+            {books.map((b) => <option key={b} value={b}>{b}</option>)}
+            <option value="all">All books (best price)</option>
+          </select>
+        </label>
         <nav className="go-jump" aria-label="Jump to section">
           {SECTIONS.map(([el, label]) => <button key={el} onClick={() => jump(el)}>{label}</button>)}
         </nav>
@@ -86,9 +96,9 @@ export default function GameOverview({ game, books, book, marketWeight, fit, onB
       </section>
 
       <section id="go-parlays" className="go-sec">
-        <h2 className="parlay-h">Parlays <small>built from this game only</small></h2>
+        <h2 className="parlay-h">Parlays <small>built from this game only{board.book ? `, every leg at ${board.book}` : ""}</small></h2>
         {board.loading ? <p className="mut">Building parlays…</p> :
-          <ParlayTiles books={books} book={board.book} onBook={board.setBook} games={[game]} selectedGames={chosen} parlays={board.parlays}
+          <ParlayTiles books={books} book={board.book} games={[game]} selectedGames={chosen} parlays={board.parlays}
             tdParlays={board.tdParlays} ladders={board.ladders} altProps={board.altProps} laddersLoading={board.laddersLoading} />}
       </section>
 

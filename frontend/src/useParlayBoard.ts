@@ -10,7 +10,7 @@ export const PARLAY_FILTERS: Filters = { kind: "all", side: "all", game: "all", 
  * Every parlay tile for the chosen games (none = every game) at one sportsbook: likely plays, touchdowns, ladders and single alternate props.
  * The per-book picks and line ladders are fetched for the whole slate and shared through the query cache, so the Parlays tab and a game page reuse them.
  */
-export function useParlayBoard(books: string[], chosenGames: string[], enabled: boolean) {
+export function useParlayBoard(books: string[], chosenGames: string[], enabled: boolean, preferredBook?: string) {
   // one pricing per sportsbook, so every parlay's legs sit at a single book
   const parlayQueries = useQueries({
     queries: books.map((book) => ({ queryKey: ["parlay-picks", book], queryFn: () => api.picks({ ...PARLAY_FILTERS, book }, 1000), enabled })),
@@ -27,7 +27,9 @@ export function useParlayBoard(books: string[], chosenGames: string[], enabled: 
     [books.join(), parlayStamp]);
   const gamePicks = useMemo(() => filterGames(allPicksByBook, chosenGames), [allPicksByBook, chosenGames]);
   const byBook = useMemo(() => parlaysByBook(gamePicks), [gamePicks]);
-  const activeBook = book && books.includes(book) ? book : defaultBook(byBook, gamePicks);
+  // a page-wide sportsbook choice wins over the tab's own picker
+  const chosenBook = preferredBook && books.includes(preferredBook) ? preferredBook : book;
+  const activeBook = chosenBook && books.includes(chosenBook) ? chosenBook : defaultBook(byBook, gamePicks);
   // ladder parlays need each likely player's line ladder (alternate lines); shares the drawer's and slip's query cache
   const targets = useMemo(() => ladderTargets(activeBook ? gamePicks[activeBook] ?? [] : [], Math.min(24, Math.max(12, chosenGames.length * 8))), [activeBook, gamePicks, chosenGames]);
   const ladderQueries = useQueries({

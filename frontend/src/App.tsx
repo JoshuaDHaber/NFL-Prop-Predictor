@@ -33,6 +33,10 @@ const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["pa
   ...(IS_STATIC ? [] : [["admin", "Admin"] as [Tab, string]])];
 /** A game's overview page lives at #game=<game_id>, so the browser's back button returns to the slate and the page can be linked. */
 const gameFromHash = () => new URLSearchParams(window.location.hash.slice(1)).get("game");
+/** The game page's sportsbook, remembered in this browser. */
+const GAME_BOOK_KEY = "gameBook";
+const PREFERRED_GAME_BOOK = "FanDuel";
+const storedGameBook = () => { try { return localStorage.getItem(GAME_BOOK_KEY); } catch { return null; } };
 
 export default function App() {
   return IS_ADMIN_PAGE ? <Suspense fallback={null}><AdminPage /></Suspense> : <PublicApp />;
@@ -60,6 +64,8 @@ function PublicApp() {
   const goTab = (t: Tab) => { openGame(null); setTab(t); };
   const [filters, setFilters] = useState<Filters>({ kind: "all", side: "all", game: "all", book: "all", q: "", minEv: 0.03, marketWeight: 0.35, flagged: false });
   const [selected, setSelected] = useState<{ id: string; kind: Kind } | null>(null);
+  const [gameBook, setGameBookState] = useState<string>(() => storedGameBook() ?? PREFERRED_GAME_BOOK);
+  const setGameBook = (b: string) => { setGameBookState(b); try { localStorage.setItem(GAME_BOOK_KEY, b); } catch { /* private mode: not remembered */ } };
   const debounced = useDebounced(filters, 250);
 
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
@@ -116,6 +122,12 @@ function PublicApp() {
   const weatherByGame = Object.fromEntries(m.games.map((g) => [g.game_id, g.weather]));
   const selectedGame = m.games.find((g) => g.game_id === filters.game);
   const openedGame = gameId ? m.games.find((g) => g.game_id === gameId) : undefined;
+  // a remembered book that has no lines this week falls back to FanDuel, then the first book loaded
+  const pageBook = gameBook === "all" || m.books.includes(gameBook) ? gameBook
+    : m.books.includes(PREFERRED_GAME_BOOK) ? PREFERRED_GAME_BOOK : m.books[0] ?? "all";
+  // the player drawer follows the game page's book while one is open, else the tabs' filter
+  const drawerBook = openedGame ? pageBook : filters.book;
+  const setDrawerBook = (b: string) => (openedGame ? setGameBook(b) : setFilters({ ...filters, book: b }));
   const hasOdds = Object.keys(m.odds).length > 0;
   const latestOdds = Object.values(m.odds).map((o) => o.fetched_at).sort().at(-1);
 
@@ -158,7 +170,7 @@ function PublicApp() {
       </nav>
 
       {openedGame ? (
-        <GameOverview key={openedGame.game_id} game={openedGame} books={m.books} book={debounced.book} marketWeight={debounced.marketWeight} fit={m.weather}
+        <GameOverview key={openedGame.game_id} game={openedGame} books={m.books} book={pageBook} onBook={setGameBook} marketWeight={debounced.marketWeight} fit={m.weather}
           onBack={() => (pushedGame.current ? window.history.back() : openGame(null))}
           onSelect={(id, kind) => setSelected({ id, kind })} />
       ) : <>
@@ -193,7 +205,7 @@ function PublicApp() {
       {selected && (
         <Suspense fallback={null}>
           <PlayerDrawer playerId={selected.id} initialKind={selected.kind} marketWeight={debounced.marketWeight}
-            book={filters.book} onBookChange={(b) => setFilters({ ...filters, book: b })}
+            book={drawerBook} onBookChange={setDrawerBook}
             onClose={() => setSelected(null)} />
         </Suspense>
       )}

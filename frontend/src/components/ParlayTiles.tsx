@@ -68,7 +68,9 @@ function AltProps({ props }: { props: ParlayLeg[] }) {
 }
 
 interface Props {
-  books: string[]; book: string | null; onBook: (b: string) => void;
+  books: string[]; book: string | null;
+  /** Omit to hide the sportsbook picker (the game page picks one book for the whole page). */
+  onBook?: (b: string) => void;
   games: Game[]; selectedGames: string[];
   /** Omit to hide the game picker (a single game's page builds from that game only). */
   onGames?: (ids: string[]) => void;
@@ -79,11 +81,11 @@ interface Props {
 export default function ParlayTiles({ books, book, onBook, games, selectedGames, onGames, parlays, tdParlays, ladders, altProps, laddersLoading }: Props) {
   return (
     <>
-      <div className="seg parlay-books" role="group" aria-label="Sportsbook">
+      {onBook && <div className="seg parlay-books" role="group" aria-label="Sportsbook">
         {books.map((b) => (
           <button key={b} className={b === book ? "on" : ""} aria-pressed={b === book} onClick={() => onBook(b)}>{b}</button>
         ))}
-      </div>
+      </div>}
 
       {onGames && <>
       <div className="games" role="group" aria-label="Games to build from">
