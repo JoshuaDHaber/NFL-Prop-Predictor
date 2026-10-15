@@ -37,10 +37,10 @@ def clean_and_stub(monkeypatch):
 def test_first_refresh_fetches_main_and_alternate_lines_for_every_game(clean_and_stub):
     pipeline.refresh_odds("missing", log=lambda m: None)
     # anytime TD is a main market with no alternates
-    assert clean_and_stub == [("evt1", ["ml", "pass", "rec", "recs", "rr", "rush", "td"], ["pass", "rec", "recs", "rr", "rush"])]
+    assert clean_and_stub == [("evt1", ["lng", "ml", "pass", "ptd", "rec", "recs", "rr", "rush", "td"], ["lng", "pass", "ptd", "rec", "recs", "rr", "rush"])]
     with SessionLocal() as s:
-        assert {m for (m,) in s.query(OddsLine.market).distinct()} == {"rush", "rec", "pass", "rr", "td", "recs", "ml"}
-        assert s.query(AltLine).filter(AltLine.game_id == GAME).count() == 5
+        assert {m for (m,) in s.query(OddsLine.market).distinct()} == {"rush", "rec", "pass", "rr", "td", "recs", "ptd", "lng", "ml"}
+        assert s.query(AltLine).filter(AltLine.game_id == GAME).count() == 7
         assert s.query(AltLine).first().over_link == "https://sportsbook.draftkings.com/?outcomes=A"
 
 
@@ -57,7 +57,7 @@ def test_missing_mode_adds_only_alternates_for_games_that_lack_them(clean_and_st
         s.query(AltLine).delete(); s.commit()
     clean_and_stub.clear()
     pipeline.refresh_odds("missing", log=lambda m: None)
-    assert clean_and_stub == [("evt1", [], ["pass", "rec", "recs", "rr", "rush"])]  # no main markets re-bought
+    assert clean_and_stub == [("evt1", [], ["lng", "pass", "ptd", "rec", "recs", "rr", "rush"])]  # no main markets re-bought
 
 
 def test_a_game_synced_before_a_market_existed_gets_only_that_markets_alternates(clean_and_stub):
@@ -68,16 +68,16 @@ def test_a_game_synced_before_a_market_existed_gets_only_that_markets_alternates
     pipeline.refresh_odds("missing", log=lambda m: None)
     assert clean_and_stub == [("evt1", [], ["recs"])]                             # one credit, not the whole game again
     with SessionLocal() as s:
-        assert s.query(AltLine).filter(AltLine.game_id == GAME).count() == 5      # the other markets' alternates are kept
+        assert s.query(AltLine).filter(AltLine.game_id == GAME).count() == 7      # the other markets' alternates are kept
 
 
 def test_all_mode_refetches_everything_and_replaces_old_alternates(clean_and_stub):
     pipeline.refresh_odds("missing", log=lambda m: None)
     clean_and_stub.clear()
     pipeline.refresh_odds("all", log=lambda m: None)
-    assert len(clean_and_stub) == 1 and clean_and_stub[0][1] == ["ml", "pass", "rec", "recs", "rr", "rush", "td"]
+    assert len(clean_and_stub) == 1 and clean_and_stub[0][1] == ["lng", "ml", "pass", "ptd", "rec", "recs", "rr", "rush", "td"]
     with SessionLocal() as s:
-        assert s.query(AltLine).filter(AltLine.game_id == GAME).count() == 5  # replaced, not doubled
+        assert s.query(AltLine).filter(AltLine.game_id == GAME).count() == 7  # replaced, not doubled
 
 
 def test_none_mode_and_missing_key_do_nothing(clean_and_stub, monkeypatch):
@@ -98,7 +98,7 @@ def test_a_new_weeks_games_are_fetched_in_full_even_though_every_market_already_
     clean_and_stub.clear()
     monkeypatch.setattr(pipeline, "upcoming_games", lambda: TWO.iloc[[1]])   # the next week's game is a different one
     pipeline.refresh_odds("missing", log=lambda m: None)
-    assert clean_and_stub == [("evt2", ["ml", "pass", "rec", "recs", "rr", "rush", "td"], ["pass", "rec", "recs", "rr", "rush"])]  # main AND alternates
+    assert clean_and_stub == [("evt2", ["lng", "ml", "pass", "ptd", "rec", "recs", "rr", "rush", "td"], ["lng", "pass", "ptd", "rec", "recs", "rr", "rush"])]  # main AND alternates
     from app.db import current_lines
     with SessionLocal() as s:
         assert set(current_lines(s).player) == {"Test Back", "Other Back"}      # last week's lines are not hidden by the new fetch
@@ -140,12 +140,12 @@ def test_the_plan_prices_a_sync_before_it_runs(clean_and_stub):
     with SessionLocal() as s:
         plan = pipeline.sync_plan(s, TWO, "missing")
         assert plan["week"] == 99 and plan["total_games"] == 2 and len(plan["games"]) == 2
-        assert plan["credits"] == 2 * (7 + 5)                       # seven main markets + five alternate markets, per game
+        assert plan["credits"] == 2 * (9 + 7)                       # nine main markets + seven alternate markets, per game
         pipeline.refresh_odds("missing", log=lambda m: None)
     with SessionLocal() as s:
         covered = pipeline.sync_plan(s, TWO.iloc[[0]], "missing")
         assert covered["games"] == [] and covered["credits"] == 0   # nothing left to buy for game 1
-        assert pipeline.sync_plan(s, TWO.iloc[[0]], "all")["credits"] == 12
+        assert pipeline.sync_plan(s, TWO.iloc[[0]], "all")["credits"] == 16
 
 
 # ---------- thin games and progress ----------
@@ -168,7 +168,7 @@ def test_games_with_few_old_quotes_are_topped_up_in_thin_mode_only(clean_and_stu
         assert pipeline.sync_plan(s, TWO, "missing")["games"] == []          # 'missing' never re-buys a covered game
         thin = pipeline.sync_plan(s, TWO, "thin")
     assert [g["reason"] for g in thin["games"]] == ["thin", "thin"]
-    assert [g["stored_quotes"] for g in thin["games"]] == [12, 12] and thin["credits"] == 24
+    assert [g["stored_quotes"] for g in thin["games"]] == [16, 16] and thin["credits"] == 32
     monkeypatch.setattr(pipeline, "THIN_MIN_QUOTES", 5)           # a game with plenty of lines isn't thin
     with SessionLocal() as s:
         assert pipeline.sync_plan(s, TWO, "thin")["games"] == []
@@ -182,7 +182,7 @@ def test_thin_mode_refetches_those_games_in_full_and_buys_missing_ones_too(clean
     monkeypatch.setattr(pipeline, "upcoming_games", lambda: TWO)  # now game 2 exists too
     pipeline.refresh_odds("thin", log=lambda m: None)
     assert [c[0] for c in clean_and_stub] == ["evt1", "evt2"]     # game 1 topped up, game 2 fetched for the first time
-    assert all(c[1] == ["ml", "pass", "rec", "recs", "rr", "rush", "td"] and c[2] == ["pass", "rec", "recs", "rr", "rush"] for c in clean_and_stub)
+    assert all(c[1] == ["lng", "ml", "pass", "ptd", "rec", "recs", "rr", "rush", "td"] and c[2] == ["lng", "pass", "ptd", "rec", "recs", "rr", "rush"] for c in clean_and_stub)
 
 
 def test_progress_is_reported_game_by_game(clean_and_stub, monkeypatch):
@@ -195,7 +195,7 @@ def test_progress_is_reported_game_by_game(clean_and_stub, monkeypatch):
 def test_credit_floor_skips_games_that_would_drain_the_key(clean_and_stub, monkeypatch):
     monkeypatch.setattr(pipeline.odds, "credits_remaining", lambda key: 80)
     res = pipeline.refresh_odds("missing", log=lambda m: None, credit_floor=75)
-    assert clean_and_stub == []   # the game costs 12 credits: 80 - 12 is under the floor
+    assert clean_and_stub == []   # the game costs 16 credits: 80 - 16 is under the floor
     assert res["skipped_for_credits"] == 1 and res["fetched"] == 0 and res["credits_before"] == 80
 
 

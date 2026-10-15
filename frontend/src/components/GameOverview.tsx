@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api, type Game, type Kind, type WeatherFit } from "../api";
-import { KIND_SHORT } from "../format";
+import { KIND_SHORT, MARKET_TABS, SUB_LABEL, groupOf } from "../format";
 import { PARLAY_FILTERS, useParlayBoard } from "../useParlayBoard";
 import GameWeather from "./GameWeather";
 import { GameInjuries } from "./Injuries";
@@ -22,16 +22,26 @@ interface Props {
   onSelect: (id: string, kind: Kind) => void;
 }
 
-const KINDS: (Kind | "all")[] = ["all", "rush", "rec", "recs", "pass", "rr", "td"];
 const SECTIONS: [string, string][] = [["go-props", "Best props"], ["go-parlays", "Parlays"], ["go-proj", "Projections"], ["go-inj", "Injuries"]];
 /** Props shown before "Show all". */
 const PROPS_SHOWN = 8;
 
+/** Market picker; receiving and passing markets fold into one choice each, with a pill per market below. */
 function KindSeg({ value, onChange }: { value: Kind | "all"; onChange: (k: Kind | "all") => void }) {
+  const group = groupOf(value);
   return (
-    <div className="seg small" role="group" aria-label="Market">
-      {KINDS.map((k) => <button key={k} className={value === k ? "on" : ""} aria-pressed={value === k} onClick={() => onChange(k)}>{k === "all" ? "All" : KIND_SHORT[k]}</button>)}
-    </div>
+    <>
+      <div className="seg small" role="group" aria-label="Market">
+        {MARKET_TABS.map((k) => typeof k === "object"
+          ? <button key={k.label} className={group === k ? "on" : ""} aria-pressed={group === k} onClick={() => group !== k && onChange(k.kinds[0])}>{k.label}</button>
+          : <button key={k} className={value === k ? "on" : ""} aria-pressed={value === k} onClick={() => onChange(k)}>{k === "all" ? "All" : KIND_SHORT[k]}</button>)}
+      </div>
+      {group && (
+        <div className="seg small sub" role="group" aria-label={`${group.label} market`}>
+          {group.kinds.map((k) => <button key={k} className={value === k ? "on" : ""} aria-pressed={value === k} onClick={() => onChange(k)}>{SUB_LABEL[k] ?? KIND_SHORT[k]}</button>)}
+        </div>
+      )}
+    </>
   );
 }
 

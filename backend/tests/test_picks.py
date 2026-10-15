@@ -100,3 +100,14 @@ def test_a_quote_is_only_priced_against_the_game_it_belongs_to():
     assert build_picks(proj(mu=90), legacy).empty
     mixed = pd.concat([own, other_week.assign(book="Old")], ignore_index=True)
     assert set(build_picks(proj(mu=90), mixed).book) == {"A"}       # the stale quote doesn't leak into the market view either
+
+
+def test_passing_tds_are_flagged_on_chances_not_the_projection_to_line_ratio():
+    # 2.6 projected TDs against a 1.5 line is a ratio of 1.73, but only a modest gap in chances: not a blind spot
+    p = proj(name="Test Qb", pos="QB", kind="ptd", mu=2.6, sd=1.3)
+    picks = build_picks(p, lines([("Test Qb", "ptd", 1.5, -140, 110, "A")]), market_weight=0.35)
+    over = picks[picks.side == "Over"].iloc[0]
+    assert over.p_model > over.p_mkt and not over.flagged
+    stale = build_picks(p, lines([("Test Qb", "ptd", 1.5, -140, 110, "A"), ("Test Qb", "ptd", 1.5, -135, 105, "B"),
+                                  ("Test Qb", "ptd", 2.5, 150, -190, "C")]), market_weight=0.35)
+    assert set(stale.line) == {1.5}   # a whole TD off the consensus is another line, not this market's

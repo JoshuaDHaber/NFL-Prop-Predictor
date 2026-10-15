@@ -7,11 +7,16 @@ export const KIND_LABEL: Record<Kind, string> = {
 export const KIND_SHORT: Record<Kind, string> = { rush: "Rushing", rec: "Receiving", pass: "Passing", rr: "Rush+Rec", td: "Anytime TD", recs: "Receptions",
   ptd: "Passing TDs", lng: "Longest rec" };
 
-/** The Projections tab's grouped markets: one sub tab each, with a pill per market inside. */
-export const PROJ_GROUPS: { label: string; icon: string; kinds: Kind[] }[] = [
+/** Grouped markets: one sub tab each, with a pill per market inside. */
+export interface MarketGroup { label: string; icon: string; kinds: Kind[] }
+export const PROJ_GROUPS: MarketGroup[] = [
   { label: "Receiving", icon: "🙌", kinds: ["rec", "recs", "lng"] },
   { label: "Passing", icon: "🎯", kinds: ["pass", "ptd"] },
 ];
+/** The market picker's top row (props and projections alike): single markets, and the groups above. */
+export const MARKET_TABS: (Kind | "all" | MarketGroup)[] = ["all", "rush", PROJ_GROUPS[0], PROJ_GROUPS[1], "rr", "td"];
+/** The group a market belongs to, if any. */
+export const groupOf = (kind: Kind | "all") => PROJ_GROUPS.find((g) => (g.kinds as string[]).includes(kind));
 /** A market's name inside its group's sub tab. */
 export const SUB_LABEL: Partial<Record<Kind, string>> = { rec: "Yards", recs: "Receptions", lng: "Longest", pass: "Yards", ptd: "TDs" };
 /** Any market key the API reports (props, plus the team moneyline). */

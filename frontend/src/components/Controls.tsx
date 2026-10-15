@@ -1,11 +1,8 @@
 import type { Filters, Game, Kind } from "../api";
 import { IS_STATIC } from "../env";
-import { KIND_SHORT, PROJ_GROUPS, SUB_LABEL, kickoff, pct, signedPct } from "../format";
+import { KIND_SHORT, MARKET_TABS, SUB_LABEL, groupOf, kickoff, pct, signedPct } from "../format";
 
-const KINDS: (Kind | "all")[] = ["all", "rush", "rec", "recs", "pass", "rr", "td"];
 const ICON: Record<Kind | "all", string> = { all: "📊", rush: "🏃", rec: "🙌", recs: "🧤", pass: "🎯", rr: "⚡", td: "🏈", ptd: "🎯", lng: "🚀" };
-// the Projections tab: receiving and passing markets are folded into one sub tab each
-const GROUPED: (Kind | "all" | (typeof PROJ_GROUPS)[number])[] = ["all", "rush", PROJ_GROUPS[0], PROJ_GROUPS[1], "rr", "td"];
 
 interface Props {
   filters: Filters;
@@ -13,17 +10,15 @@ interface Props {
   games: Game[];
   books: string[];
   showPickControls: boolean;
-  /** Fold related markets into sub tabs (Receiving, Passing), each with a pill per market. */
-  grouped?: boolean;
 }
 
-export default function Controls({ filters, onChange, games, books, showPickControls, grouped = false }: Props) {
+export default function Controls({ filters, onChange, games, books, showPickControls }: Props) {
   const set = (patch: Partial<Filters>) => onChange({ ...filters, ...patch });
-  const group = grouped ? PROJ_GROUPS.find((g) => (g.kinds as string[]).includes(filters.kind)) : undefined;
+  const group = groupOf(filters.kind);   // receiving and passing markets sit under one sub tab each
   return (
     <section className="controls" aria-label="Filters">
       <div className="seg" role="tablist" aria-label="Market">
-        {grouped ? GROUPED.map((k) => {
+        {MARKET_TABS.map((k) => {
           if (typeof k === "object") {
             const on = group === k;
             return (
@@ -34,15 +29,10 @@ export default function Controls({ filters, onChange, games, books, showPickCont
           }
           return (
             <button key={k} role="tab" aria-selected={filters.kind === k} className={filters.kind === k ? "on" : ""} onClick={() => set({ kind: k })}>
-              <span className="ico" aria-hidden>{ICON[k]}</span>{k === "all" ? "All projections" : KIND_SHORT[k]}
+              <span className="ico" aria-hidden>{ICON[k]}</span>{k === "all" ? (showPickControls ? "All over/unders" : "All projections") : KIND_SHORT[k]}
             </button>
           );
-        }) : KINDS.map((k) => (
-          <button key={k} role="tab" aria-selected={filters.kind === k} className={filters.kind === k ? "on" : ""}
-            onClick={() => set({ kind: k })}>
-            <span className="ico" aria-hidden>{ICON[k]}</span>{k === "all" ? "All over/unders" : KIND_SHORT[k]}
-          </button>
-        ))}
+        })}
       </div>
       {group && (
         <div className="seg sub" role="tablist" aria-label={`${group.label} market`}>

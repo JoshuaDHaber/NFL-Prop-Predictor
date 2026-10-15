@@ -228,3 +228,11 @@ describe("anytime TD legs", () => {
     expect(back.legs[0]).toMatchObject({ kind: "td", side: "Over", line: 0.5, odds: 150 });
   });
 });
+
+describe("passing TD and longest reception legs", () => {
+  it("survive a trip through a shared phone link", () => {
+    const legs = [leg({ kind: "ptd", side: "Over", line: 1.5, odds: -130 }), leg({ kind: "lng", side: "Under", line: 24.5, odds: -115, playerId: "p2" })];
+    const back = decodeSlip(encodeSlip(legs, ""))!;
+    expect(back.legs.map((l) => [l.kind, l.side, l.line])).toEqual([["ptd", "Over", 1.5], ["lng", "Under", 24.5]]);
+  });
+});

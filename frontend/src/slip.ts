@@ -209,7 +209,7 @@ export function decodeSlip(text: string): { legs: Leg[]; state: string } | null 
   try {
     const d = JSON.parse(b64.dec(text));
     if (d?.v !== 1 || !Array.isArray(d.l) || d.l.length > 50) return null;
-    const kinds = ["rush", "rec", "pass", "rr", "td", "recs"];
+    const kinds = ["rush", "rec", "pass", "rr", "td", "recs", "ptd", "lng"];
     const legs: Leg[] = [];
     for (const r of d.l) {
       if (!Array.isArray(r) || r.length !== 16) return null;

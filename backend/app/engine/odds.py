@@ -10,9 +10,10 @@ import pandas as pd
 import requests
 
 API = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl"
-# over/under markets that also have alternate lines (yardage, and receptions)
+# over/under markets that also have alternate lines (yardage, receptions, passing TDs, longest reception)
 YARD_MARKETS = {"player_rush_yds": "rush", "player_reception_yds": "rec",
-                "player_pass_yds": "pass", "player_rush_reception_yds": "rr", "player_receptions": "recs"}
+                "player_pass_yds": "pass", "player_rush_reception_yds": "rr", "player_receptions": "recs",
+                "player_pass_tds": "ptd", "player_reception_longest": "lng"}
 # anytime TD has no line or alternates: books post a "Yes" price per player (some also "No")
 # team moneyline ("h2h"): one row per team, its price as the over and the opponent's as the under (see engine/moneyline.py)
 MARKETS = {**YARD_MARKETS, "player_anytime_td": "td", "h2h": "ml"}

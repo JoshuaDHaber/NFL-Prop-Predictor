@@ -315,8 +315,8 @@ def test_the_sync_plan_says_what_would_run_and_what_it_costs(client, monkeypatch
     p = client.get("/api/refresh/plan").json()
     assert p["season"] == 2026 and p["week"] == 5 and p["total_games"] == 2
     assert [g["label"] for g in p["games"]] == ["AAA @ BBB", "CCC @ DDD"]
-    assert p["games"][0]["need_main"] == ["ml", "pass", "rec", "recs", "rr", "rush", "td"] and p["games"][0]["need_alt"] is True
-    assert p["credits"] == 24 and p["will_run_projections"] is True
+    assert p["games"][0]["need_main"] == ["lng", "ml", "pass", "ptd", "rec", "recs", "rr", "rush", "td"] and p["games"][0]["need_alt"] is True
+    assert p["credits"] == 32 and p["will_run_projections"] is True
     none = client.get("/api/refresh/plan", params={"odds": "none"}).json()
     assert none["credits"] == 0 and none["games"] == [] and none["week"] == 5
 

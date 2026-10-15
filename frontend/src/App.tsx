@@ -61,12 +61,7 @@ function PublicApp() {
     setGameId(id);
     window.scrollTo({ top: 0 });
   };
-  const goTab = (t: Tab) => {
-    openGame(null);
-    setTab(t);
-    // passing TDs and longest reception are projected but not priced, so the other tabs fall back to every market
-    if (t !== "projections" && (filters.kind === "ptd" || filters.kind === "lng")) setFilters((f) => ({ ...f, kind: "all" }));
-  };
+  const goTab = (t: Tab) => { openGame(null); setTab(t); };
   const [filters, setFilters] = useState<Filters>({ kind: "all", side: "all", game: "all", book: "all", q: "", minEv: 0.03, marketWeight: 0.35, flagged: false });
   const [selected, setSelected] = useState<{ id: string; kind: Kind } | null>(null);
   const [gameBook, setGameBookState] = useState<string>(() => storedGameBook() ?? PREFERRED_GAME_BOOK);
@@ -182,7 +177,7 @@ function PublicApp() {
       <TopTiles tiles={tiles} />
 
       {tab === "games" && <Games games={m.games} picks={slatePicks.data ?? []} moneylines={moneylines.data ?? []} injuries={injuries.data} onOpen={openGame} />}
-      {tab !== "games" && tab !== "model" && tab !== "parlays" && tab !== "moneyline" && tab !== "admin" && tab !== "injuries" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} grouped={tab === "projections"} />}
+      {tab !== "games" && tab !== "model" && tab !== "parlays" && tab !== "moneyline" && tab !== "admin" && tab !== "injuries" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
       {(tab === "picks" || tab === "projections") && selectedGame && <GameWeather game={selectedGame} fit={m.weather} />}
 
       {tab === "picks" && (picks.isLoading ? <p className="mut">Pricing plays…</p> :
