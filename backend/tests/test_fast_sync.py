@@ -44,8 +44,17 @@ def league():
                                           rushing_tds=int(rng.random() < 0.05 * carries), targets=targets, receptions=round(0.65 * targets),
                                           receiving_yards=float(rng.gamma(4, 1.8 * max(targets, 0.1))),
                                           receiving_tds=int(rng.random() < 0.06 * targets), attempts=attempts,
-                                          passing_yards=float(rng.gamma(30, 7.0 * max(attempts, 0.1) / 30)) if attempts else 0.0))
+                                          passing_yards=float(rng.gamma(30, 7.0 * max(attempts, 0.1) / 30)) if attempts else 0.0,
+                                          passing_tds=int(rng.poisson(0.045 * attempts))))
     return pd.DataFrame(stats), pd.DataFrame(games)
+
+
+def catches(stats):
+    """One row per catch, its yards drawn around the player-game's yards per catch (play-by-play stand-in)."""
+    rng = np.random.default_rng(3)
+    out = [dict(player_id=r.player_id, season=r.season, week=r.week, yards=float(y))
+           for r in stats[stats.receptions > 0].itertuples() for y in rng.exponential(r.receiving_yards / r.receptions, r.receptions)]
+    return pd.DataFrame(out)
 
 
 @pytest.fixture
@@ -54,6 +63,7 @@ def synthetic(monkeypatch):
     roster = {f"{t}_{r}": t for t in TEAMS for r in ROLES}
     monkeypatch.setattr(pipeline.data, "load_schedule", lambda: sched)
     monkeypatch.setattr(pipeline.data, "load_stats", lambda seasons, usecols=None: stats)
+    monkeypatch.setattr(pipeline.data, "load_catches", lambda seasons: catches(stats))
     monkeypatch.setattr(pipeline.data, "load_injuries", lambda season: pd.DataFrame())
     monkeypatch.setattr(pipeline.data, "load_roster", lambda season: roster)
     with SessionLocal() as s:

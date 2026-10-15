@@ -36,8 +36,8 @@ def reusable_calibration(season: int, now: datetime = None):
         cal, red = v.get("_calibration"), v.get("_redistribution") or {}
         if not cal or cal.get("season") != season or "rho" not in red or not isinstance(v.get("td"), list):
             return None
-        if not all(isinstance(v.get(k), dict) for k in ("rush", "rec", "pass", "rr", "recs")):
-            return None  # fitted before a market existed (e.g. receptions)
+        if not all(isinstance(v.get(k), dict) for k in ("rush", "rec", "pass", "rr", "recs", "ptd", "lng")):
+            return None  # fitted before a market existed (e.g. receptions, passing TDs)
         if not isinstance((v.get("_weather") or {}).get("coef"), dict):
             return None  # fitted before weather was modeled
         if (now - datetime.fromisoformat(cal["at"])).days > CALIBRATION_MAX_AGE_DAYS:
@@ -57,8 +57,11 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
     week_t = season * 100 + week
     log(f"Target: {season} week {week}")
 
-    stats = model.prep(data.load_stats([season - 2, season - 1, season], usecols=data.PIPELINE_COLUMNS))
-    priors = model.league_priors(stats)
+    seasons = [season - 2, season - 1, season]
+    stats = model.prep(data.load_stats(seasons, usecols=data.PIPELINE_COLUMNS))
+    catches = data.load_catches(seasons)   # play-by-play catches: the longest-reception market
+    stats = model.add_longest(stats, catches)
+    priors = model.league_priors(stats, catches)
     td_pri = tdm.td_priors(stats)
     # who is out this week (injury report + your --exclude list): their volume goes to teammates, and they are dropped below
     inj = data.load_injuries(season)

@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, type Kind } from "../api";
-import { KIND_LABEL, KIND_SHORT, fmtProj, fmtSd, isCount, matchup, unit, weatherText, wxEffect } from "../format";
+import { KIND_LABEL, KIND_SHORT, effText, fmtProj, fmtSd, isCount, matchup, unit, volLabel, weatherText, wxEffect } from "../format";
 import Avatar from "./Avatar";
 import LineLadder, { ODDS_RANGE } from "./LineLadder";
 
@@ -73,10 +73,8 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
                 <>
                   <div><span className="mut">Projection</span><b>{fmtProj(kind, proj.mu)} {unit(kind)}</b></div>
                   <div><span className="mut">Std dev</span><b>{fmtSd(kind, proj.sd)}</b></div>
-                  <div><span className="mut">{isCount(kind) ? "Targets" : "Volume"}</span><b>{proj.vol.toFixed(1)}</b></div>
-                  {isCount(kind)
-                    ? <div><span className="mut">Catch rate</span><b>{(proj.eff * 100).toFixed(0)}%</b></div>
-                    : <div><span className="mut">Yds / att</span><b>{proj.eff.toFixed(2)}</b></div>}
+                  <div><span className="mut">{volLabel(kind)}</span><b>{proj.vol.toFixed(1)}</b></div>
+                  <div><span className="mut">{effText(kind, proj.eff)[0]}</span><b>{effText(kind, proj.eff)[1]}</b></div>
                 </>
               )}
             </div>
@@ -87,7 +85,7 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
                   <XAxis dataKey="label" tick={{ fontSize: 10, fill: "var(--mut)" }} interval={0} angle={-35} textAnchor="end" height={50} />
                   <YAxis tick={{ fontSize: 11, fill: "var(--mut)" }} />
-                  <Tooltip formatter={(v: number) => (isTd ? [`${v}`, "TDs"] : isCount(kind) ? [`${v}`, "Receptions"] : [`${v} yds`, "Yards"])}
+                  <Tooltip formatter={(v: number) => (isTd ? [`${v}`, "TDs"] : kind === "ptd" ? [`${v}`, "Passing TDs"] : isCount(kind) ? [`${v}`, "Receptions"] : [`${v} yds`, kind === "lng" ? "Longest" : "Yards"])}
                     labelFormatter={(l, items) => `${l} ${items[0]?.payload ? "vs " + items[0].payload.opp : ""}`}
                     contentStyle={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--ink)" }} />
                   <Bar dataKey="yards" fill="var(--acc)" radius={[3, 3, 0, 0]} />

@@ -1,5 +1,5 @@
 import type { Meta } from "../api";
-import { isCount, marketLabel, signed, timeAgo, weatherText, wxEffect } from "../format";
+import { decimals, marketLabel, unit, signed, timeAgo, weatherText, wxEffect } from "../format";
 import type { Kind } from "../api";
 
 function RedistributionCard({ r }: { r: NonNullable<Meta["redistribution"]> }) {
@@ -96,11 +96,11 @@ export default function ModelCheck({ meta }: { meta: Meta }) {
           const better = ((b.mae_naive - b.mae_model) / b.mae_naive) * 100;
           const brier = b.metric === "brier";
           const ml = (k as string) === "ml";
-          const count = !ml && isCount(k);
+          const count = !ml && decimals(k) === 1;
           return (
             <div className="card stat" key={k}>
               <div className="mut">{marketLabel(k)} · {b.n.toLocaleString()} backtested {ml ? "games" : brier ? "player-games" : "games"}</div>
-              <div className="big">{b.mae_model.toFixed(brier ? 3 : count ? 2 : 1)} <small>{brier ? "Brier score" : count ? "rec MAE" : "yds MAE"}</small></div>
+              <div className="big">{b.mae_model.toFixed(brier ? 3 : count ? 2 : 1)} <small>{brier ? "Brier score" : `${ml ? "yds" : unit(k)} MAE`}</small></div>
               <div className="mut">
                 {ml
                   ? `vs ${b.mae_naive.toFixed(3)} for always giving the home team its usual win rate (${better.toFixed(1)}% better; lower is better)`

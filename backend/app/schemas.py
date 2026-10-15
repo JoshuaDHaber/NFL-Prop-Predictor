@@ -2,7 +2,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel
 
-Kind = Literal["rush", "rec", "pass", "rr", "td", "recs"]
+Kind = Literal["rush", "rec", "pass", "rr", "td", "recs", "ptd", "lng"]
 
 
 class RunInfo(BaseModel):

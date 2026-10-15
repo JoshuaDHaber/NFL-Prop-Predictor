@@ -91,3 +91,30 @@ def test_american_odds_conversion():
     assert float(odds.american_to_dec(100)) == pytest.approx(2.0)
     assert float(odds.american_to_dec(-200)) == pytest.approx(1.5)
     assert float(odds.implied(-110)) == pytest.approx(110 / 210)
+
+
+def test_longest_catch_grows_with_catches_and_stays_between_one_catch_and_the_total():
+    yards = np.random.default_rng(0).exponential(11.0, 5000)
+    table = model.long_table(yards)
+    assert table[0] == pytest.approx(0.0)                          # no catches: longest is 0
+    assert all(b >= a for a, b in zip(table, table[1:]))           # more catches, longer longest
+    e1 = np.interp(1.0, model.LNG_LAMBDA, table)
+    assert 0.5 < e1 < 1.0           # one expected catch (Poisson: sometimes none) averages under one full catch
+    assert np.interp(6.0, model.LNG_LAMBDA, table) < 6.0             # the best of six is less than all six
+
+
+def test_longest_reception_follows_catches_and_yards_per_catch():
+    table = model.long_table(np.random.default_rng(0).exponential(11.0, 5000))
+    comp = {"rec": (66.0, 8.0, 8.25), "recs": (5.0, 8.0, 0.625)}   # 5 catches for 66 yards on 8 targets
+    mu, lam, ypc = model.long_reception(comp, table)
+    assert lam == pytest.approx(5.0) and ypc == pytest.approx(13.2)
+    assert ypc < mu < 66.0
+    bigger = model.long_reception({"rec": (99.0, 8.0, 12.4), "recs": (5.0, 8.0, 0.625)}, table)
+    assert bigger[0] > mu                                          # same catches, longer ones
+    assert model.long_reception({"rec": (10.0, 1.0, 10.0), "recs": (0.6, 1.0, 0.6)}, table) is None   # no real role
+
+
+def test_add_longest_takes_each_games_best_catch_and_zero_without_one():
+    df = pd.DataFrame({"player_id": ["a", "a", "b"], "season": [2026] * 3, "week": [1, 2, 1]})
+    catches = pd.DataFrame({"player_id": ["a", "a", "b"], "season": [2026] * 3, "week": [1, 1, 3], "yards": [12.0, 31.0, 9.0]})
+    assert model.add_longest(df, catches).receiving_long.tolist() == [31.0, 0.0, 0.0]

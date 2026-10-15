@@ -2,19 +2,43 @@ import type { GameWeather, Kind } from "./api";
 
 export const KIND_LABEL: Record<Kind, string> = {
   rush: "Rushing yds", rec: "Receiving yds", pass: "Passing yds", rr: "Rush+Rec yds", td: "Anytime TD", recs: "Receptions",
+  ptd: "Passing TDs", lng: "Longest reception",
 };
-export const KIND_SHORT: Record<Kind, string> = { rush: "Rushing", rec: "Receiving", pass: "Passing", rr: "Rush+Rec", td: "Anytime TD", recs: "Receptions" };
+export const KIND_SHORT: Record<Kind, string> = { rush: "Rushing", rec: "Receiving", pass: "Passing", rr: "Rush+Rec", td: "Anytime TD", recs: "Receptions",
+  ptd: "Passing TDs", lng: "Longest rec" };
+
+/** The Projections tab's grouped markets: one sub tab each, with a pill per market inside. */
+export const PROJ_GROUPS: { label: string; icon: string; kinds: Kind[] }[] = [
+  { label: "Receiving", icon: "🙌", kinds: ["rec", "recs", "lng"] },
+  { label: "Passing", icon: "🎯", kinds: ["pass", "ptd"] },
+];
+/** A market's name inside its group's sub tab. */
+export const SUB_LABEL: Partial<Record<Kind, string>> = { rec: "Yards", recs: "Receptions", lng: "Longest", pass: "Yards", ptd: "TDs" };
 /** Any market key the API reports (props, plus the team moneyline). */
 export const marketLabel = (k: string) => (k === "ml" ? "Moneyline" : KIND_LABEL[k as Kind] ?? k);
 
 /** Receptions are counted in catches (small numbers, so one decimal); the other over/under markets in yards. */
 export const isCount = (kind: Kind) => kind === "recs";
-export const unit = (kind: Kind) => (isCount(kind) ? "rec" : "yds");
+/** Markets counted in small whole numbers (catches, passing TDs) show one decimal; yardage none. */
+export const decimals = (kind: Kind) => (kind === "recs" || kind === "ptd" ? 1 : 0);
+export const unit = (kind: Kind) => (isCount(kind) ? "rec" : kind === "ptd" ? "TD" : "yds");
+/** What a projection's volume is: carries / targets / attempts, or for longest reception the expected catches. */
+export const volLabel = (kind: Kind) => (isCount(kind) ? "Targets" : kind === "ptd" ? "Attempts" : kind === "lng" ? "Catches" : "Volume");
+/** A projection's efficiency, labelled: catch rate, TD rate, yards per catch, or yards per attempt. */
+export const effText = (kind: Kind, eff: number): [string, string] =>
+  isCount(kind) ? ["Catch rate", `${(eff * 100).toFixed(0)}%`]
+  : kind === "ptd" ? ["TD / att", `${(eff * 100).toFixed(1)}%`]
+  : kind === "lng" ? ["Yds / catch", eff.toFixed(1)]
+  : ["Yds / att", eff.toFixed(2)];
+/** The caption under a projection: what the number counts. */
+export const projCaption = (kind: Kind) =>
+  kind === "td" ? "chance to score" : isCount(kind) ? "projected receptions" : kind === "ptd" ? "projected passing TDs"
+  : kind === "lng" ? "projected longest catch" : "projected yards";
 
 /** A projection as shown to a reader: yards (catches for receptions), or for anytime TD the chance of scoring (mu is a probability there). */
-export const fmtProj = (kind: Kind, mu: number) => (kind === "td" ? `${(mu * 100).toFixed(0)}%` : mu.toFixed(isCount(kind) ? 1 : 0));
+export const fmtProj = (kind: Kind, mu: number) => (kind === "td" ? `${(mu * 100).toFixed(0)}%` : mu.toFixed(decimals(kind)));
 /** The typical miss around a projection. */
-export const fmtSd = (kind: Kind, sd: number) => `±${sd.toFixed(isCount(kind) ? 1 : 0)}`;
+export const fmtSd = (kind: Kind, sd: number) => `±${sd.toFixed(decimals(kind))}`;
 
 /** What a play is called. Yardage is "Over 54.5"; anytime TD is stored as an over 0.5, shown as "Anytime TD" / "No TD". */
 export const playLabel = (kind: Kind, side: "Over" | "Under", line: number) =>

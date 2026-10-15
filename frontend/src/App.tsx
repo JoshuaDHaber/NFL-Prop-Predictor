@@ -14,7 +14,7 @@ import PicksTable from "./components/PicksTable";
 import ProjectionsTable from "./components/ProjectionsTable";
 import { useWaking } from "./auth";
 import { API_URL, BASE, IS_STATIC } from "./env";
-import { KIND_LABEL, americanOdds, fmtProj, fmtSd, isCount, marketLabel, matchup, pct, playLabel, signedPct, timeAgo } from "./format";
+import { KIND_LABEL, americanOdds, fmtProj, fmtSd, marketLabel, projCaption, matchup, pct, playLabel, signedPct, timeAgo } from "./format";
 import ThemeToggle from "./components/ThemeToggle";
 import TopTiles, { type Tile } from "./components/TopTiles";
 import { importOrReload } from "./staleChunk";
@@ -61,7 +61,12 @@ function PublicApp() {
     setGameId(id);
     window.scrollTo({ top: 0 });
   };
-  const goTab = (t: Tab) => { openGame(null); setTab(t); };
+  const goTab = (t: Tab) => {
+    openGame(null);
+    setTab(t);
+    // passing TDs and longest reception are projected but not priced, so the other tabs fall back to every market
+    if (t !== "projections" && (filters.kind === "ptd" || filters.kind === "lng")) setFilters((f) => ({ ...f, kind: "all" }));
+  };
   const [filters, setFilters] = useState<Filters>({ kind: "all", side: "all", game: "all", book: "all", q: "", minEv: 0.03, marketWeight: 0.35, flagged: false });
   const [selected, setSelected] = useState<{ id: string; kind: Kind } | null>(null);
   const [gameBook, setGameBookState] = useState<string>(() => storedGameBook() ?? PREFERRED_GAME_BOOK);
@@ -110,7 +115,7 @@ function PublicApp() {
       ? (filters.kind === "all" ? (["pass", "rush", "rec", "recs"] as Kind[]).map((k) => (projections.data ?? []).filter((p) => p.kind === k).sort((a, b) => b.mu - a.mu)[0])
         : [...(projections.data ?? [])].sort((a, b) => b.mu - a.mu).slice(0, 3)).filter(Boolean).map((p) => ({
         key: `${p.player_id}-${p.kind}`, label: filters.kind === "all" ? `Top ${KIND_LABEL[p.kind]}` : KIND_LABEL[p.kind], name: p.name, meta: `${p.pos} ${p.team} ${matchup(p.opp, p.home)}`,
-        value: <>{fmtProj(p.kind, p.mu)} {p.kind !== "td" && <em>{fmtSd(p.kind, p.sd)}</em>}</>, caption: p.kind === "td" ? "chance to score" : isCount(p.kind) ? "projected receptions" : "projected yards",
+        value: <>{fmtProj(p.kind, p.mu)} {p.kind !== "td" && <em>{fmtSd(p.kind, p.sd)}</em>}</>, caption: projCaption(p.kind),
         onClick: () => setSelected({ id: p.player_id, kind: p.kind }),
       }))
       // the moneyline beats a naive baseline but not the market, so it isn't held up as a "best" market
@@ -177,7 +182,7 @@ function PublicApp() {
       <TopTiles tiles={tiles} />
 
       {tab === "games" && <Games games={m.games} picks={slatePicks.data ?? []} moneylines={moneylines.data ?? []} injuries={injuries.data} onOpen={openGame} />}
-      {tab !== "games" && tab !== "model" && tab !== "parlays" && tab !== "moneyline" && tab !== "admin" && tab !== "injuries" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
+      {tab !== "games" && tab !== "model" && tab !== "parlays" && tab !== "moneyline" && tab !== "admin" && tab !== "injuries" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} grouped={tab === "projections"} />}
       {(tab === "picks" || tab === "projections") && selectedGame && <GameWeather game={selectedGame} fit={m.weather} />}
 
       {tab === "picks" && (picks.isLoading ? <p className="mut">Pricing plays…</p> :

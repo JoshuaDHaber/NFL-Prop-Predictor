@@ -1,5 +1,5 @@
 import type { GameWeather, Projection } from "../api";
-import { KIND_LABEL, fmtProj, fmtSd, matchup, signed } from "../format";
+import { KIND_LABEL, effText, fmtProj, fmtSd, matchup, signed } from "../format";
 import { useSort } from "../useSort";
 import Avatar from "./Avatar";
 import SortBar from "./SortBar";
@@ -20,8 +20,8 @@ export default function ProjectionsTable({ rows, onSelect, weather = {} }: { row
         <thead>
           <tr>
             {th("name", "Player")}<th scope="col">Market</th><th scope="col">Game</th>
-            {th("mu", "Proj")}{th("sd", "SD")}{th("vol", "Volume", "Projected carries / targets / attempts")}
-            {th("eff", "Yds/att · E[TD]", "Yards per carry/target/attempt; for receptions, catch rate; for anytime TD, expected touchdowns")}{th("spread", "Spread", "Team spread (positive = favorite)")}<th scope="col">Last 5</th>
+            {th("mu", "Proj")}{th("sd", "SD")}{th("vol", "Volume", "Projected carries / targets / attempts; for longest reception, expected catches")}
+            {th("eff", "Yds/att · E[TD]", "Yards per carry/target/attempt; for receptions, catch rate; for passing TDs, TDs per attempt; for longest reception, yards per catch; for anytime TD, expected touchdowns")}{th("spread", "Spread", "Team spread (positive = favorite)")}<th scope="col">Last 5</th>
           </tr>
         </thead>
         <tbody>
@@ -39,7 +39,7 @@ export default function ProjectionsTable({ rows, onSelect, weather = {} }: { row
               <td data-label="Proj"><b>{fmtProj(p.kind, p.mu)}</b></td>
               <td data-label="SD">{p.kind === "td" ? "–" : fmtSd(p.kind, p.sd)}</td>
               <td data-label="Volume">{p.vol.toFixed(1)}</td>
-              <td data-label="Yds/att · E[TD]">{p.kind === "recs" ? `${(p.eff * 100).toFixed(0)}% caught` : p.eff.toFixed(2)}</td>
+              <td data-label="Yds/att · E[TD]">{p.kind === "td" ? p.eff.toFixed(2) : effText(p.kind, p.eff)[1]}</td>
               <td data-label="Spread">{signed(p.spread)}</td>
               <td data-label="Last 5"><Spark values={p.last5} /></td>
             </tr>

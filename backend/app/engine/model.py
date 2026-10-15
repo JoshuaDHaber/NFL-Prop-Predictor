@@ -1,7 +1,10 @@
-"""Projection model for rushing, receiving and passing yards, and receptions.
+"""Projection model for rushing, receiving and passing yards, receptions, passing TDs and longest reception.
 
 yards = volume (carries | targets) x efficiency (yds/carry | yds/target)
 receptions = targets x catch rate (the same machinery, with receptions in place of yards)
+passing TDs = attempts x TD rate (the same again), scaled by the points the lines expect the team to score
+longest reception = the expected best of the projected catches, each drawn from the league's catch-yardage shape
+  (play-by-play, by position) stretched to the player's yards per catch (see long_table)
   * volume: exponentially recency-weighted average, shrunk toward a low prior
   * efficiency: recency-weighted, heavily shrunk toward the position mean
   * opponent: shrunk yards-allowed-per-game factor vs. league average
@@ -20,8 +23,8 @@ from . import td as tdm
 from . import weather as wxm
 
 HALFLIFE = 5.0          # games
-VOL_PRIOR_K = {"rush": 0.5, "rec": 0.5, "pass": 0.2, "recs": 0.5}   # pseudo-games of shrinkage on volume (QB volume is stable)
-EFF_K = {"rush": 40.0, "rec": 30.0, "pass": 120.0, "recs": 30.0}   # pseudo-attempts of shrinkage on efficiency
+VOL_PRIOR_K = {"rush": 0.5, "rec": 0.5, "pass": 0.2, "recs": 0.5, "ptd": 0.2}   # pseudo-games of shrinkage on volume (QB volume is stable)
+EFF_K = {"rush": 40.0, "rec": 30.0, "pass": 120.0, "recs": 30.0, "ptd": 400.0}   # pseudo-attempts of shrinkage on efficiency
 OPP_SHRINK_GAMES = 8.0
 OPP_STRENGTH = 0.5      # fraction of the (shrunk) opponent deviation applied
 SCRIPT_RUSH = 0.012     # per spread point (favorite = positive)
@@ -33,9 +36,12 @@ CFG = {
     "rec": dict(vol="targets", yds="receiving_yards", min_vol=3.0),
     "pass": dict(vol="attempts", yds="passing_yards", min_vol=15.0),
     "recs": dict(vol="targets", yds="receptions", min_vol=3.0),   # receptions: "yards" here is the catch count
+    "ptd": dict(vol="attempts", yds="passing_tds", min_vol=15.0),  # passing TDs: "yards" is the TD count
 }
-POSITIONS = {"rush": ("QB", "RB", "WR", "TE", "FB"), "rec": ("RB", "WR", "TE", "FB"), "pass": ("QB",), "recs": ("RB", "WR", "TE", "FB")}
-SCRIPT = {"rush": SCRIPT_RUSH, "rec": SCRIPT_REC, "pass": SCRIPT_PASS, "recs": SCRIPT_REC}
+POSITIONS = {"rush": ("QB", "RB", "WR", "TE", "FB"), "rec": ("RB", "WR", "TE", "FB"), "pass": ("QB",), "recs": ("RB", "WR", "TE", "FB"),
+             "ptd": ("QB",)}
+SCRIPT = {"rush": SCRIPT_RUSH, "rec": SCRIPT_REC, "pass": SCRIPT_PASS, "recs": SCRIPT_REC, "ptd": SCRIPT_PASS}
+LNG_LAMBDA = np.linspace(0.0, 16.0, 161)   # expected catches at which long_table tabulates the expected longest
 
 
 def prep(stats):
@@ -44,15 +50,59 @@ def prep(stats):
     return df
 
 
-def league_priors(df):
+def league_priors(df, catches=None):
+    """Per (kind, position): league efficiency. With catches (data.load_catches), also ("lng", pos): long_table."""
     pri = {}
     for kind, c in CFG.items():
+        if c["yds"] not in df:   # e.g. a stats load without passing TDs
+            continue
         d = df[df[c["vol"]] > 0]
         for pos, g in d.groupby("position"):
             if pos not in POSITIONS[kind]:
                 continue
             pri[(kind, pos)] = g[c["yds"]].sum() / g[c["vol"]].sum()
+    if catches is not None and len(catches):
+        pos_of = df.drop_duplicates("player_id", keep="last").set_index("player_id").position
+        c = catches.assign(position=catches.player_id.map(pos_of))
+        for pos, g in c.groupby("position"):
+            if pos in POSITIONS["rec"] and len(g) >= 200:
+                pri[("lng", pos)] = long_table(g.yards.to_numpy(float))
     return pri
+
+
+def long_table(yards):
+    """Expected longest catch, in units of yards per catch, at each LNG_LAMBDA expected catches.
+
+    Catch yards are z x (yards per catch), z drawn from this position's league shape (mean 1). With a Poisson number of
+    catches (mean lam) the longest L has P(L <= y) = exp(-lam * P(z > y / ypc)), and no catch counts as 0, so
+    E[L] / ypc = integral over z >= 0 of 1 - exp(-lam * P(z' > z))."""
+    y = np.clip(np.asarray(yards, float), 0, None)
+    probs = np.linspace(0, 1, 401)
+    z = np.quantile(y / y.mean(), probs)
+    surv = np.concatenate([[1.0], 1 - (probs[:-1] + probs[1:]) / 2])   # P(z' > z) on [0, z0] and each quantile gap
+    width = np.diff(np.concatenate([[0.0], z]))
+    return [float(x) for x in ((1 - np.exp(-np.outer(LNG_LAMBDA, surv))) * width).sum(axis=1)]
+
+
+def add_longest(df, catches):
+    """Each player-game's longest catch as receiving_long (0 without a catch); for the backtest and game logs."""
+    lng = catches.groupby(["player_id", "season", "week"]).yards.max().rename("receiving_long")
+    out = df.drop(columns="receiving_long", errors="ignore").join(lng, on=["player_id", "season", "week"])
+    out["receiving_long"] = out.receiving_long.fillna(0.0)
+    return out
+
+
+def long_reception(comp, table):
+    """(expected longest catch, expected catches, yards per catch), or None without a real receiving role.
+
+    Catches are the receptions projection, lifted by whatever redistribution added to targets; yards per catch come from
+    the receiving-yards projection, so the opponent, game script and weather carry over."""
+    r, c = comp.get("rec"), comp.get("recs")
+    if table is None or not r or not c or r[1] < CFG["rec"]["min_vol"] or c[0] <= 0 or c[1] <= 0:
+        return None
+    lam = c[0] * r[1] / c[1]
+    ypc = r[0] / lam
+    return float(ypc * np.interp(lam, LNG_LAMBDA, table)), float(lam), float(ypc)
 
 
 def opp_table(df, upto_t):
@@ -60,6 +110,8 @@ def opp_table(df, upto_t):
     d = df[df.t < upto_t]
     out = {}
     for kind, c in CFG.items():
+        if c["yds"] not in d:
+            continue
         per_game = d.groupby(["opponent_team", "season", "week"])[c["yds"]].sum()
         per_def = per_game.groupby("opponent_team").agg(["mean", "count"])
         lg = per_game.mean()
@@ -96,7 +148,7 @@ def components(hist, pos, priors, opp, spread, wx=None):
         pe = priors.get((kind, pos))
         if pe is None:
             continue
-        res = project_player(hist, kind, pe, opp[kind].get(hist.attrs["opp"], 0.0), spread)
+        res = project_player(hist, kind, pe, opp.get(kind, {}).get(hist.attrs["opp"], 0.0), spread)
         if res:
             f = (wx or {}).get(kind, 1.0)
             out[kind] = (res[0] * f, res[1], res[2]) if f != 1.0 else res
@@ -122,16 +174,26 @@ def combined(comp):
     return (r[0] + c[0], r[1] + c[1], (r[0] + c[0]) / (r[1] + c[1]))
 
 
-def all_kinds(hist, pos, priors, opp, spread, comp=None):
+def all_kinds(hist, pos, priors, opp, spread, comp=None, implied=None):
+    """Every market projected for one player. implied: the points the lines expect his team to score (passing TDs)."""
     comp = comp if comp is not None else components(hist, pos, priors, opp, spread)
     res = {k: v for k, v in comp.items() if v[1] >= CFG[k]["min_vol"]}
     if pos != "QB" and (rr := combined(comp)):
         res["rr"] = rr
+    if "ptd" in res and "pass" in comp and res["ptd"][1] > 0:
+        # follow any attempts redistribution gave the passing-yards projection, and how many points the team should score
+        mu, vol, eff = res["ptd"]
+        f = comp["pass"][1] / vol
+        res["ptd"] = (mu * f * tdm.scoring_factor(implied), vol * f, eff)
+    if pos != "QB" and (lng := long_reception(comp, priors.get(("lng", pos)))):
+        res["lng"] = lng
     return res
 
 
 def actual_hist(df, kind):
-    return df["rushing_yards"].fillna(0) + df["receiving_yards"].fillna(0) if kind == "rr" else df[CFG[kind]["yds"]]
+    if kind == "rr":
+        return df["rushing_yards"].fillna(0) + df["receiving_yards"].fillna(0)
+    return df["receiving_long"] if kind == "lng" else df[CFG[kind]["yds"]]
 
 
 def _lift_members(members, lost, rho, records=None, t=None, affected=None, only=None):
@@ -241,7 +303,8 @@ def walk_forward(df, priors, sched, start_t, td_priors=None, rho=None, records=N
     for c in ctx:
         pid, hist, one, r = c["pid"], c["hist"], c["one"], c["row"]
         aff = (pid, c["t"]) in affected
-        for kind, (mu, vol, eff) in all_kinds(hist, c["pos"], priors, opp_cache[c["t"]], c["sp"], c["comp"]).items():
+        implied = implied_map.get((c["season"], c["week"], c["team"]))
+        for kind, (mu, vol, eff) in all_kinds(hist, c["pos"], priors, opp_cache[c["t"]], c["sp"], c["comp"], implied).items():
             rows.append((pid, c["name"], kind, c["t"], mu, float(actual_hist(one, kind).iloc[0]),
                          float(actual_hist(hist, kind).tail(5).mean()), aff, c["temp"], c["wind"], wx_ratio(kind, c["comp"], c["wx"])))
         if td_priors is not None:
@@ -381,7 +444,7 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
                                          opp=other, home=team == gm.home_team, kind="td", mu=res[0], vol=res[2], eff=res[1],
                                          sd=0.0, spread=sp, gameday=gm.gameday, gametime=gm.gametime, game_id=gm.game_id,
                                          last5=tdm.td_count(hist).tail(5).tolist(), wx=1.0))
-                for kind, (mu, vol, eff) in all_kinds(hist, p.position, priors, opp, sp, comp).items():
+                for kind, (mu, vol, eff) in all_kinds(hist, p.position, priors, opp, sp, comp, implied_map.get((season, week, team))).items():
                     rows.append(dict(player_id=pid, name=p.player_display_name, pos=p.position, team=team,
                                      opp=other, home=team == gm.home_team, kind=kind, mu=mu, vol=vol, eff=eff,
                                      sd=sd_at(mu, var_params[kind]), spread=sp,

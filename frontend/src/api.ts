@@ -1,7 +1,7 @@
 import { getToken, setWaking } from "./auth";
 import { API_URL, BASE, IS_STATIC } from "./env";
 
-export type Kind = "rush" | "rec" | "pass" | "rr" | "td" | "recs";
+export type Kind = "rush" | "rec" | "pass" | "rr" | "td" | "recs" | "ptd" | "lng";
 
 export interface CalibrationBin { predicted: number; actual: number; n: number }
 /** Yardage kinds report mean absolute error in yards; anytime TD reports Brier scores (metric: "brier"). */

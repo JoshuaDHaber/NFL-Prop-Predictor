@@ -309,7 +309,7 @@ def build_injuries(db: Session, run: Optional[Run]) -> InjuryReport:
         return InjuryReport()
     games = [g for (g,) in db.execute(select(Projection.game_id).where(Projection.run_id == run.id).distinct())]
     teams = {t for g in games for t in g.split("_")[2:4]}
-    order = {"pass": 0, "rush": 1, "rec": 2, "recs": 3, "rr": 4, "td": 5}
+    order = {"pass": 0, "rush": 1, "rec": 2, "recs": 3, "rr": 4, "td": 5, "ptd": 6, "lng": 7}
     props = {}
     for pid, kind in db.execute(select(Projection.player_id, Projection.kind).where(Projection.run_id == run.id)):
         if pid not in props or order.get(kind, 9) < order.get(props[pid], 9):
@@ -400,12 +400,17 @@ def fetch_alt_lines(player_id: str, db: Session = Depends(get_db)):
 
 
 _LOG_COLUMNS = ["player_id", "season", "week", "season_type", "position", "team", "opponent_team", "rushing_yards",
-                "receiving_yards", "passing_yards", "receptions", "carries", "targets", "attempts", "rushing_tds", "receiving_tds"]
+                "receiving_yards", "passing_yards", "receptions", "carries", "targets", "attempts", "rushing_tds", "receiving_tds", "passing_tds"]
 
 
 @lru_cache(maxsize=1)
 def _stats(season: int) -> pd.DataFrame:
-    return model.prep(data.load_stats([season - 1, season], usecols=_LOG_COLUMNS))
+    st = model.prep(data.load_stats([season - 1, season], usecols=_LOG_COLUMNS))
+    try:   # longest catch per game comes from play-by-play; without it the longest-reception log is left out
+        st = model.add_longest(st, data.load_catches([season - 1, season]))
+    except Exception:
+        pass
+    return st
 
 
 def _game_logs(player_id: str, kinds: list[str], season: int, n: int = 12) -> dict:
@@ -417,6 +422,10 @@ def _game_logs(player_id: str, kinds: list[str], season: int, n: int = 12) -> di
             yards, vol = g.rushing_tds.fillna(0) + g.receiving_tds.fillna(0), g.carries.fillna(0) + g.targets.fillna(0)
         elif kind == "rr":
             yards, vol = g.rushing_yards.fillna(0) + g.receiving_yards.fillna(0), g.carries.fillna(0) + g.targets.fillna(0)
+        elif kind == "lng":   # longest catch against catches
+            if "receiving_long" not in g:
+                continue
+            yards, vol = g.receiving_long, g.receptions.fillna(0)
         else:
             c = model.CFG[kind]
             yards, vol = g[c["yds"]], g[c["vol"]]

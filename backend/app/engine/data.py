@@ -42,7 +42,8 @@ def _get_csv(url, name, max_age_hours=6, usecols=None):
 # the only stat columns the model reads; loading ~17 of nflverse's ~150 keeps a full refresh within a small server's memory
 PIPELINE_COLUMNS = ["player_id", "player_display_name", "position", "season", "week", "season_type", "team", "opponent_team",
                     "carries", "rushing_yards", "rushing_tds", "targets", "receptions", "receiving_yards", "receiving_tds",
-                    "attempts", "passing_yards"]
+                    "attempts", "passing_yards", "passing_tds"]
+PBP_COLUMNS = ["season", "week", "season_type", "receiver_player_id", "complete_pass", "receiving_yards"]
 
 
 def load_stats(seasons, usecols=None):
@@ -60,6 +61,30 @@ def load_stats(seasons, usecols=None):
     df = pd.concat(frames, ignore_index=True)
     df = df[df.season_type == "REG"]
     return df[df.position.isin(["QB", "RB", "WR", "TE", "FB"])].copy()
+
+
+def load_catches(seasons):
+    """Every regular-season catch (player_id, season, week, yards) from nflverse play-by-play: the weekly stats have no
+    longest reception. The ~20 MB play-by-play file is cut down to its catches once per download and that is cached too."""
+    frames = []
+    current = max(seasons)
+    for s in seasons:
+        max_age = 6 if s == current else 24 * 365   # a finished season's plays don't change
+        raw, small = os.path.join(CACHE, f"pbp_{s}.csv.gz"), os.path.join(CACHE, f"catches_{s}.csv")
+        fresh = os.path.exists(raw) and time.time() - os.path.getmtime(raw) < max_age * 3600
+        if fresh and os.path.exists(small) and os.path.getmtime(small) >= os.path.getmtime(raw):
+            frames.append(pd.read_csv(small))
+            continue
+        try:
+            p = _get_csv(f"{BASE}/pbp/play_by_play_{s}.csv.gz", f"pbp_{s}.csv.gz", max_age_hours=max_age, usecols=PBP_COLUMNS)
+        except requests.HTTPError:
+            continue
+        p = p[(p.season_type == "REG") & (p.complete_pass == 1) & p.receiver_player_id.notna()]
+        c = pd.DataFrame({"player_id": p.receiver_player_id, "season": p.season, "week": p.week,
+                          "yards": p.receiving_yards.fillna(0).astype(float)})
+        c.to_csv(small, index=False)
+        frames.append(c)
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=["player_id", "season", "week", "yards"])
 
 
 def load_schedule():
