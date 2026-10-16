@@ -136,14 +136,16 @@ export const LADDER_BANDS = [
   { key: "ladder-3", title: "Ladder +225 to +300", lo: 3.25, hi: 4.0001 },
 ];
 
-/** The players worth pulling a line ladder for: those whose main-line over looks likeliest (flagged plays are left out).
+/** The players worth pulling a line ladder for: those whose main-line over looks likeliest by the blended (model + market)
+ *  chance, as on the Best props board, and flagged plays are left out. Ranking by the model alone favoured exactly the plays
+ *  the books disagree with most, usually a role change the model hasn't caught (Troy Franklin: 63% to the model, 52% to the market).
  *  At most `perTeam` per team, so one team's players can't crowd the other side of a game out of the ladders. */
 export function ladderTargets(picks: Pick[], n = LADDER_PLAYERS, perTeam = LADDER_PLAYERS_PER_TEAM): Pick[] {
   const seen = new Set<string>();
   const teams = new Map<string, number>();
   const out: Pick[] = [];
   const overs = picks.filter((p) => p.side === "Over" && (p.kind === "rush" || p.kind === "rec") && !p.flagged);
-  for (const p of overs.sort((a, b) => b.p_model - a.p_model)) {
+  for (const p of overs.sort((a, b) => b.prob - a.prob)) {
     const team = `${p.game_id}|${p.team}`;
     if (seen.has(p.player_id) || (teams.get(team) ?? 0) >= perTeam) continue;
     seen.add(p.player_id);

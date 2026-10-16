@@ -89,6 +89,26 @@ class AltLine(Base):
     event_link: Mapped[str] = mapped_column(String(500), nullable=True)
 
 
+class OddsHistory(Base):
+    """Every quote from every fetch, main and alternate, never replaced or deleted. odds_lines and alt_lines keep only
+    each game's latest fetch (what the board shows); this keeps how lines moved through the week and the last price
+    before kickoff, to grade the model against the market once the games are played. No betslip links (they go stale
+    and are most of a row's size)."""
+    __tablename__ = "odds_history"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    game_id: Mapped[str] = mapped_column(String(24), nullable=True)
+    player: Mapped[str] = mapped_column(String(80))
+    market: Mapped[str] = mapped_column(String(6))
+    line: Mapped[float] = mapped_column(Float)
+    over_odds: Mapped[float] = mapped_column(Float, nullable=True)
+    under_odds: Mapped[float] = mapped_column(Float, nullable=True)
+    book: Mapped[str] = mapped_column(String(40))
+    alt: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    __table_args__ = (Index("ix_odds_history_game_market", "game_id", "market"),)
+
+
 class SyncRun(Base):
     """One sync (model run and/or odds fetch), scheduled or started by hand: the admin page's run log."""
     __tablename__ = "sync_runs"

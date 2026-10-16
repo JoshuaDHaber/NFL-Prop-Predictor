@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 
 from app import config, pipeline
-from app.db import AltLine, OddsLine, SessionLocal
+from app.db import AltLine, OddsHistory, OddsLine, SessionLocal
 
 GAME = "2026_99_AWY_HOM"
 
@@ -11,7 +11,7 @@ GAME = "2026_99_AWY_HOM"
 @pytest.fixture(autouse=True)
 def clean_and_stub(monkeypatch):
     with SessionLocal() as s:
-        s.query(AltLine).delete(); s.query(OddsLine).delete(); s.commit()
+        s.query(AltLine).delete(); s.query(OddsLine).delete(); s.query(OddsHistory).delete(); s.commit()
     monkeypatch.setattr(config, "ODDS_API_KEY", lambda: "test-key")
     monkeypatch.setattr(pipeline.config, "ODDS_API_KEY", lambda: "test-key")
     games = pd.DataFrame([dict(game_id=GAME, away_team="AWY", home_team="HOM")])
@@ -204,3 +204,18 @@ def test_credit_floor_lets_a_fetch_through_and_reports_the_balance(clean_and_stu
     res = pipeline.refresh_odds("missing", log=lambda m: None, credit_floor=75)
     assert len(clean_and_stub) == 1
     assert res == dict(games=1, fetched=1, skipped_for_credits=0, credits_before=412, credits_after=400)
+
+
+def test_every_fetch_is_kept_in_the_history_even_after_the_board_replaces_it(clean_and_stub, monkeypatch):
+    monkeypatch.setattr(pipeline, "upcoming_games", lambda: TWO.iloc[[0]])
+    pipeline.refresh_odds("missing", log=lambda m: None)
+    with SessionLocal() as s:
+        main, alt = s.query(OddsLine).count(), s.query(AltLine).count()
+        assert s.query(OddsHistory).count() == main + alt
+    pipeline.refresh_odds("all", log=lambda m: None)                     # the board keeps one copy, the history both
+    with SessionLocal() as s:
+        assert s.query(OddsLine).count() == main and s.query(AltLine).count() == alt
+        assert s.query(OddsHistory).count() == 2 * (main + alt)
+        assert len({t for (t,) in s.query(OddsHistory.fetched_at).distinct()}) >= 2
+        h = s.query(OddsHistory).filter(OddsHistory.alt.is_(True)).first()
+        assert h.game_id == GAME and h.line == 80.5 and h.over_odds == 250

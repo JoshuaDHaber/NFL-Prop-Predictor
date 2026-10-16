@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from . import config
-from .db import AltLine, OddsLine, Projection, Run, SessionLocal
+from .db import AltLine, OddsHistory, OddsLine, Projection, Run, SessionLocal
 from .engine import data, model, odds
 from .engine import moneyline as mlm
 from .engine import redistribute as rd
@@ -193,6 +193,15 @@ def _s(v):
     return None if v is None or (isinstance(v, float) and pd.isna(v)) or str(v) == "" else str(v)
 
 
+def archive_quotes(df: pd.DataFrame, session, fetched_at: datetime, alt: bool) -> None:
+    """Append quotes to odds_history (see db.OddsHistory); the caller commits."""
+    gid = df["game_id"] if "game_id" in df else pd.Series([None] * len(df), index=df.index)
+    session.add_all(OddsHistory(fetched_at=fetched_at, game_id=None if pd.isna(g) else g, player=r.player, market=r.market,
+                                line=float(r.line), over_odds=None if pd.isna(r.over_odds) else float(r.over_odds),
+                                under_odds=None if pd.isna(r.under_odds) else float(r.under_odds), book=r.book, alt=alt)
+                    for r, g in zip(df.itertuples(), gid))
+
+
 def store_lines(df: pd.DataFrame, session) -> int:
     """Store main-market quotes. Each (market, game) is one snapshot: its older rows are replaced, so the table
     holds only current lines and a later fetch for other games never hides the ones already stored."""
@@ -208,6 +217,7 @@ def store_lines(df: pd.DataFrame, session) -> int:
                                  over_link=_s(getattr(r, "over_link", None)), under_link=_s(getattr(r, "under_link", None)),
                                  event_link=_s(getattr(r, "event_link", None)), game_id=game_id)
                         for r in g.itertuples())
+        archive_quotes(g, session, t, alt=False)
         session.flush()
         if game_id:
             session.query(OddsLine).filter(OddsLine.market == market, OddsLine.game_id == game_id,
@@ -342,6 +352,7 @@ def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[in
                               under_odds=None if pd.isna(r.under_odds) else float(r.under_odds), book=r.book,
                               over_link=_s(r.over_link), under_link=_s(r.under_link), event_link=_s(r.event_link))
                       for r in alt_df.itertuples())
+            archive_quotes(alt_df, s, now, alt=True)
             s.commit()
         log(f"Stored {len(main_df)} main and {len(alt_df)} alternate quotes")
     return out
@@ -383,6 +394,7 @@ def fetch_game_lines(game_id: str, kinds: list[str], log: Log = print) -> dict:
                           under_odds=None if pd.isna(r.under_odds) else float(r.under_odds), book=r.book,
                           over_link=_s(r.over_link), under_link=_s(r.under_link), event_link=_s(r.event_link))
                   for r in alts.itertuples())
+        archive_quotes(alts.assign(game_id=game_id), s, now, alt=True)
         patched = 0
         for r in mains.itertuples():
             patched += s.query(OddsLine).filter(

@@ -250,7 +250,7 @@ frontend/src/      App, components (picks table, player drawer, line ladder, bet
 
 ## Limitations
 
-- **The backtest has no historical odds,** so it validates accuracy, not profitability. Sportsbook prop markets are efficient; a large apparent edge usually means the model is missing context.
+- **The backtest has no historical odds,** so it validates accuracy, not profitability. Every odds fetch is now also appended to `odds_history` (never replaced, no links), so line movement and closing prices build up for grading the model against the market. Sportsbook prop markets are efficient; a large apparent edge usually means the model is missing context.
 - **Teammate redistribution covers carries and quarterback attempts:** a missing back's carries move to his teammates and a missing starting QB's attempts go to his replacement, but a missing receiver's targets are not redistributed (tested, and it made held-out error worse), so receiver backups are still under-projected. A replacement QB's receivers also aren't adjusted for his weaker passing.
 - **Heuristic adjustments:** opponent and game-script effects are reasonable but untuned.
 - **Weather is wind and cold only.** Rain and snow aren't modeled (no history to fit), retractable roofs are assumed closed, and the forecast is as of the last model run. The weather effect is fitted on a few hundred outdoor games with strong wind, so it's noisy, and sportsbooks price wind too.

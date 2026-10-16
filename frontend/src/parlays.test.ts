@@ -127,10 +127,15 @@ describe("ladder rungs", () => {
 
 describe("ladder targets", () => {
   it("takes one likely, unflagged rush/receiving over per player", () => {
-    const rows = [over({ player_id: "a", p_model: 0.6 }), over({ player_id: "a", kind: "rec", p_model: 0.9 }), over({ player_id: "b", p_model: 0.7 }),
+    const rows = [over({ player_id: "a", prob: 0.6 }), over({ player_id: "a", kind: "rec", prob: 0.9 }), over({ player_id: "b", prob: 0.7 }),
       over({ player_id: "c", flagged: true }), pick({ player_id: "d", side: "Under" }), over({ player_id: "e", kind: "pass" }), over({ player_id: "f", kind: "td" })];
     expect(ladderTargets(rows).map((p) => p.player_id)).toEqual(["a", "b"]);
     expect(ladderTargets(rows, 1)).toHaveLength(1);
+  });
+
+  it("ranks by the blended chance, so a play the market disagrees with drops down", () => {
+    const rows = [over({ player_id: "franklin", p_model: 0.63, p_mkt: 0.52, prob: 0.59 }), over({ player_id: "harvey", p_model: 0.6, p_mkt: 0.6, prob: 0.6 })];
+    expect(ladderTargets(rows).map((p) => p.player_id)).toEqual(["harvey", "franklin"]);
   });
 });
 
@@ -256,8 +261,8 @@ describe("ladder props", () => {
 
 describe("ladder targets per team", () => {
   it("keeps one team's players from crowding out the other side", () => {
-    const rows = [...Array.from({ length: 8 }, (_, i) => over({ player_id: `t${i}`, team: "TB", p_model: 0.9 - i * 0.01 })),
-      ...Array.from({ length: 3 }, (_, i) => over({ player_id: `d${i}`, team: "DAL", p_model: 0.5 - i * 0.01 }))];
+    const rows = [...Array.from({ length: 8 }, (_, i) => over({ player_id: `t${i}`, team: "TB", prob: 0.9 - i * 0.01 })),
+      ...Array.from({ length: 3 }, (_, i) => over({ player_id: `d${i}`, team: "DAL", prob: 0.5 - i * 0.01 }))];
     const ids = ladderTargets(rows, 12).map((p) => p.player_id);
     expect(ids.filter((i) => i.startsWith("t"))).toHaveLength(6);
     expect(ids.filter((i) => i.startsWith("d"))).toHaveLength(3);
