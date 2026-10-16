@@ -58,7 +58,24 @@ export const signed = (x: number, digits = 1) => `${x >= 0 ? "+" : ""}${x.toFixe
 export const americanOdds = (o: number) => (o > 0 ? `+${o}` : `${o}`);
 export const matchup = (opp: string, home: boolean) => `${home ? "vs" : "@"} ${opp}`;
 
-export function kickoff(gameday: string, gametime: string): string {
+/** The UTC instant of a US Eastern wall-clock time (the nflverse schedule's gameday/gametime are Eastern). */
+export function easternToDate(gameday: string, gametime: string): Date | null {
+  const [y, mo, d] = gameday.split("-").map(Number);
+  const [h, mi] = gametime.split(":").map(Number);
+  if ([y, mo, d, h, mi].some((n) => n === undefined || isNaN(n))) return null;
+  const guess = Date.UTC(y, mo - 1, d, h, mi);
+  // What Eastern wall time is that instant? The difference is Eastern's UTC offset on that date.
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric",
+  }).formatToParts(guess).map((p) => [p.type, p.value]));
+  const asEastern = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute);
+  return new Date(guess + (guess - asEastern));
+}
+
+/** "Sun 10:00 AM": kickoff in the viewer's own time zone (or `timeZone`, for tests). */
+export function kickoff(gameday: string, gametime: string, timeZone?: string): string {
+  const at = easternToDate(gameday, gametime);
+  if (at) return at.toLocaleString(undefined, { timeZone, weekday: "short", hour: "numeric", minute: "2-digit" });
   const d = new Date(`${gameday}T12:00:00`);
   const day = isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-US", { weekday: "short" });
   return [day, gametime].filter(Boolean).join(" ");

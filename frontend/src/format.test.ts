@@ -14,7 +14,13 @@ describe("format", () => {
     expect(americanOdds(-110)).toBe("-110");
   });
   it("labels kickoff by weekday", () => {
-    expect(kickoff("2026-10-04", "13:00")).toBe("Sun 13:00");
+    const k = (tz: string) => kickoff("2026-10-04", "13:00", tz).replace(/\s/g, " ");
+    expect(k("America/New_York")).toMatch(/^Sun,? 1:00 PM$/);
+    expect(k("America/Los_Angeles")).toMatch(/^Sun,? 10:00 AM$/);
+    expect(k("Europe/London")).toMatch(/^Sun,? 6:00 PM$/);
+    // late games roll into the next day, and the winter offset is applied after DST ends
+    expect(kickoff("2026-12-06", "20:20", "Europe/London").replace(/\s/g, " ")).toMatch(/^Mon,? 1:20 AM$/);
+    expect(kickoff("2026-10-04", "")).toBe("Sun");
   });
   it("renders relative times", () => {
     const now = Date.parse("2026-10-04T12:00:00Z");
