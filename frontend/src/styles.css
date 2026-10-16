@@ -403,4 +403,4 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
 .ml-bar .tbar + .tbar { box-shadow: inset 2px 0 0 var(--card); }
 .team-logo { flex: none; object-fit: contain; }
 .gt-team { flex-direction: row; align-items: center; gap: 8px; } .gt-team > span { display: flex; flex-direction: column; }
-.gt-team.home { justify-content: flex-end; } .gt-team.home > span { align-items: flex-end; }
+.gt-team.home { justify-content: flex-end; align-items: center; } .gt-team.home > span { align-items: flex-end; }
