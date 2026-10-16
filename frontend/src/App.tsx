@@ -69,17 +69,26 @@ function PublicApp() {
   const debounced = useDebounced(filters, 250);
 
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
+  // a game page counts as open only for a game still on the slate (assumed so until the slate loads)
+  const gameOpen = !!gameId && (!meta.data || meta.data.games.some((g) => g.game_id === gameId));
+  // an old link (#game=<a game no longer on the slate>) drops the hash and lands on the slate
+  useEffect(() => {
+    if (!gameId || !meta.data || meta.data.games.some((g) => g.game_id === gameId)) return;
+    pushedGame.current = false;
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    setGameId(null);
+  }, [gameId, meta.data]);
   const picks = useQuery({ queryKey: ["picks", debounced], queryFn: () => api.picks(debounced), enabled: tab === "picks", placeholderData: (p) => p });
   const [parlayGames, setParlayGames] = useState<string[]>([]);
   // only games still on the slate count; every parlay and ladder is built from the chosen games' picks
   const chosenGames = useMemo(() => parlayGames.filter((id) => meta.data?.games.some((g) => g.game_id === id)), [parlayGames, meta.data]);
-  const board = useParlayBoard(meta.data?.books ?? [], chosenGames, tab === "parlays" && !gameId);
+  const board = useParlayBoard(meta.data?.books ?? [], chosenGames, tab === "parlays" && !gameOpen);
   // positive-EV plays across the slate, for the game tiles' top prop and counts
   const slatePicks = useQuery({ queryKey: ["slate-picks", debounced.book, debounced.marketWeight],
-    queryFn: () => api.picks({ ...PARLAY_FILTERS, book: debounced.book, marketWeight: debounced.marketWeight, minEv: 0 }, 1000), enabled: tab === "games" && !gameId });
+    queryFn: () => api.picks({ ...PARLAY_FILTERS, book: debounced.book, marketWeight: debounced.marketWeight, minEv: 0 }, 1000), enabled: tab === "games" && !gameOpen });
   const moneylines = useQuery({ queryKey: ["moneylines", debounced.book, debounced.marketWeight], queryFn: () => api.moneylines(debounced.book, debounced.marketWeight),
-    enabled: tab === "moneyline" || (tab === "games" && !gameId), placeholderData: (p) => p });
-  const injuries = useQuery({ queryKey: ["injuries"], queryFn: api.injuries, enabled: tab === "injuries" || (tab === "games" && !gameId), refetchInterval: 15 * 60_000 });
+    enabled: tab === "moneyline" || (tab === "games" && !gameOpen), placeholderData: (p) => p });
+  const injuries = useQuery({ queryKey: ["injuries"], queryFn: api.injuries, enabled: tab === "injuries" || (tab === "games" && !gameOpen), refetchInterval: 15 * 60_000 });
   const projections = useQuery({ queryKey: ["projections", debounced], queryFn: () => api.projections(debounced), enabled: tab === "projections", placeholderData: (p) => p });
 
   if (meta.isLoading) return (
