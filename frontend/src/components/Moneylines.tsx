@@ -1,17 +1,8 @@
 import type { MoneylineGame, MoneylineSide } from "../api";
 import { useBetSlip } from "../BetSlipContext";
-import { IS_STATIC } from "../env";
 import { americanOdds, kickoff, pct, signedPct } from "../format";
 import { legLink } from "../slip";
-
-interface Props {
-  games: MoneylineGame[];
-  books: string[];
-  book: string;
-  marketWeight: number;
-  onBook: (b: string) => void;
-  onMarketWeight: (w: number) => void;
-}
+import { matchupColors, shadeVars } from "../teams";
 
 /** "LV by 3.0" from a home margin; "Pick'em" near zero. */
 export function favored(g: MoneylineGame, m: number, digits = 1) {
@@ -41,14 +32,15 @@ function SideRow({ s }: { s: MoneylineSide }) {
 /** One game: both teams' win chances as a bar, then each side's model, market and blended chance with the best price. */
 export function MoneylineCard({ g }: { g: MoneylineGame }) {
   const [away, home] = g.sides;
+  const [awayColor, homeColor] = matchupColors(away.team, home.team);
   return (
     <article className="card ml-card">
       <header className="ml-head">
         <b>{g.label}</b><span className="mut">{kickoff(g.gameday, g.gametime)}</span>
       </header>
       <div className="ml-bar" role="img" aria-label={`${away.team} ${pct(away.prob, 0)}, ${home.team} ${pct(home.prob, 0)}`}>
-        <i className="away" style={{ width: `${away.prob * 100}%` }}>{away.team} {pct(away.prob, 0)}</i>
-        <i className="home" style={{ width: `${home.prob * 100}%` }}>{home.team} {pct(home.prob, 0)}</i>
+        <i className="away tbar" style={{ width: `${away.prob * 100}%`, ...shadeVars(awayColor) }}>{away.team} {pct(away.prob, 0)}</i>
+        <i className="home tbar" style={{ width: `${home.prob * 100}%`, ...shadeVars(homeColor) }}>{home.team} {pct(home.prob, 0)}</i>
       </div>
       <div className="scroll">
         <table className="ml-table">
@@ -63,35 +55,5 @@ export function MoneylineCard({ g }: { g: MoneylineGame }) {
         {away.books > 0 && <> · {away.books} book{away.books === 1 ? "" : "s"}</>}
       </p>
     </article>
-  );
-}
-
-export default function Moneylines({ games, books, book, marketWeight, onBook, onMarketWeight }: Props) {
-  return (
-    <div className="stack">
-      <section className="controls" aria-label="Moneyline filters">
-        <div className="row">
-          <select value={book} onChange={(e) => onBook(e.target.value)} aria-label="Sportsbook">
-            <option value="all">All sportsbooks</option>
-            {books.map((b) => <option key={b} value={b}>{b}</option>)}
-          </select>
-          <label className="slider" title={IS_STATIC ? "Fixed at 35% in the demo snapshot" : "How much to blend the market's no-vig probability into the model's (never below 80% here)"}>
-            <span>Trust market <b>{pct(Math.max(marketWeight, 0.8), 0)}</b></span>
-            <input type="range" min={0} max={1} step={0.05} value={marketWeight} disabled={IS_STATIC}
-              onChange={(e) => onMarketWeight(Number(e.target.value))} />
-          </label>
-        </div>
-        <p className="td-note">
-          <b>Moneyline:</b> each team's chance to win from point-margin team ratings, blended with the books' no-vig price. The
-          ratings know nothing about injuries or quarterbacks and the market is sharper in the backtest, so the blend always leans at
-          least 80% on the market. Treat any edge here with caution.
-        </p>
-      </section>
-      {!games.length ? <div className="card empty">No team win probabilities yet. Run the model (Refresh data) to compute them.</div> : (
-        <div className="ml-grid">
-          {games.map((g) => <MoneylineCard key={g.game_id} g={g} />)}
-        </div>
-      )}
-    </div>
   );
 }

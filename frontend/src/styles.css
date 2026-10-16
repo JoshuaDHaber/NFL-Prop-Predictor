@@ -395,3 +395,12 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
 .go-book { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .go-book select { font-weight: 600; }
 @media (max-width: 600px) { .go-book { margin-left: 0; width: 100%; } .go-book select { flex: 1; font-size: 16px; } }
+
+/* Team-colored win-probability bars (colors from teams.ts) */
+.ml-bar .tbar { background: var(--tc); color: var(--ti); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ml-bar .tbar { background: var(--tc-dark); color: var(--ti-dark); } }
+:root[data-theme="dark"] .ml-bar .tbar { background: var(--tc-dark); color: var(--ti-dark); }
+.ml-bar .tbar + .tbar { box-shadow: inset 2px 0 0 var(--card); }
+.team-logo { flex: none; object-fit: contain; }
+.gt-team { flex-direction: row; align-items: center; gap: 8px; } .gt-team > span { display: flex; flex-direction: column; }
+.gt-team.home { justify-content: flex-end; } .gt-team.home > span { align-items: flex-end; }

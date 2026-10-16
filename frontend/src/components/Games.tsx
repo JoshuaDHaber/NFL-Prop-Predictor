@@ -2,6 +2,8 @@ import type { Game, InjuryReport, MoneylineGame, Pick } from "../api";
 import { KIND_LABEL, americanOdds, kickoff, pct, playLabel, signedPct, weatherShort, weatherText, notableWeather } from "../format";
 import { gameStatusCounts } from "./Injuries";
 import { favored } from "./Moneylines";
+import TeamLogo from "./TeamLogo";
+import { matchupColors, shadeVars } from "../teams";
 
 interface Props {
   games: Game[];
@@ -28,16 +30,17 @@ function Tile({ g, picks, ml, injuries, onOpen }: { g: Game; picks: Pick[]; ml?:
   const injText = inj && [inj.out && `${inj.out} out`, inj.doubtful && `${inj.doubtful} doubtful`, inj.questionable && `${inj.questionable} questionable`].filter(Boolean).join(" · ");
   const [a, h] = ml?.sides ?? [];
   const wx = weatherBit(g);
+  const [awayColor, homeColor] = matchupColors(away, home);
   return (
     <button className="gt" onClick={() => onOpen(g.game_id)} aria-label={`Open ${g.label}`}>
       <span className="gt-top"><span>{kickoff(g.gameday, g.gametime)}</span>{wx && <span>{wx}</span>}</span>
       <span className="gt-match">
-        <span className="gt-team"><b>{away}</b>{a && <small>{pct(a.prob, 0)}</small>}</span>
+        <span className="gt-team"><TeamLogo team={away} /><span><b>{away}</b>{a && <small>{pct(a.prob, 0)}</small>}</span></span>
         <span className="gt-at">@</span>
-        <span className="gt-team home"><b>{home}</b>{h && <small>{pct(h.prob, 0)}</small>}</span>
+        <span className="gt-team home"><span><b>{home}</b>{h && <small>{pct(h.prob, 0)}</small>}</span><TeamLogo team={home} /></span>
       </span>
       {a && h
-        ? <span className="ml-bar gt-bar" aria-hidden><i className="away" style={{ width: `${a.prob * 100}%` }} /><i className="home" style={{ width: `${h.prob * 100}%` }} /></span>
+        ? <span className="ml-bar gt-bar" aria-hidden><i className="tbar" style={{ width: `${a.prob * 100}%`, ...shadeVars(awayColor) }} /><i className="tbar" style={{ width: `${h.prob * 100}%`, ...shadeVars(homeColor) }} /></span>
         : <span className="gt-bar gt-bar-empty" aria-hidden />}
       <span className="gt-line mut">{ml ? (ml.spread != null ? `Spread: ${favored(ml, ml.spread)}` : `Model: ${favored(ml, ml.margin)}`) : "No moneyline yet"}</span>
       <span className="gt-prop">

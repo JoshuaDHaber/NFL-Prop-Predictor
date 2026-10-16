@@ -8,13 +8,12 @@ import GameWeather from "./components/GameWeather";
 import Games from "./components/Games";
 import Injuries from "./components/Injuries";
 import ModelCheck from "./components/ModelCheck";
-import Moneylines from "./components/Moneylines";
 import ParlayTiles from "./components/ParlayTiles";
 import PicksTable from "./components/PicksTable";
 import ProjectionsTable from "./components/ProjectionsTable";
 import { useWaking } from "./auth";
 import { API_URL, BASE, IS_STATIC } from "./env";
-import { KIND_LABEL, americanOdds, fmtProj, fmtSd, marketLabel, projCaption, matchup, pct, playLabel, signedPct, timeAgo } from "./format";
+import { KIND_LABEL, americanOdds, fmtProj, fmtSd, marketLabel, projCaption, matchup, playLabel, signedPct, timeAgo } from "./format";
 import ThemeToggle from "./components/ThemeToggle";
 import TopTiles, { type Tile } from "./components/TopTiles";
 import { importOrReload } from "./staleChunk";
@@ -28,8 +27,8 @@ const AdminPage = lazy(() => importOrReload(() => import("./components/AdminPage
 /** The owner's sync page lives at <base>/admin; everything else is the public app. */
 const IS_ADMIN_PAGE = !IS_STATIC && window.location.pathname.slice(BASE.length - 1).replace(/\/+$/, "") === "/admin";
 
-type Tab = "games" | "picks" | "parlays" | "moneyline" | "injuries" | "projections" | "model" | "admin";
-const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["moneyline", "Moneyline"], ["injuries", "Injuries"], ["projections", "Projections"], ["model", "Model check"],
+type Tab = "games" | "picks" | "parlays" | "injuries" | "projections" | "model" | "admin";
+const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["injuries", "Injuries"], ["projections", "Projections"], ["model", "Model check"],
   ...(IS_STATIC ? [] : [["admin", "Admin"] as [Tab, string]])];
 /** A game's overview page lives at #game=<game_id>, so the browser's back button returns to the slate and the page can be linked. */
 const gameFromHash = () => new URLSearchParams(window.location.hash.slice(1)).get("game");
@@ -87,7 +86,7 @@ function PublicApp() {
   const slatePicks = useQuery({ queryKey: ["slate-picks", debounced.book, debounced.marketWeight],
     queryFn: () => api.picks({ ...PARLAY_FILTERS, book: debounced.book, marketWeight: debounced.marketWeight, minEv: 0 }, 1000), enabled: tab === "games" && !gameOpen });
   const moneylines = useQuery({ queryKey: ["moneylines", debounced.book, debounced.marketWeight], queryFn: () => api.moneylines(debounced.book, debounced.marketWeight),
-    enabled: tab === "moneyline" || (tab === "games" && !gameOpen), placeholderData: (p) => p });
+    enabled: tab === "games" && !gameOpen, placeholderData: (p) => p });
   const injuries = useQuery({ queryKey: ["injuries"], queryFn: api.injuries, enabled: tab === "injuries" || (tab === "games" && !gameOpen), refetchInterval: 15 * 60_000 });
   const projections = useQuery({ queryKey: ["projections", debounced], queryFn: () => api.projections(debounced), enabled: tab === "projections", placeholderData: (p) => p });
 
@@ -109,12 +108,6 @@ function PublicApp() {
       onClick: () => setSelected({ id: p.player_id, kind: p.kind }),
     }))
     : tab === "games" || tab === "parlays" || tab === "admin" || tab === "injuries" ? []
-    : tab === "moneyline"
-      ? (moneylines.data ?? []).flatMap((g) => g.sides.map((s) => ({ g, s }))).filter(({ s }) => s.ev != null && s.ev > 0)
-        .sort((a, b) => b.s.ev! - a.s.ev!).slice(0, 3).map(({ g, s }) => ({
-          key: `${g.game_id}-${s.team}`, label: "Moneyline", name: s.name, meta: `${g.label} · ${s.home ? "home" : "away"}`,
-          value: <>{pct(s.prob, 0)} <em>{signedPct(s.ev!)} EV</em></>, caption: `${americanOdds(s.odds!)} at ${s.book}`,
-        }))
     : tab === "projections"
       ? (filters.kind === "all" ? (["pass", "rush", "rec", "recs"] as Kind[]).map((k) => (projections.data ?? []).filter((p) => p.kind === k).sort((a, b) => b.mu - a.mu)[0])
         : [...(projections.data ?? [])].sort((a, b) => b.mu - a.mu).slice(0, 3)).filter(Boolean).map((p) => ({
@@ -168,7 +161,7 @@ function PublicApp() {
       )}
 
       {!IS_STATIC && !m.run && <div className="banner">No projections yet. They appear after the next scheduled sync{m.auto_sync?.next_at ? ` (${localWhen(m.auto_sync.next_at)})` : ""}.</div>}
-      {!IS_STATIC && m.run && !hasOdds && (tab === "games" || tab === "picks" || tab === "parlays" || tab === "moneyline") && (
+      {!IS_STATIC && m.run && !hasOdds && (tab === "games" || tab === "picks" || tab === "parlays") && (
         <div className="banner">No sportsbook lines are loaded yet, so there are no picks. Books post props mid-week; the scheduled syncs fetch them as they appear.</div>
       )}
 
@@ -186,7 +179,7 @@ function PublicApp() {
       <TopTiles tiles={tiles} />
 
       {tab === "games" && <Games games={m.games} picks={slatePicks.data ?? []} moneylines={moneylines.data ?? []} injuries={injuries.data} onOpen={openGame} />}
-      {tab !== "games" && tab !== "model" && tab !== "parlays" && tab !== "moneyline" && tab !== "admin" && tab !== "injuries" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
+      {tab !== "games" && tab !== "model" && tab !== "parlays" && tab !== "admin" && tab !== "injuries" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
       {(tab === "picks" || tab === "projections") && selectedGame && <GameWeather game={selectedGame} fit={m.weather} />}
 
       {tab === "picks" && (picks.isLoading ? <p className="mut">Pricing plays…</p> :
@@ -194,9 +187,6 @@ function PublicApp() {
       {tab === "parlays" && (board.loading ? <p className="mut">Building parlays…</p> :
         <ParlayTiles books={m.books} book={board.book} onBook={board.setBook} games={m.games} selectedGames={chosenGames} onGames={setParlayGames} parlays={board.parlays} tdParlays={board.tdParlays}
           ladders={board.ladders} altProps={board.altProps} laddersLoading={board.laddersLoading} />)}
-      {tab === "moneyline" && (moneylines.isLoading ? <p className="mut">Pricing moneylines…</p> :
-        <Moneylines games={moneylines.data ?? []} books={m.books} book={filters.book} marketWeight={filters.marketWeight}
-          onBook={(b) => setFilters({ ...filters, book: b })} onMarketWeight={(w) => setFilters({ ...filters, marketWeight: w })} />)}
       {tab === "injuries" && (injuries.isLoading ? <p className="mut">Loading the injury report…</p> : injuries.error ? <p className="err">Couldn't load the injury report.</p> :
         <Injuries report={injuries.data!} games={m.games} onSelect={(id, kind) => setSelected({ id, kind })} />)}
       {tab === "projections" && (projections.isLoading ? <p className="mut">Loading…</p> :
