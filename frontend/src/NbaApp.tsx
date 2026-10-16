@@ -148,8 +148,8 @@ export default function NbaApp() {
       </>}
 
       <footer>
-        Points, rebounds and assists = projected minutes × a per-minute rate, recency-weighted and shrunk toward the position's average, adjusted for
-        the opponent. Win probabilities come from the backtest's own errors, blended with the market's no-vig price. Team win chances come from
+        Points, rebounds, assists and threes = projected minutes × a per-minute rate, recency-weighted and shrunk toward the position's average, adjusted for
+        the opponent. Win probabilities come from the backtest's own errors (threes: a Poisson count), blended with the market's no-vig price. Team win chances come from
         point-margin ratings and lean heavily on the moneyline market. Teammates' injuries don't move a player's projection yet. Not betting advice.
       </footer>
 

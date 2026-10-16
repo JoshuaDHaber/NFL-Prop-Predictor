@@ -393,12 +393,21 @@ def fit_dist(bt):
 
 
 def sd_at(mu, dist):
-    """Typical error (standard-deviation scale) at a projection, from a fit_dist table."""
+    """Typical error (standard-deviation scale) at a projection, from a fit_dist table (or {"poisson": True})."""
+    if dist.get("poisson"):
+        return float(np.sqrt(max(mu, 0.0)))
     return float(np.interp(mu, dist["mu"], dist["sd"]))
 
 
 def prob_over_under_dist(mu, line, dist):
-    """(p_over, p_under) from the empirical error distribution. Whole-number lines leave room for a push."""
+    """(p_over, p_under) from the empirical error distribution. Whole-number lines leave room for a push.
+    A {"poisson": True} table prices small whole-number counts (NBA threes) as Poisson(mu) instead: the smooth error
+    table underrated their overs by 4-5 points at 1.5+ in the backtest."""
+    if dist.get("poisson"):
+        k = np.floor(float(line))
+        po = float(st.poisson.sf(k, max(mu, 1e-6)))
+        pu = float(st.poisson.cdf(k - 1 if float(line) == k else k, max(mu, 1e-6)))
+        return min(max(po, 0.01), 0.99), min(max(pu, 0.01), 0.99)
     sd = sd_at(mu, dist)
 
     def cdf(y):  # P(actual <= y)

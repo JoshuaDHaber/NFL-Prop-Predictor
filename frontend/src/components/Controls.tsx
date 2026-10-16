@@ -4,7 +4,7 @@ import { KIND_SHORT, MARKET_TABS, NBA_KINDS, SUB_LABEL, groupOf, kickoff, pct, s
 import { getLeague } from "../league";
 
 const ICON: Record<Kind | "all", string> = { all: "📊", rush: "🏃", rec: "🙌", recs: "🧤", pass: "🎯", rr: "⚡", td: "🏈", ptd: "🎯", lng: "🚀",
-  pts: "🏀", reb: "🔁", ast: "🤝" };
+  pts: "🏀", reb: "🔁", ast: "🤝", threes: "🎯" };
 
 interface Props {
   filters: Filters;

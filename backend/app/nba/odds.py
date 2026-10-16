@@ -1,12 +1,12 @@
 """NBA lines from The Odds API (key: ODDS_API_KEY_NBA): moneylines for the whole slate in one call, and points,
-rebounds and assists props one game at a time (one credit per market per game)."""
+rebounds, assists and 3-pointers-made props one game at a time (one credit per market per game)."""
 import pandas as pd
 import requests
 
 from ..engine import odds as nfl_odds
 
 API = "https://api.the-odds-api.com/v4/sports/basketball_nba"
-PROP_MARKETS = {"player_points": "pts", "player_rebounds": "reb", "player_assists": "ast"}
+PROP_MARKETS = {"player_points": "pts", "player_rebounds": "reb", "player_assists": "ast", "player_threes": "threes"}
 MARKETS = {**PROP_MARKETS, "h2h": "ml"}
 PROP_KINDS = tuple(PROP_MARKETS.values())
 

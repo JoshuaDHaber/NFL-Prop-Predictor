@@ -24,7 +24,7 @@ WEB = "https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba"
 ET = ZoneInfo("America/New_York")
 # ESPN season types that count: regular season, playoffs, play-in (preseason and the All-Star game don't)
 GAME_TYPES = {2, 3, 5}
-LOG_COLUMNS = ["player_id", "event_id", "season", "date", "team", "opp", "home", "min", "pts", "reb", "ast",
+LOG_COLUMNS = ["player_id", "event_id", "season", "date", "team", "opp", "home", "min", "pts", "reb", "ast", "threes",
                "home_score", "away_score"]
 _session = requests.Session()
 _session.headers["User-Agent"] = "Mozilla/5.0 (props model)"
@@ -151,6 +151,7 @@ def parse_gamelog(js: dict, player_id: str) -> list[dict]:
     names = js.get("names") or []
     idx = {n: i for i, n in enumerate(names)}
     need = ("minutes", "points", "totalRebounds", "assists")
+    threes = "threePointFieldGoalsMade-threePointFieldGoalsAttempted"   # "3-7": made-attempted
     if not all(n in idx for n in need):
         return []
     events = js.get("events") or {}
@@ -171,6 +172,7 @@ def parse_gamelog(js: dict, player_id: str) -> list[dict]:
                     continue
                 try:
                     vals = {n: float(stats[idx[n]]) for n in need}
+                    vals["threes"] = float(stats[idx[threes]].split("-")[0]) if threes in idx else float("nan")
                 except ValueError:
                     continue
                 home = info.get("atVs") == "vs"
@@ -178,7 +180,7 @@ def parse_gamelog(js: dict, player_id: str) -> list[dict]:
                 rows.append(dict(player_id=player_id, event_id=str(ev["eventId"]), season=season or season_for(at.date()),
                                  date=at.strftime("%Y-%m-%d"), team=(info.get("team") or {}).get("abbreviation"),
                                  opp=(info.get("opponent") or {}).get("abbreviation"), home=home,
-                                 min=vals["minutes"], pts=vals["points"], reb=vals["totalRebounds"], ast=vals["assists"],
+                                 min=vals["minutes"], pts=vals["points"], reb=vals["totalRebounds"], ast=vals["assists"], threes=vals["threes"],
                                  home_score=_num(info.get("homeTeamScore")), away_score=_num(info.get("awayTeamScore"))))
     return rows
 

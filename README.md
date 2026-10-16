@@ -32,12 +32,12 @@ A full-stack web app that projects NFL player yardage, prices the projections ag
 The NBA side covers the **slate**: the next two game dates (Eastern) with games still to tip off, so before opening night it shows opening night and the day after. Games drop off the board at tip-off.
 
 - **Games:** a tile per game with tip-off, logos, both teams' win chances, the market spread and total (from ESPN), the top prop, and the injury count. A tile opens the game page: the moneyline card, best props, projections and both teams' injury reports (ESPN's status, injury, latest news line and estimated return), at one sportsbook picked at the top.
-- **Best props / Projections:** points, rebounds and assists, with the same filters, pricing, player drawer and betslip as the NFL.
+- **Best props / Projections:** points, rebounds, assists and 3-pointers made, with the same filters, pricing, player drawer and betslip as the NFL.
 - **Injuries:** ESPN's report for every slate team. *Out*, *Doubtful* and *Suspended* players aren't projected; *Day-to-day* players are, and are flagged.
 
 **Data.** ESPN's public JSON API (no key) for the schedule, rosters, every rostered player's game logs (this season and the two before) and injuries; stats.nba.com and NBA.com's CDN refuse requests from hosting providers. Responses are cached in `backend/data/nba_cache/`, on the Railway volume, so finished seasons are fetched once (a first run takes about 25 seconds, later ones a few). Lines come from The Odds API (`basketball_nba`) with its own key, **`ODDS_API_KEY_NBA`**.
 
-**Model** (`backend/app/nba/`). Each stat = projected minutes × per-minute rate × opponent factor. Minutes are a recency-weighted average of recent games (8-game half-life); rates use a 40-game half-life, shrunk toward the guard/forward/center average by 150 minutes of league-average play, with last season counting 60% as much as this one. The opponent factor compares what a defense allowed with what its opponents' players usually produce, shrunk to 1 and kept within ±15%. Over/under probabilities come from the walk-forward backtest's own errors, as for the NFL. Team win chances come from a ridge regression of point margins (60-day half-life, last season at half weight) through a normal curve fitted in the backtest (about 12.5 points), and always lean at least 80% on the market's no-vig chance.
+**Model** (`backend/app/nba/`). Each stat = projected minutes × per-minute rate × opponent factor. Minutes are a recency-weighted average of recent games (8-game half-life); rates use a 40-game half-life, shrunk toward the guard/forward/center average by 150 minutes of league-average play (30 for threes, since who shoots them varies so much within a position), with last season counting 60% as much as this one. The opponent factor compares what a defense allowed with what its opponents' players usually produce, shrunk to 1 and kept within ±15%. Over/under probabilities come from the walk-forward backtest's own errors, as for the NFL, except threes: they're small whole numbers, so they're priced as a Poisson count (the error table underrated their overs by 4-5 points at 1.5+ lines; Poisson came within 0.4-2.7 points at every line). Team win chances come from a ridge regression of point margins (60-day half-life, last season at half weight) through a normal curve fitted in the backtest (about 12.5 points), and always lean at least 80% on the market's no-vig chance.
 
 Walk-forward backtest (2025-26 and the 2026 playoffs, weekly, rostered players with 12+ projected minutes):
 
@@ -46,6 +46,7 @@ Walk-forward backtest (2025-26 and the 2026 playoffs, weekly, rostered players w
 | Points | 22,994 | 5.02 | 5.07 | -0.1 |
 | Rebounds | 22,994 | 1.98 | 2.05 | +0.0 |
 | Assists | 22,994 | 1.46 | 1.48 | -0.0 |
+| 3-pointers made | 22,994 | 0.95 | 0.97 | +0.0 |
 | Moneyline (Brier; baseline = home team's usual rate) | 1,235 | 0.206 | 0.247 | +0.006 |
 
 The edge over a plain last-10 average is small; the books' lines are sharper still.
@@ -54,13 +55,13 @@ The edge over a plain last-10 average is small; the books' lines are sharper sti
 
 | When | Sync | Odds (NBA key) |
 |---|---|---|
-| 10:00 AM | Model + odds | moneylines for the slate (1 credit), props already posted for games within 20 hours (3 per game) |
+| 10:00 AM | Model + odds | moneylines for the slate (1 credit), props already posted for games within 20 hours (4 per game: points, rebounds, assists, threes) |
 | 2:00 PM | Model + odds | moneylines, props for games that had none |
-| 6:00 PM | Model + odds | moneylines, a fresh pull of props for games within 20 hours (3 per game) |
+| 6:00 PM | Model + odds | moneylines, a fresh pull of props for games within 20 hours (4 per game) |
 
-That is roughly 6 credits per game per day plus 3, about 1,500-2,000 credits a month in season, so a free 500-credit key won't last; trim the 6 PM re-pull (`nba-pregame` in `scheduler.py`) to save half. The credit floor (`ODDS_CREDIT_FLOOR`) applies to the NBA key too, and the admin page shows both keys' balances.
+That is roughly 8 credits per game per day plus 3, about 2,000-2,700 credits a month in season, so a free 500-credit key won't last; trim the 6 PM re-pull (`nba-pregame` in `scheduler.py`) to save half. The credit floor (`ODDS_CREDIT_FLOOR`) applies to the NBA key too, and the admin page shows both keys' balances.
 
-**NBA API:** `GET /api/nba/meta`, `/api/nba/picks`, `/api/nba/projections`, `/api/nba/moneylines`, `/api/nba/injuries`, `/api/nba/players/{id}`, `/api/nba/players/{id}/lines?kind=pts|reb|ast`, with the same parameters and shapes as the NFL routes.
+**NBA API:** `GET /api/nba/meta`, `/api/nba/picks`, `/api/nba/projections`, `/api/nba/moneylines`, `/api/nba/injuries`, `/api/nba/players/{id}`, `/api/nba/players/{id}/lines?kind=pts|reb|ast|threes`, with the same parameters and shapes as the NFL routes.
 
 **NBA limitations.** A teammate's absence doesn't move anyone's minutes or usage yet (early in the season, last season's roles carry over); rookies and players with fewer than 5 NBA games aren't projected; no alternate lines; back-to-backs, rest days and blowouts aren't modeled; the static GitHub Pages demo is NFL only.
 

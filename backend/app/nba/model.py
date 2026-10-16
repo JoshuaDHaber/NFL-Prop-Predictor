@@ -1,4 +1,4 @@
-"""NBA projections: points, rebounds and assists = projected minutes x per-minute rate x opponent factor.
+"""NBA projections: points, rebounds, assists and 3-pointers made = projected minutes x per-minute rate x opponent factor.
 
 - Minutes: recency-weighted average of the player's recent games (half-life MIN_HL games), so a new role shows quickly.
 - Rate: per-minute production with a longer half-life (RATE_HL games), shrunk toward the position group's average
@@ -19,15 +19,17 @@ from scipy.stats import norm
 from ..engine import model as nfl_model
 from . import espn
 
-KINDS = ("pts", "reb", "ast")
+KINDS = ("pts", "reb", "ast", "threes")
 MIN_HL = 8.0            # games: minutes follow role changes quickly
 RATE_HL = 40.0          # games: per-minute production is steadier (20 and 10 did slightly worse in the backtest)
 PRIOR_SEASON = 0.6      # weight on earlier seasons' games
-PSEUDO_MIN = {"pts": 150.0, "reb": 150.0, "ast": 150.0}   # minutes of position-average play mixed into every rate
+# minutes of position-average play mixed into every rate; threes much less, since who shoots them varies a lot
+# within a position (150 made centers who never shoot look like shooters; 30 had the lowest backtest error)
+PSEUDO_MIN = {"pts": 150.0, "reb": 150.0, "ast": 150.0, "threes": 30.0}
 MIN_GAMES = 5           # games played before a player is projected
 MIN_MINUTES = 12.0      # projected minutes below this aren't a prop market
 OPP_HL_DAYS = 45.0      # opponent factors: half-life in days
-OPP_PRIOR = {"pts": 400.0, "reb": 160.0, "ast": 100.0}    # pseudo-totals pulling each defense's factor toward 1
+OPP_PRIOR = {"pts": 400.0, "reb": 160.0, "ast": 100.0, "threes": 50.0}    # pseudo-totals pulling each defense's factor toward 1
 OPP_CLIP = (0.85, 1.15)
 NAIVE_N = 10            # the baseline the backtest compares against: a plain last-10-games average
 
@@ -125,11 +127,15 @@ def walk_forward(logs: pd.DataFrame, pos_group: dict, start: date, end: date, st
     return pd.DataFrame(rows, columns=["date", "player_id", "kind", "mu", "actual", "naive5", "min_proj", "min_actual"])
 
 
+POISSON_KINDS = ("threes",)   # priced as Poisson counts (engine.model.prob_over_under_dist), not from the error table
+
+
 def calibrate(bt: pd.DataFrame) -> tuple[dict, dict]:
     """(backtest summary per kind, error tables per kind) from a walk-forward frame."""
     if bt.empty:
-        return {}, {}
-    return nfl_model.backtest_summary(bt), nfl_model.fit_dist(bt)
+        return {}, {k: {"poisson": True} for k in POISSON_KINDS}
+    dists = nfl_model.fit_dist(bt[~bt.kind.isin(POISSON_KINDS)])
+    return nfl_model.backtest_summary(bt), {**dists, **{k: {"poisson": True} for k in POISSON_KINDS}}
 
 
 # ---------- team ratings and win probability ----------

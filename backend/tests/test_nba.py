@@ -30,17 +30,17 @@ def test_scoreboard_keeps_real_games_with_eastern_times_and_home_spread():
 
 
 def test_gamelog_parses_regular_season_games_with_home_and_eastern_date():
-    names = ["minutes", "fieldGoalsMade-fieldGoalsAttempted", "totalRebounds", "assists", "points"]
+    names = ["minutes", "fieldGoalsMade-fieldGoalsAttempted", "threePointFieldGoalsMade-threePointFieldGoalsAttempted", "totalRebounds", "assists", "points"]
     js = {"names": names,
           "events": {"9": {"atVs": "@", "gameDate": "2026-01-10T00:30:00.000+00:00", "team": {"abbreviation": "BOS"},
                            "opponent": {"abbreviation": "NY"}, "homeTeamScore": "110", "awayTeamScore": "104"}},
           "seasonTypes": [{"displayName": "2025-26 Regular Season", "categories": [
-              {"type": "event", "events": [{"eventId": "9", "stats": ["34", "9-18", "7", "5", "27"]}]},
+              {"type": "event", "events": [{"eventId": "9", "stats": ["34", "9-18", "3-7", "7", "5", "27"]}]},
               {"type": "total", "events": []}]},
-              {"displayName": "2025-26 Preseason", "categories": [{"type": "event", "events": [{"eventId": "9", "stats": ["1"] * 5}]}]}]}
+              {"displayName": "2025-26 Preseason", "categories": [{"type": "event", "events": [{"eventId": "9", "stats": ["1"] * 6}]}]}]}
     [r] = espn.parse_gamelog(js, "p1")
     assert r["season"] == 2026 and r["date"] == "2026-01-09" and r["home"] is False
-    assert (r["min"], r["pts"], r["reb"], r["ast"], r["home_score"]) == (34.0, 27.0, 7.0, 5.0, 110.0)
+    assert (r["min"], r["pts"], r["reb"], r["ast"], r["threes"], r["home_score"]) == (34.0, 27.0, 7.0, 5.0, 3.0, 110.0)
 
 
 def _logs(n=40, start=date(2025, 11, 1)):
@@ -49,9 +49,9 @@ def _logs(n=40, start=date(2025, 11, 1)):
     for i in range(n):
         d = (start + timedelta(days=2 * i)).isoformat()
         rows.append(dict(player_id="g", event_id=str(i), season=2026, date=d, team="BOS", opp="NY", home=True,
-                         min=36.0, pts=30.0 + (i % 3), reb=4.0, ast=7.0, home_score=110.0 + i % 5, away_score=105.0))
+                         min=36.0, pts=30.0 + (i % 3), reb=4.0, ast=7.0, threes=3.0 + (i % 2), home_score=110.0 + i % 5, away_score=105.0))
         rows.append(dict(player_id="c", event_id=str(i), season=2026, date=d, team="NY", opp="BOS", home=False,
-                         min=30.0, pts=12.0, reb=10.0 + (i % 2), ast=2.0, home_score=110.0 + i % 5, away_score=105.0))
+                         min=30.0, pts=12.0, reb=10.0 + (i % 2), ast=2.0, threes=0.0, home_score=110.0 + i % 5, away_score=105.0))
     return pd.DataFrame(rows)
 
 
@@ -72,6 +72,7 @@ def test_walk_forward_and_team_ratings_run_on_the_logs():
     assert set(bt.kind) == set(model.KINDS) and np.isfinite(bt.mu).all()
     summary, dists = model.calibrate(bt)
     assert summary["pts"]["n"] > 0 and "z" in dists["pts"]
+    assert summary["threes"]["n"] > 0 and dists["threes"] == {"poisson": True}
     games = espn.team_games(logs)
     r, hfa = model.ratings(games, date(2026, 3, 1))
     assert r["BOS"] > r["NY"]   # BOS won every game at home
@@ -156,9 +157,9 @@ def test_odds_plan_buys_props_only_for_games_tipping_off_soon():
         s.add(NbaOddsLine(fetched_at=now, player="X", market="pts", line=20.5, over_odds=-110, under_odds=-110, book="B", game_id="a"))
         s.commit()
         plan = nba_pipeline.sync_plan(s, [soon, tomorrow], "missing", now)
-        assert [g["game_id"] for g in plan["games"]] == ["a"] and plan["games"][0]["need"] == ["reb", "ast"]
-        assert plan["credits"] == 1 + 2   # one for every moneyline, one per missing market
-        assert nba_pipeline.sync_plan(s, [soon, tomorrow], "all", now)["games"][0]["need"] == ["pts", "reb", "ast"]
+        assert [g["game_id"] for g in plan["games"]] == ["a"] and plan["games"][0]["need"] == ["reb", "ast", "threes"]
+        assert plan["credits"] == 1 + 3   # one for every moneyline, one per missing market
+        assert nba_pipeline.sync_plan(s, [soon, tomorrow], "all", now)["games"][0]["need"] == ["pts", "reb", "ast", "threes"]
         assert nba_pipeline.sync_plan(s, [soon], "none", now)["credits"] == 0
 
 
@@ -179,7 +180,7 @@ def test_refresh_odds_stores_moneylines_and_props(monkeypatch):
         s.query(NbaOddsLine).delete()
         s.commit()
     res = nba_pipeline.refresh_odds("missing", log=lambda m: None, now=datetime(2026, 10, 20, 14))
-    assert calls == [("e1", ["pts", "reb", "ast"])] and res["fetched"] == 1 and res["credits_after"] == 497
+    assert calls == [("e1", ["pts", "reb", "ast", "threes"])] and res["fetched"] == 1 and res["credits_after"] == 497
     with SessionLocal() as s:
         assert sorted(m for (m,) in s.query(NbaOddsLine.market)) == ["ml", "pts"]
 
@@ -188,3 +189,13 @@ def test_nba_slots_are_scheduled_apart_from_the_nfl():
     nba = [s for _, s in scheduler.upcoming(league="nba")]
     assert nba and all(s.league == "nba" for s in nba)
     assert all(s.league == "nfl" for _, s in scheduler.upcoming(league="nfl"))
+
+
+def test_threes_are_priced_as_poisson_counts():
+    from scipy.stats import poisson
+    from app.engine.model import prob_over_under_dist, sd_at
+    po, pu = prob_over_under_dist(2.2, 1.5, {"poisson": True})
+    assert po == pytest.approx(poisson.sf(1, 2.2)) and po + pu == pytest.approx(1.0)
+    po, pu = prob_over_under_dist(2.2, 2, {"poisson": True})   # a whole-number line leaves room for a push at 2
+    assert po + pu == pytest.approx(1 - poisson.pmf(2, 2.2))
+    assert sd_at(4.0, {"poisson": True}) == 2.0

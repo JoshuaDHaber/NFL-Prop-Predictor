@@ -2,7 +2,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel
 
-Kind = Literal["rush", "rec", "pass", "rr", "td", "recs", "ptd", "lng", "pts", "reb", "ast"]  # the last three: NBA
+Kind = Literal["rush", "rec", "pass", "rr", "td", "recs", "ptd", "lng", "pts", "reb", "ast", "threes"]  # the last four: NBA
 
 
 class RunInfo(BaseModel):
