@@ -33,6 +33,7 @@ The NBA side covers the **slate**: the next two game dates (Eastern) with games 
 
 - **Games:** a tile per game with tip-off, logos, both teams' win chances, the market spread and total (from ESPN), the top prop, and the injury count. A tile opens the game page: the moneyline card, best props, projections and both teams' injury reports (ESPN's status, injury, latest news line and estimated return), at one sportsbook picked at the top.
 - **Best props / Projections:** points, rebounds, assists and 3-pointers made, with the same filters, pricing, player drawer and betslip as the NFL.
+- **Parlays:** the NFL's tiles at one sportsbook (likely plays, ladders of points/rebounds/assists/threes overs on alternate lines stacked to +100 to +300, and the likeliest single alternate props), for the whole slate or chosen games; each game page has its own. No touchdown section.
 - **Injuries:** ESPN's report for every slate team. *Out*, *Doubtful* and *Suspended* players aren't projected; *Day-to-day* players are, and are flagged.
 
 **Data.** ESPN's public JSON API (no key) for the schedule, rosters, every rostered player's game logs (this season and the two before) and injuries; stats.nba.com and NBA.com's CDN refuse requests from hosting providers. Responses are cached in `backend/data/nba_cache/`, on the Railway volume, so finished seasons are fetched once (a first run takes about 25 seconds, later ones a few). Lines come from The Odds API (`basketball_nba`) with its own key, **`ODDS_API_KEY_NBA`**.
@@ -55,7 +56,7 @@ The edge over a plain last-10 average is small; the books' lines are sharper sti
 
 | When | Sync | Odds (NBA key) |
 |---|---|---|
-| 10:00 AM | Model + odds | moneylines for the slate (1 credit), props already posted for games within 20 hours (4 per game: points, rebounds, assists, threes) |
+| 10:00 AM | Model + odds | moneylines for the slate (1 credit), props already posted for games within 20 hours (4 per game: points, rebounds, assists, threes), plus alternate lines for the ladders the first time a game has them (up to 4 more) |
 | 2:00 PM | Model + odds | moneylines, props for games that had none |
 | 6:00 PM | Model + odds | moneylines, a fresh pull of props for games within 20 hours (4 per game) |
 
@@ -63,7 +64,9 @@ That is roughly 8 credits per game per day plus 3, about 2,000-2,700 credits a m
 
 **NBA API:** `GET /api/nba/meta`, `/api/nba/picks`, `/api/nba/projections`, `/api/nba/moneylines`, `/api/nba/injuries`, `/api/nba/players/{id}`, `/api/nba/players/{id}/lines?kind=pts|reb|ast|threes`, with the same parameters and shapes as the NFL routes.
 
-**NBA limitations.** A teammate's absence doesn't move anyone's minutes or usage yet (early in the season, last season's roles carry over); rookies and players with fewer than 5 NBA games aren't projected; no alternate lines; back-to-backs, rest days and blowouts aren't modeled; the static GitHub Pages demo is NFL only.
+Alternate lines are bought once per game and market, never re-pulled, and The Odds API only charges for markets it returns, so a game without alternates costs nothing extra.
+
+**NBA limitations.** A teammate's absence doesn't move anyone's minutes or usage yet (early in the season, last season's roles carry over); rookies and players with fewer than 5 NBA games aren't projected; alternate lines aren't refreshed before tip-off; back-to-backs, rest days and blowouts aren't modeled; the static GitHub Pages demo is NFL only.
 
 ## Architecture
 

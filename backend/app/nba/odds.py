@@ -7,6 +7,7 @@ from ..engine import odds as nfl_odds
 
 API = "https://api.the-odds-api.com/v4/sports/basketball_nba"
 PROP_MARKETS = {"player_points": "pts", "player_rebounds": "reb", "player_assists": "ast", "player_threes": "threes"}
+ALT_MARKETS = {k + "_alternate": v for k, v in PROP_MARKETS.items()}   # ladder rungs for the parlays
 MARKETS = {**PROP_MARKETS, "h2h": "ml"}
 PROP_KINDS = tuple(PROP_MARKETS.values())
 
@@ -28,9 +29,9 @@ def list_events(key):
     return nfl_odds.list_events(key, api=API, names=TEAM_NAMES)
 
 
-def fetch_props(key, event_id, kinds):
-    """(long DataFrame, credits_remaining) of one game's points/rebounds/assists quotes, with betslip links."""
-    return nfl_odds.fetch_game_odds(key, event_id, kinds, api=API, markets=PROP_MARKETS, alt_markets={})
+def fetch_props(key, event_id, kinds, alt_kinds=()):
+    """(long DataFrame, credits_remaining) of one game's prop quotes, main and alternate, with betslip links."""
+    return nfl_odds.fetch_game_odds(key, event_id, kinds, alt_kinds, api=API, markets=PROP_MARKETS, alt_markets=ALT_MARKETS)
 
 
 def fetch_moneylines(key, regions="us"):

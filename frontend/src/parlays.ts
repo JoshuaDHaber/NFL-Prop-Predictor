@@ -1,4 +1,5 @@
-import type { Ladder, Pick } from "./api";
+import type { Kind, Ladder, Pick } from "./api";
+import { getLeague } from "./league";
 import { legId, linkStatus, toAmerican, toDecimal, type Leg } from "./slip";
 
 /** Shortest price allowed on a leg: heavier chalk adds hit chance but almost no payout. */
@@ -114,11 +115,14 @@ export function defaultBook(byBook: Record<string, Parlay[]>, picksByBook: Recor
   if (PREFERRED_BOOK in picksByBook) return PREFERRED_BOOK;
   const best = bestBook(byBook);
   if (best) return best;
-  const overs = (b: string) => (picksByBook[b] ?? []).filter((p) => p.side === "Over" && (p.kind === "rush" || p.kind === "rec")).length;
+  const overs = (b: string) => (picksByBook[b] ?? []).filter((p) => p.side === "Over" && isLadderKind(p.kind)).length;
   return Object.keys(picksByBook).sort((a, b) => overs(b) - overs(a) || a.localeCompare(b))[0] ?? null;
 }
 
-// ---------- ladder parlays: likely rushing / receiving overs that stack to a modest price ----------
+// ---------- ladder parlays: likely overs (NFL rushing / receiving, NBA points / rebounds / assists / threes) stacked to a modest price ----------
+/** The markets ladders are built from, for the league on screen. */
+export const ladderKinds = (): Kind[] => (getLeague() === "nba" ? ["pts", "reb", "ast", "threes"] : ["rush", "rec"]);
+const isLadderKind = (k: Kind) => ladderKinds().includes(k);
 export const LADDER_MIN_PROB = 0.6;
 /** Shortest price on a rung: heavier chalk can't help a parlay reach +100. */
 export const LADDER_MIN_ODDS = -400;
@@ -144,7 +148,7 @@ export function ladderTargets(picks: Pick[], n = LADDER_PLAYERS, perTeam = LADDE
   const seen = new Set<string>();
   const teams = new Map<string, number>();
   const out: Pick[] = [];
-  const overs = picks.filter((p) => p.side === "Over" && (p.kind === "rush" || p.kind === "rec") && !p.flagged);
+  const overs = picks.filter((p) => p.side === "Over" && isLadderKind(p.kind) && !p.flagged);
   for (const p of overs.sort((a, b) => b.prob - a.prob)) {
     const team = `${p.game_id}|${p.team}`;
     if (seen.has(p.player_id) || (teams.get(team) ?? 0) >= perTeam) continue;
@@ -202,7 +206,7 @@ function searchLadders(players: ParlayLeg[][], bands: Band[], valid: (legs: Parl
   return best;
 }
 
-const LADDER_BLURB = "Likely rushing and receiving overs, on alternate lines where needed, stacked to a modest price.";
+const ladderBlurb = () => `Likely ${getLeague() === "nba" ? "points, rebounds, assists and threes" : "rushing and receiving"} overs, on alternate lines where needed, stacked to a modest price.`;
 
 /**
  * Ladder parlays at one book: 2-4 different players' overs whose combined price lands in each band, picking the likeliest combo per band.
@@ -219,7 +223,7 @@ export function buildLadderParlays(entries: LadderEntry[], book: string): Parlay
     const sig = legs.map(pickKey).sort().join("&");
     if (seen.has(sig)) return;
     seen.add(sig);
-    out.push({ key: band.key, title: band.title, blurb: LADDER_BLURB, legs, ...priceParlay(legs) });
+    out.push({ key: band.key, title: band.title, blurb: ladderBlurb(), legs, ...priceParlay(legs) });
   });
   return out;
 }

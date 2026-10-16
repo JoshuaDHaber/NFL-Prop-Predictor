@@ -170,6 +170,23 @@ class NbaOddsLine(Base):
     game_id: Mapped[str] = mapped_column(String(32), nullable=True, index=True)
 
 
+class NbaAltLine(Base):
+    """NBA alternate-line quotes (the parlay ladders' rungs), shaped like AltLine; one snapshot per game and market."""
+    __tablename__ = "nba_alt_lines"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime)
+    game_id: Mapped[str] = mapped_column(String(32), index=True)
+    player: Mapped[str] = mapped_column(String(80))
+    market: Mapped[str] = mapped_column(String(6))
+    line: Mapped[float] = mapped_column(Float)
+    over_odds: Mapped[float] = mapped_column(Float, nullable=True)
+    under_odds: Mapped[float] = mapped_column(Float, nullable=True)
+    book: Mapped[str] = mapped_column(String(40))
+    over_link: Mapped[str] = mapped_column(String(500), nullable=True)
+    under_link: Mapped[str] = mapped_column(String(500), nullable=True)
+    event_link: Mapped[str] = mapped_column(String(500), nullable=True)
+
+
 class SyncRun(Base):
     """One sync (model run and/or odds fetch), scheduled or started by hand: the admin page's run log."""
     __tablename__ = "sync_runs"

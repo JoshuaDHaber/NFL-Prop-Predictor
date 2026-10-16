@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { api, type Game, type Kind, type NbaKind } from "../api";
 import { KIND_SHORT, NBA_KINDS } from "../format";
+import { useParlayBoard } from "../useParlayBoard";
 import { GameInjuries } from "./Injuries";
 import { MoneylineCard } from "./Moneylines";
+import ParlayTiles from "./ParlayTiles";
 import PicksTable from "./PicksTable";
 import ProjectionsTable from "./ProjectionsTable";
 
@@ -18,7 +20,7 @@ interface Props {
   onSelect: (id: string, kind: Kind) => void;
 }
 
-const SECTIONS: [string, string][] = [["go-props", "Best props"], ["go-proj", "Projections"], ["go-inj", "Injuries"]];
+const SECTIONS: [string, string][] = [["go-props", "Best props"], ["go-parlays", "Parlays"], ["go-proj", "Projections"], ["go-inj", "Injuries"]];
 const PROPS_SHOWN = 8;
 
 function KindSeg({ value, onChange }: { value: NbaKind | "all"; onChange: (k: NbaKind | "all") => void }) {
@@ -44,6 +46,9 @@ export default function NbaGameOverview({ game, books, book, onBook, marketWeigh
   const picks = useQuery({ queryKey: ["game-picks", id, propKind, book, marketWeight], queryFn: () => api.picks({ ...base, kind: propKind }, 300), placeholderData: (p) => p });
   const projections = useQuery({ queryKey: ["game-projections", id, projKind], queryFn: () => api.projections({ ...base, kind: projKind }), placeholderData: (p) => p });
 
+  const chosen = useMemo(() => [id], [id]);
+  // parlays need one book; with "all books" they fall back to the board's own default
+  const board = useParlayBoard(books, chosen, true, book === "all" ? undefined : book);
   const ml = moneylines.data?.find((g) => g.game_id === id);
   const shownPicks = allProps ? picks.data ?? [] : (picks.data ?? []).slice(0, PROPS_SHOWN);
   const jump = (el: string) => document.getElementById(el)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -76,6 +81,13 @@ export default function NbaGameOverview({ game, books, book, onBook, marketWeigh
             <button className="link go-more" onClick={() => setAllProps(!allProps)}>{allProps ? "Show fewer" : `Show all ${picks.data!.length} props`}</button>
           )}
         </>}
+      </section>
+
+      <section id="go-parlays" className="go-sec">
+        <h2 className="parlay-h">Parlays <small>built from this game only{board.book ? `, every leg at ${board.book}` : ""}</small></h2>
+        {board.loading ? <p className="mut">Building parlays…</p> :
+          <ParlayTiles books={books} book={board.book} games={[game]} selectedGames={chosen} parlays={board.parlays}
+            tdParlays={board.tdParlays} ladders={board.ladders} altProps={board.altProps} laddersLoading={board.laddersLoading} />}
       </section>
 
       <section id="go-proj" className="go-sec">

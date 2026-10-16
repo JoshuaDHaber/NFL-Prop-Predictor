@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import config
-from ..db import NbaOddsLine, NbaProjection, NbaRun, SessionLocal, current_lines
+from ..db import NbaAltLine, NbaOddsLine, NbaProjection, NbaRun, SessionLocal, current_lines
 from ..engine import moneyline as mlm
 from ..engine import odds
 from ..engine.ladder import build_ladder
@@ -207,7 +207,7 @@ def _game_logs(player_id: str, season: int, n: int = 12) -> dict:
 
 @router.get("/players/{player_id}/lines", response_model=LadderOut)
 def player_lines(player_id: str, kind: NbaKind, odds_range: int = Query(300, ge=0, le=100000), db: Session = Depends(get_db)):
-    """Every posted quote for one player and stat, all books, priced by the model (no alternates for the NBA yet)."""
+    """Every posted quote for one player and stat, main and alternate lines, all books, priced by the model."""
     run = latest_run(db)
     p = db.scalars(select(NbaProjection).where(NbaProjection.run_id == run.id, NbaProjection.player_id == player_id,
                                                NbaProjection.kind == kind)).first() if run else None
@@ -216,8 +216,15 @@ def player_lines(player_id: str, kind: NbaKind, odds_range: int = Query(300, ge=
     main = current_lines(db, NbaOddsLine)
     key = odds.norm(p.name)
     main = main[(main.market == kind) & (main.player.map(odds.norm) == key) & (main.game_id == p.game_id)].assign(alt=False)
-    return LadderOut(kind=kind, mu=p.mu, sd=p.sd, game_id=p.game_id, alt_fetched_at=None,
-                     quotes=build_ladder(p.mu, p.sd, main, odds_range, kind, _dists(run).get(kind)))
+    alts = [r for r in db.scalars(select(NbaAltLine).where(NbaAltLine.game_id == p.game_id, NbaAltLine.market == kind)).all()
+            if odds.norm(r.player) == key]
+    alt_df = pd.DataFrame([dict(player=r.player, market=r.market, line=r.line, over_odds=r.over_odds, under_odds=r.under_odds,
+                                book=r.book, over_link=r.over_link, under_link=r.under_link, event_link=r.event_link,
+                                game_id=r.game_id, alt=True) for r in alts], columns=list(main.columns))
+    quotes = pd.concat([f for f in (main, alt_df) if not f.empty] or [main], ignore_index=True)
+    fetched = max((r.fetched_at for r in alts), default=None)
+    return LadderOut(kind=kind, mu=p.mu, sd=p.sd, game_id=p.game_id, alt_fetched_at=fetched.isoformat() if fetched else None,
+                     quotes=build_ladder(p.mu, p.sd, quotes, odds_range, kind, _dists(run).get(kind)))
 
 
 def clear_caches():

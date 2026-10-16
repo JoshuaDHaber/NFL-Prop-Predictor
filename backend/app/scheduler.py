@@ -49,7 +49,7 @@ SLOTS = [
     Slot("sun-topup", "Sunday top-up", (6,), 11, 30, "thin", why="Last top-up of thin games before the early kickoffs"),
     # NBA (its own key, ODDS_API_KEY_NBA): games every day, props posted the day of
     Slot("nba-morning", "NBA morning", EVERY_DAY, 10, 0, "missing", league="nba",
-         why="NBA model run after last night's box scores, moneylines (1 credit), props already posted for today (4 per game)"),
+         why="NBA model run after last night's box scores, moneylines (1 credit), props already posted for today (4 per game, plus up to 4 for alternate lines the first time)"),
     Slot("nba-afternoon", "NBA afternoon", EVERY_DAY, 14, 0, "missing", league="nba",
          why="NBA model run, moneylines, and props for today's games that had none in the morning"),
     Slot("nba-pregame", "NBA pregame", EVERY_DAY, 18, 0, "all", league="nba",

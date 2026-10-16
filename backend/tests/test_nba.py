@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main, scheduler
-from app.db import NbaOddsLine, NbaProjection, NbaRun, SessionLocal
+from app.db import NbaAltLine, NbaOddsLine, NbaProjection, NbaRun, SessionLocal
 from app.nba import espn, model
 from app.nba import pipeline as nba_pipeline
 from app.nba import routes as nba_routes
@@ -142,9 +142,15 @@ def test_nba_injuries_cover_slate_teams(nba_client):
     assert p["status"] == "Out" and p["comment"] == "Out for the opener" and p["return_date"] == "2026-11-01"
 
 
-def test_nba_player_lines_ladder(nba_client):
+def test_nba_player_lines_ladder_includes_alternates(nba_client):
     lad = nba_client.get("/api/nba/players/p1/lines", params={"kind": "pts"}).json()
     assert [q["line"] for q in lad["quotes"]] == [24.5]
+    with SessionLocal() as s:
+        s.query(NbaAltLine).delete()
+        s.add(NbaAltLine(fetched_at=datetime.utcnow(), game_id=GID, player="Star Guard", market="pts", line=29.5, over_odds=150, book="FanDuel"))
+        s.commit()
+    lad = nba_client.get("/api/nba/players/p1/lines", params={"kind": "pts"}).json()
+    assert [(q["line"], q["alt"]) for q in lad["quotes"]] == [(24.5, False), (29.5, True)] and lad["alt_fetched_at"]
     assert nba_client.get("/api/nba/players/p1/lines", params={"kind": "rush"}).status_code == 422
 
 
@@ -154,12 +160,17 @@ def test_odds_plan_buys_props_only_for_games_tipping_off_soon():
     tomorrow = dict(game_id="b", away="NY", home="SA", gameday="2026-10-21", start="2026-10-22T00:30Z")
     with SessionLocal() as s:
         s.query(NbaOddsLine).delete()
+        s.query(NbaAltLine).delete()
         s.add(NbaOddsLine(fetched_at=now, player="X", market="pts", line=20.5, over_odds=-110, under_odds=-110, book="B", game_id="a"))
+        s.add(NbaAltLine(fetched_at=now, game_id="a", player="X", market="pts", line=25.5, over_odds=200, book="B"))
         s.commit()
         plan = nba_pipeline.sync_plan(s, [soon, tomorrow], "missing", now)
-        assert [g["game_id"] for g in plan["games"]] == ["a"] and plan["games"][0]["need"] == ["reb", "ast", "threes"]
-        assert plan["credits"] == 1 + 3   # one for every moneyline, one per missing market
-        assert nba_pipeline.sync_plan(s, [soon, tomorrow], "all", now)["games"][0]["need"] == ["pts", "reb", "ast", "threes"]
+        [g] = plan["games"]
+        assert g["game_id"] == "a" and g["need"] == ["reb", "ast", "threes"] and g["need_alt"] == ["reb", "ast", "threes"]
+        assert plan["credits"] == 1 + 3 + 3   # one for every moneyline, one per missing market, main and alternate
+        # 'all' re-pulls every main market, but alternates are bought once
+        [g] = nba_pipeline.sync_plan(s, [soon, tomorrow], "all", now)["games"]
+        assert g["need"] == ["pts", "reb", "ast", "threes"] and g["need_alt"] == ["reb", "ast", "threes"]
         assert nba_pipeline.sync_plan(s, [soon], "none", now)["credits"] == 0
 
 
@@ -173,16 +184,21 @@ def test_refresh_odds_stores_moneylines_and_props(monkeypatch):
                        dict(player="Detroit Pistons", market="ml", alt=False, side="under", line=0.0, odds=110, book="FanDuel", link=None, event_link=None)])
     monkeypatch.setattr(nba_pipeline.nba_odds, "fetch_moneylines", lambda key: ({"e1": ml}, "500"))
     props = pd.DataFrame([dict(player="Star Guard", market="pts", alt=False, side=s_, line=24.5, odds=-110, book="FanDuel", link=None, event_link=None)
-                          for s_ in ("over", "under")])
+                          for s_ in ("over", "under")]
+                         + [dict(player="Star Guard", market="pts", alt=True, side="over", line=29.5, odds=180, book="FanDuel", link="https://fd/x", event_link=None)])
     calls = []
-    monkeypatch.setattr(nba_pipeline.nba_odds, "fetch_props", lambda key, eid, kinds: (calls.append((eid, kinds)), (props, "497"))[1])
+    monkeypatch.setattr(nba_pipeline.nba_odds, "fetch_props", lambda key, eid, kinds, alt_kinds: (calls.append((eid, kinds, alt_kinds)), (props, "497"))[1])
     with SessionLocal() as s:
         s.query(NbaOddsLine).delete()
+        s.query(NbaAltLine).delete()
         s.commit()
     res = nba_pipeline.refresh_odds("missing", log=lambda m: None, now=datetime(2026, 10, 20, 14))
-    assert calls == [("e1", ["pts", "reb", "ast", "threes"])] and res["fetched"] == 1 and res["credits_after"] == 497
+    kinds = ["pts", "reb", "ast", "threes"]
+    assert calls == [("e1", kinds, kinds)] and res["fetched"] == 1 and res["credits_after"] == 497
     with SessionLocal() as s:
         assert sorted(m for (m,) in s.query(NbaOddsLine.market)) == ["ml", "pts"]
+        [alt] = s.query(NbaAltLine).all()
+        assert (alt.line, alt.over_odds, alt.over_link) == (29.5, 180.0, "https://fd/x")
 
 
 def test_nba_slots_are_scheduled_apart_from_the_nfl():

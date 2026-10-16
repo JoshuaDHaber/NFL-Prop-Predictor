@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Ladder, LadderRow, Pick } from "./api";
 import { bestBook, buildBalancedLadders, buildTdParlays, buildLadderParlays, ladderProps, candidates, defaultBook, filterGames, ladderRungs, ladderTargets, parlaysByBook, pickToLeg, priceParlay, recommendParlays } from "./parlays";
+import { setLeague } from "./league";
 import { toAmerican, toDecimal } from "./slip";
 
 const pick = (o: Partial<Pick> = {}): Pick => ({
@@ -131,6 +132,17 @@ describe("ladder targets", () => {
       over({ player_id: "c", flagged: true }), pick({ player_id: "d", side: "Under" }), over({ player_id: "e", kind: "pass" }), over({ player_id: "f", kind: "td" })];
     expect(ladderTargets(rows).map((p) => p.player_id)).toEqual(["a", "b"]);
     expect(ladderTargets(rows, 1)).toHaveLength(1);
+  });
+
+  it("uses points, rebounds, assists and threes on the NBA side", () => {
+    const rows = [over({ player_id: "a", kind: "pts", prob: 0.7 }), over({ player_id: "b", kind: "threes", prob: 0.65 }), over({ player_id: "c", kind: "rush", prob: 0.9 })];
+    setLeague("nba");
+    try {
+      expect(ladderTargets(rows).map((p) => p.player_id)).toEqual(["a", "b"]);
+    } finally {
+      setLeague("nfl");
+    }
+    expect(ladderTargets(rows).map((p) => p.player_id)).toEqual(["c"]);
   });
 
   it("ranks by the blended chance, so a play the market disagrees with drops down", () => {

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Filters, type Game, type InjuryReport, type Kind } from "./api";
 import BetSlip from "./components/BetSlip";
 import Controls from "./components/Controls";
@@ -7,6 +7,7 @@ import Games from "./components/Games";
 import { GameInjuries } from "./components/Injuries";
 import LeagueSwitch from "./components/LeagueSwitch";
 import NbaGameOverview from "./components/NbaGameOverview";
+import ParlayTiles from "./components/ParlayTiles";
 import PicksTable from "./components/PicksTable";
 import ProjectionsTable from "./components/ProjectionsTable";
 import ThemeToggle from "./components/ThemeToggle";
@@ -16,11 +17,12 @@ import { KIND_LABEL, NBA_KINDS, americanOdds, fmtProj, fmtSd, matchup, playLabel
 import { importOrReload } from "./staleChunk";
 import { localWhen } from "./sync";
 import { useDebounced } from "./useDebounced";
+import { useParlayBoard } from "./useParlayBoard";
 
 const PlayerDrawer = lazy(() => importOrReload(() => import("./components/PlayerDrawer")));
 
-type Tab = "games" | "picks" | "injuries" | "projections";
-const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["injuries", "Injuries"], ["projections", "Projections"]];
+type Tab = "games" | "picks" | "parlays" | "injuries" | "projections";
+const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["injuries", "Injuries"], ["projections", "Projections"]];
 const gameFromHash = () => new URLSearchParams(window.location.hash.slice(1)).get("game");
 const GAME_BOOK_KEY = "gameBook";
 const PREFERRED_GAME_BOOK = "FanDuel";
@@ -64,6 +66,9 @@ export default function NbaApp() {
     setGameId(null);
   }, [gameId, meta.data]);
   const onSlate = tab === "games" && !gameOpen;
+  const [parlayGames, setParlayGames] = useState<string[]>([]);
+  const chosenGames = useMemo(() => parlayGames.filter((id) => meta.data?.games.some((g) => g.game_id === id)), [parlayGames, meta.data]);
+  const board = useParlayBoard(meta.data?.books ?? [], chosenGames, tab === "parlays" && !gameOpen);
   const picks = useQuery({ queryKey: ["picks", debounced], queryFn: () => api.picks(debounced), enabled: tab === "picks", placeholderData: (p) => p });
   const slatePicks = useQuery({ queryKey: ["slate-picks", debounced.book, debounced.marketWeight],
     queryFn: () => api.picks({ ...debounced, kind: "all", side: "all", game: "all", q: "", minEv: 0, flagged: false }, 1000), enabled: onSlate });
@@ -120,11 +125,11 @@ export default function NbaApp() {
       </header>
 
       {!m.run && <div className="banner">No NBA projections yet. They appear after the next scheduled sync{m.auto_sync?.next_at ? ` (${localWhen(m.auto_sync.next_at)})` : ""}.</div>}
-      {m.run && !hasLines && (tab === "games" || tab === "picks") && (
+      {m.run && !hasLines && (tab === "games" || tab === "picks" || tab === "parlays") && (
         <div className="banner">{m.has_odds_key ? "No sportsbook lines are loaded yet. Moneylines come with every sync; player props are fetched the day of each game, once books post them."
           : "No NBA odds key is set (ODDS_API_KEY_NBA), so there are projections but no lines."}</div>
       )}
-      {m.run && hasLines && !hasProps && tab === "picks" && (
+      {m.run && hasLines && !hasProps && (tab === "picks" || tab === "parlays") && (
         <div className="banner">Player props aren't loaded yet. They're fetched the day of each game (10 AM, 2 PM and 6 PM ET syncs).</div>
       )}
 
@@ -141,6 +146,9 @@ export default function NbaApp() {
         {(tab === "picks" || tab === "projections") && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
         {tab === "picks" && (picks.isLoading ? <p className="mut">Pricing plays…</p> :
           <PicksTable picks={picks.data ?? []} onSelect={(p) => select(p.player_id, p.kind)} />)}
+        {tab === "parlays" && (board.loading ? <p className="mut">Building parlays…</p> :
+          <ParlayTiles books={m.books} book={board.book} onBook={board.setBook} games={m.games} selectedGames={chosenGames} onGames={setParlayGames} parlays={board.parlays}
+            tdParlays={board.tdParlays} ladders={board.ladders} altProps={board.altProps} laddersLoading={board.laddersLoading} />)}
         {tab === "injuries" && (injuries.isLoading ? <p className="mut">Loading the injury report…</p> : injuries.error || !injuries.data ? <p className="err">Couldn't load the injury report.</p> :
           <NbaInjuries report={injuries.data} games={m.games} onSelect={select} />)}
         {tab === "projections" && (projections.isLoading ? <p className="mut">Loading…</p> :

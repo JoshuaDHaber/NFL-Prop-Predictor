@@ -1,6 +1,7 @@
 import type { Game } from "../api";
 import { useBetSlip } from "../BetSlipContext";
 import { americanOdds, kickoff, pct, playLabel, signedPct, KIND_LABEL } from "../format";
+import { getLeague } from "../league";
 import { pickToLeg, type Parlay, type ParlayLeg } from "../parlays";
 import Avatar from "./Avatar";
 
@@ -79,6 +80,8 @@ interface Props {
 
 /** Recommended parlays at one sportsbook: tiles of high-probability plays, then ladder-style tiles, each with the combined odds. */
 export default function ParlayTiles({ books, book, onBook, games, selectedGames, onGames, parlays, tdParlays, ladders, altProps, laddersLoading }: Props) {
+  const nba = getLeague() === "nba";
+  const ladderMarkets = nba ? "points, rebounds, assists and threes" : "rushing and receiving";
   return (
     <>
       {onBook && <div className="seg parlay-books" role="group" aria-label="Sportsbook">
@@ -90,7 +93,7 @@ export default function ParlayTiles({ books, book, onBook, games, selectedGames,
       {onGames && <>
       <div className="games" role="group" aria-label="Games to build from">
         <button aria-pressed={!selectedGames.length} className={`game${!selectedGames.length ? " on" : ""}`} onClick={() => onGames([])}>
-          <b>All games</b><small>{games.length} this week</small>
+          <b>All games</b><small>{games.length} {nba ? "on the slate" : "this week"}</small>
         </button>
         {games.map((g) => {
           const on = selectedGames.includes(g.game_id);
@@ -110,15 +113,17 @@ export default function ParlayTiles({ books, book, onBook, games, selectedGames,
         ? <section className="parlays" aria-label="Recommended parlays">{parlays.map((p, i) => <ParlayCard key={p.key} p={p} lead={i === 0} />)}</section>
         : <div className="card empty">Not enough likely plays at {book ?? "one sportsbook"} to build one. These need at least three high-probability plays from different players{selectedGames.length ? " in the selected games" : ""}.</div>}
 
+      {!nba && <>
       <h2 className="parlay-h">Touchdowns <small>the likeliest anytime scorers, parlayed</small></h2>
       {tdParlays.length
         ? <section className="parlays" aria-label="Touchdown parlays">{tdParlays.map((p, i) => <ParlayCard key={p.key} p={p} lead={i === 0} />)}</section>
         : <div className="card empty">No anytime-TD plays at {book ?? "this sportsbook"} to parlay{selectedGames.length === 1 ? " for this game" : ""}. Load anytime-TD lines, or try another book.</div>}
+      </>}
 
-      <h2 className="parlay-h">Ladders <small>rushing and receiving overs stacked to +100 to +300</small></h2>
+      <h2 className="parlay-h">Ladders <small>{ladderMarkets} overs stacked to +100 to +300</small></h2>
       {ladders.length
         ? <section className="parlays" aria-label="Ladder parlays">{ladders.map((p, i) => <ParlayCard key={p.key} p={p} lead={i === 0} />)}</section>
-        : <div className="card empty">{laddersLoading ? "Loading alternate lines…" : `No rushing or receiving over combinations with betslip links at ${book ?? "this sportsbook"} land between +100 and +300. Not every book publishes links for alternate lines; try another book.`}</div>}
+        : <div className="card empty">{laddersLoading ? "Loading alternate lines…" : `No ${ladderMarkets} over combinations with betslip links at ${book ?? "this sportsbook"} land between +100 and +300. ${nba ? "NBA alternate lines come with the day-of props syncs. " : ""}Not every book publishes links for alternate lines; try another book.`}</div>}
 
       {altProps.length > 0 && <>
         <h2 className="parlay-h">Likely alternate props <small>each player's likeliest linked over, on its own</small></h2>

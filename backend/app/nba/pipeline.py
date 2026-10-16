@@ -12,11 +12,11 @@ from typing import Callable, Optional
 import pandas as pd
 
 from .. import config
-from ..db import NbaOddsLine, NbaProjection, NbaRun, SessionLocal
+from ..db import NbaAltLine, NbaOddsLine, NbaProjection, NbaRun, SessionLocal
 from ..engine import model as nfl_model
 from ..engine import moneyline as mlm
 from ..engine import odds as nfl_odds
-from ..pipeline import store_lines
+from ..pipeline import _s, archive_quotes, store_lines
 from . import espn, model
 from . import odds as nba_odds
 
@@ -119,22 +119,27 @@ def _tipoff(g: dict) -> datetime:
 
 def sync_plan(session, slate: list[dict], mode: str = "missing", now: Optional[datetime] = None) -> dict:
     """What an odds sync would buy. Moneylines: one credit for the whole slate. Props: one credit per market per game,
-    only for games tipping off within PROPS_WINDOW_HOURS ('missing': markets with no stored lines; 'all': every market)."""
+    only for games tipping off within PROPS_WINDOW_HOURS ('missing': markets with no stored lines; 'all': every market).
+    Alternate lines (the parlay ladders) are bought once per game and market, in either mode: re-pulling them before
+    tip-off would double the pregame cost for rungs that move less than the main line."""
     now = now or datetime.utcnow()
     if mode == "none":
         return dict(total_games=len(slate), games=[], moneylines=False, credits=0)
-    have = {}
+    have, have_alt = {}, {}
     for gid, market in session.query(NbaOddsLine.game_id, NbaOddsLine.market).distinct():
         have.setdefault(gid, set()).add(market)
+    for gid, market in session.query(NbaAltLine.game_id, NbaAltLine.market).distinct():
+        have_alt.setdefault(gid, set()).add(market)
     out = []
     for g in slate:
         tip = _tipoff(g)
         if tip <= now or tip - now > timedelta(hours=PROPS_WINDOW_HOURS):
             continue
         need = list(nba_odds.PROP_KINDS) if mode == "all" else [k for k in nba_odds.PROP_KINDS if k not in have.get(g["game_id"], set())]
-        if need:
+        need_alt = [k for k in nba_odds.PROP_KINDS if k not in have_alt.get(g["game_id"], set())]
+        if need or need_alt:
             out.append(dict(game_id=g["game_id"], away=g["away"], home=g["home"], label=f"{g['away']} @ {g['home']}",
-                            gameday=g["gameday"], need=need, credits=len(need)))
+                            gameday=g["gameday"], need=need, need_alt=need_alt, credits=len(need) + len(need_alt)))
     return dict(total_games=len(slate), games=out, moneylines=True, credits=1 + sum(g["credits"] for g in out))
 
 
@@ -196,13 +201,16 @@ def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[in
                 out["skipped_for_credits"] += 1
                 log(f"  skipped {g['label']}: {g['credits']} credits would leave {remaining - g['credits']}, under the floor of {credit_floor}")
                 continue
-            long, left = nba_odds.fetch_props(key, eid, g["need"])
+            long, left = nba_odds.fetch_props(key, eid, g["need"], g["need_alt"])
             out["fetched"] += 1
             if left is not None:
                 remaining = out["credits_after"] = int(float(left))
             paired = nfl_odds.pair_with_links(long)
-            frames.append(paired.assign(game_id=g["game_id"]))
-            log(f"  {g['label']}: {len(paired)} quotes (credits left: {left})")
+            is_alt = paired.alt.astype(bool)
+            frames.append(paired[~is_alt].assign(game_id=g["game_id"]))
+            if is_alt.any():
+                _store_alts(s, paired[is_alt].assign(game_id=g["game_id"]))
+            log(f"  {g['label']}: {int((~is_alt).sum())} main and {int(is_alt.sum())} alternate quotes (credits left: {left})")
         if progress:
             progress(len(todo), len(todo))
         df = pd.concat([f for f in frames if not f.empty], ignore_index=True) if any(not f.empty for f in frames) else pd.DataFrame()
@@ -212,3 +220,16 @@ def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[in
         log(f"Stored {len(df)} NBA quotes")
     return out
 
+
+def _store_alts(session, alts: pd.DataFrame) -> None:
+    """Replace a game's alternate lines market by market (only the markets just fetched), and archive them."""
+    now = datetime.utcnow()
+    for (gid, market), _ in alts.groupby(["game_id", "market"]):
+        session.query(NbaAltLine).filter(NbaAltLine.game_id == gid, NbaAltLine.market == market).delete()
+    session.add_all(NbaAltLine(fetched_at=now, game_id=r.game_id, player=r.player, market=r.market, line=float(r.line),
+                               over_odds=None if pd.isna(r.over_odds) else float(r.over_odds),
+                               under_odds=None if pd.isna(r.under_odds) else float(r.under_odds), book=r.book,
+                               over_link=_s(r.over_link), under_link=_s(r.under_link), event_link=_s(r.event_link))
+                    for r in alts.itertuples())
+    archive_quotes(alts, session, now, alt=True)
+    session.commit()

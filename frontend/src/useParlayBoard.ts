@@ -1,6 +1,7 @@
 import { useQueries } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api, type Filters } from "./api";
+import { getLeague } from "./league";
 import { buildBalancedLadders, buildLadderParlays, buildTdParlays, defaultBook, filterGames, ladderProps, ladderTargets, parlaysByBook } from "./parlays";
 
 // Parlays rank by win probability, not EV, so they price every play (any EV) at the default market weight
@@ -15,9 +16,10 @@ export function useParlayBoard(books: string[], chosenGames: string[], enabled: 
   const parlayQueries = useQueries({
     queries: books.map((book) => ({ queryKey: ["parlay-picks", book], queryFn: () => api.picks({ ...PARLAY_FILTERS, book }, 1000), enabled })),
   });
-  // anytime-TD picks per book (the plain picks above leave TDs out)
+  // anytime-TD picks per book (the plain picks above leave TDs out); the NBA has no touchdown market
+  const hasTd = getLeague() !== "nba";
   const tdQueries = useQueries({
-    queries: books.map((book) => ({ queryKey: ["parlay-td", book], queryFn: () => api.picks({ ...PARLAY_FILTERS, kind: "td", book }, 1000), enabled })),
+    queries: books.map((book) => ({ queryKey: ["parlay-td", book], queryFn: () => api.picks({ ...PARLAY_FILTERS, kind: "td", book }, 1000), enabled: enabled && hasTd })),
   });
   const loading = parlayQueries.some((q) => q.isLoading);
   const [book, setBook] = useState<string | null>(null);
