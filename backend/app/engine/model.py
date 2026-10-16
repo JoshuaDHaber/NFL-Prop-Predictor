@@ -451,7 +451,10 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
     Only the expected starting QB is projected (redistribute.pick_starter, using ruled_out: (t, player_id) pairs ruled
     Out or Doubtful in past weeks, and sat_out: listed Questionable and didn't play): a backup's handful of snaps isn't
     a market, and projecting him split the team's passing between the two. While the starter is listed in
-    `questionable`, his backups are kept (and his own past Questionable weeks don't count, as he's not back yet)."""
+    `questionable`, his backups are kept (and his own past Questionable weeks don't count, as he's not back yet).
+
+    Receiving rows carry teammate_out: the same-position rotation receivers in their first game out
+    (redistribute.teammates_out), whatever rho is."""
     season, week = divmod(week_t, 100)
     games = sched[(sched.season == season) & (sched.week == week) & sched.home_score.isna()]
     opp = opp_table(df, week_t)
@@ -462,10 +465,7 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
     starts = df[df.qb_start] if "qb_start" in df else df.iloc[:0]
     ruled = set(ruled_out) | {(week_t, pid) for pid in absent_ids}
     sat = {(t, pid) for t, pid in sat_out if pid not in questionable}
-    logs = None
-    if rho is not None:   # redistribution on (a quarterback replacement needs no fitted share)
-        from . import redistribute as rd
-        logs = rd.Logs(df)
+    logs = rd.Logs(df)
     rows = []
     for _, gm in games.iterrows():
         wx = (game_wx or {}).get(gm.game_id)
@@ -485,20 +485,21 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
             qbs = {c["pid"] for c in members if c["pos"] == "QB" and c["pid"] not in absent_ids}
             past = np.sort(df[(df.team == team) & (df.t < week_t)].t.unique())
             starter = rd.pick_starter(starts[starts.team == team], past, qbs, ruled, season, sat) if qbs else None
-            if rho is not None:
-                # not absent: healthy members, and anyone active on another team's roster (traded away, not missing)
-                active = {pid for pid, tm in roster.items() if not (tm == team and pid in absent_ids)}
-                receivers = {c["pid"] for c in members if c["pid"] not in absent_ids}
-                absent = rd.find_absent(logs, team, week_t, active)
-                if absent:
-                    def comp_fn(h, _other=other, _sp=sp):
-                        h = h.copy()
-                        h.attrs["opp"] = _other
-                        return components(h, h.position.iat[-1], priors, opp, _sp)
+            # not absent: healthy members, and anyone active on another team's roster (traded away, not missing)
+            active = {pid for pid, tm in roster.items() if not (tm == team and pid in absent_ids)}
+            receivers = {c["pid"] for c in members if c["pid"] not in absent_ids}
+            absent = rd.find_absent(logs, team, week_t, active)
 
-                    lost = rd.lost_volume(absent, comp_fn)
-                    if lost:
-                        _lift_members(members, lost, rho, only=receivers, lead_pid=starter)
+            def comp_fn(h, _other=other, _sp=sp):
+                h = h.copy()
+                h.attrs["opp"] = _other
+                return components(h, h.position.iat[-1], priors, opp, _sp)
+
+            tagged = rd.teammates_out(absent, comp_fn) if absent else {}
+            if rho is not None and absent:
+                lost = rd.lost_volume(absent, comp_fn)
+                if lost:
+                    _lift_members(members, lost, rho, only=receivers, lead_pid=starter)
             if starter is not None and starter not in questionable:
                 # a ruled-out QB stays, so the pipeline lists him among the excluded
                 members = [c for c in members if c["pos"] != "QB" or c["pid"] == starter or c["pid"] in absent_ids]
@@ -511,10 +512,12 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
                                          opp=other, home=team == gm.home_team, kind="td", mu=res[0], vol=res[2], eff=res[1],
                                          sd=0.0, spread=sp, gameday=gm.gameday, gametime=gm.gametime, game_id=gm.game_id,
                                          last5=tdm.td_count(hist).tail(5).tolist(), wx=1.0))
+                out_here = "" if pid in absent_ids else ", ".join(tagged.get(rd.group("rec", p.position), []))
                 for kind, (mu, vol, eff) in all_kinds(hist, p.position, priors, opp, sp, comp, implied_map.get((season, week, team))).items():
                     rows.append(dict(player_id=pid, name=p.player_display_name, pos=p.position, team=team,
                                      opp=other, home=team == gm.home_team, kind=kind, mu=mu, vol=vol, eff=eff,
                                      sd=sd_at(mu, var_params[kind]), spread=sp,
                                      gameday=gm.gameday, gametime=gm.gametime, game_id=gm.game_id,
-                                     last5=actual_hist(hist, kind).tail(5).tolist(), wx=wx_ratio(kind, comp, wx)))
+                                     last5=actual_hist(hist, kind).tail(5).tolist(), wx=wx_ratio(kind, comp, wx),
+                                     teammate_out=out_here if kind in rd.TAG_KINDS else ""))
     return pd.DataFrame(rows)

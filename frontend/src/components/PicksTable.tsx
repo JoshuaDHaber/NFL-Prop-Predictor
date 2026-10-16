@@ -36,6 +36,7 @@ export default function PicksTable({ picks, onSelect, weather = {}, empty }: { p
                     <b>{p.name}</b> <span className="pos-pill">{p.pos}</span> <span className="mut">{p.team}</span>
                     {p.status && <span className="q"> {p.status}</span>}
                     {p.flagged && <span className="flag" title="Model and market disagree strongly">large gap</span>}
+                    {p.teammate_out && <span className="flag" title={`${p.teammate_out} out (first game): the model doesn't hand his targets to teammates. In past games like this, receivers averaged a few more yards than projected, from occasional big games, but beat their projection no more often than usual.`}>teammate out</span>}
                     <br /><span className="mut">{matchup(p.opp, p.home)} · {kickoff(p.gameday, p.gametime)}</span>
                     {p.kind !== "td" && <WeatherChip weather={weather[p.game_id]} wx={p.wx} />}
                   </div>

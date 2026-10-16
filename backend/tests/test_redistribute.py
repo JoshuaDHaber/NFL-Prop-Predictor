@@ -289,3 +289,48 @@ def test_a_starter_who_sat_out_a_questionable_week_gets_his_job_back_once_off_th
     ruled, sat = {(202603, "caleb"), (202604, "caleb")}, {(202605, "caleb")}
     assert rd.pick_starter(log, games, {"caleb", "bagent"}, ruled) == "bagent"
     assert rd.pick_starter(log, games, {"caleb", "bagent"}, ruled, sat_out=sat) == "caleb"
+
+
+# ---------- receivers: "teammate out" ----------
+def wr_league(wr2_weeks, weeks=range(1, 9)):
+    """AAA: wr1 (8 targets), wr2 (6, plays only wr2_weeks), wr3 (2: a backup), a TE (5) and a back."""
+    rows = []
+    for w in weeks:
+        rows += [row("wr1", "WR", w, targets=8), row("wr3", "WR", w, targets=2), row("te", "TE", w, targets=5),
+                 row("rb", "RB", w, carries=15, targets=3), row("qb", "QB", w, attempts=33)]
+        if w in wr2_weeks:
+            rows.append(row("wr2", "WR", w, targets=6))
+    return model.prep(pd.DataFrame(rows, columns=COLS))
+
+
+def tags(df, absent_ids=(), roster_out=()):
+    s, pri = sched(), model.league_priors(df)
+    dist = {k: dict(mu=[1.0, 400.0], sd=[40.0, 40.0], z=[float(z) for z in np.linspace(-2, 2, 41)]) for k in ("rush", "rec", "pass", "rr", "recs")}
+    roster = {pid: "AAA" for pid in ("wr1", "wr2", "wr3", "te", "rb", "qb") if pid not in roster_out}
+    p = model.upcoming_projections(df, s, pri, dist, 202609, roster, rho={"rush": 0.5, "rec": 0.0, "pass": 0.0},
+                                   absent_ids=set(absent_ids))
+    return {(r.player_id, r.kind): r.teammate_out for r in p.itertuples()}
+
+
+def test_a_rotation_receiver_ruled_out_tags_his_same_position_teammates_receiving():
+    t = tags(wr_league(wr2_weeks=range(1, 9)), absent_ids={"wr2"})
+    assert t[("wr1", "rec")] == "wr2"
+    assert t[("te", "rec")] == ""                                         # other position groups untouched
+    assert t[("wr1", "recs")] == ""                                       # receiving yards only
+    assert t[("wr2", "rec")] == ""                                        # not on the absent player himself
+
+
+def test_an_absence_off_the_roster_counts_the_same_as_one_on_the_injury_report():
+    t = tags(wr_league(wr2_weeks=range(1, 9)), roster_out={"wr2"})       # e.g. placed on injured reserve
+    assert t[("wr1", "rec")] == "wr2"
+
+
+def test_only_the_first_game_out_is_tagged():
+    t = tags(wr_league(wr2_weeks=range(1, 8)), roster_out={"wr2"})       # wr2 already missed week 8
+    assert t[("wr1", "rec")] == ""
+
+
+def test_a_backup_receiver_out_tags_nobody():
+    df = wr_league(wr2_weeks=range(1, 9))
+    t = tags(df, absent_ids={"wr3"})                                      # 2 targets a game: below the rotation line
+    assert t[("wr1", "rec")] == ""

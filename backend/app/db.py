@@ -50,6 +50,7 @@ class Projection(Base):
     gametime: Mapped[str] = mapped_column(String(8), default="")
     last5: Mapped[list] = mapped_column(JSON)
     wx: Mapped[float] = mapped_column(Float, nullable=True, default=1.0)  # weather multiplier already in mu (1 = none)
+    teammate_out: Mapped[str] = mapped_column(String(160), nullable=True, default="")  # see redistribute.teammates_out
     run: Mapped[Run] = relationship(back_populates="projections")
 
     __table_args__ = (Index("ix_proj_run_kind", "run_id", "kind"),)
@@ -169,7 +170,8 @@ def ensure_columns(eng) -> bool:
         if added:
             conn.execute(text("ALTER TABLE odds_lines ADD COLUMN game_id VARCHAR(24)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_odds_lines_game_id ON odds_lines (game_id)"))
-    for table, col, sql_type in (("runs", "weather", "JSON"), ("runs", "teams", "JSON"), ("projections", "wx", "FLOAT")):
+    for table, col, sql_type in (("runs", "weather", "JSON"), ("runs", "teams", "JSON"), ("projections", "wx", "FLOAT"),
+                                 ("projections", "teammate_out", "VARCHAR(160)")):
         if col not in {c["name"] for c in inspect(eng).get_columns(table)}:
             with eng.begin() as conn:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {sql_type}"))

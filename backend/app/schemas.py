@@ -118,6 +118,7 @@ class ProjectionOut(BaseModel):
     gametime: str
     last5: list[float]
     wx: Optional[float] = None  # weather multiplier already in mu (1 or None: no effect)
+    teammate_out: Optional[str] = ""  # same-position rotation receivers in their first game out
 
 
 class PickOut(BaseModel):
@@ -148,6 +149,8 @@ class PickOut(BaseModel):
     flagged: bool
     last5: list[float]
     wx: Optional[float] = None
+    flag: str = ""             # why it's flagged: "large gap" | "teammate out"
+    teammate_out: str = ""     # same-position rotation receivers in their first game out (shown on Overs too)
 
 
 class GameLogEntry(BaseModel):

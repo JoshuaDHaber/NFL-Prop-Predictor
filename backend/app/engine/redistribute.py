@@ -138,6 +138,28 @@ def applied(rho: dict) -> dict:
 
 
 
+# "Teammate out": receiving targets aren't redistributed (it overshot), and a receiver's own games without the missing
+# teammate are too few to project from (blending them in raised held-out error at every strength). What the backtest
+# does show: in a rotation receiver's (4+ projected targets) FIRST game out, his same-position teammates beat their
+# receiving projection by 3.2 yards against 0.9 otherwise (from the second game on, their recent games already show it),
+# but from a few big games: they beat their projection no more often than anyone (42.6% vs 42.7%). So the plays are
+# tagged as context for the reader, and not flagged or adjusted.
+TAG_MIN_TARGETS = 4.0
+TAG_KINDS = ("rec",)
+
+
+def teammates_out(absent: list, comp_fn) -> dict:
+    """{receiving position group: names of rotation receivers in their first game out}. absent: find_absent's output."""
+    out = {}
+    for pid, hist, missed in absent:
+        if missed != 0:
+            continue
+        rec = comp_fn(hist).get("rec")
+        if rec and rec[1] >= TAG_MIN_TARGETS:
+            out.setdefault(group("rec", hist.position.iat[-1]), []).append(str(hist.player_display_name.iat[-1]))
+    return {g: sorted(n) for g, n in out.items()}
+
+
 STARTER_WINDOW = 16            # team games looked back over to decide who starts at quarterback
 
 

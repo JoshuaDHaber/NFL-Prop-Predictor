@@ -90,6 +90,10 @@ export interface Pick {
   p_model: number; p_mkt: number; prob: number; ev: number; kelly: number; books: number;
   edge_yds: number; flagged: boolean; last5: number[];
   wx?: number | null;
+  /** Why it's flagged (hidden by default): "large gap". Older snapshots lack it. */
+  flag?: "" | "large gap";
+  /** Same-position rotation receivers in their first game out (receiving yards). Context only, not a flag. */
+  teammate_out?: string;
 }
 export interface GameLogEntry { label: string; opp: string; yards: number; volume: number }
 export interface PlayerDetail {

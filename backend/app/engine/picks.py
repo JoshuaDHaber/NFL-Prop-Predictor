@@ -11,6 +11,7 @@ from .td import TD_ASSUMED_HOLD, TD_MIN_MARKET_WEIGHT  # noqa: F401  (re-exporte
 PICK_COLUMNS = [
     "player_id", "name", "pos", "team", "opp", "home", "kind", "mu", "sd", "status", "game_id", "gameday", "gametime",
     "side", "line", "odds", "book", "p_model", "p_mkt", "prob", "ev", "kelly", "books", "edge_yds", "flagged", "wx",
+    "flag", "teammate_out",
 ]
 # a quote this far from the consensus line (or 30% of it) is an alternate or stale line; receptions are counted in catches,
 # passing TDs in touchdowns (lines step 0.5 / 1.5 / 2.5, so a whole TD off the consensus is another line)
@@ -19,7 +20,11 @@ STALE_MIN_GAP = {"recs": 1.5, "ptd": 0.9}
 
 def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 0.35, only_book: str = None,
                 dists: dict = None) -> pd.DataFrame:
-    """All priced Over/Under candidates (flagged = model and market disagree by >40-67%: usually a model blind spot).
+    """All priced Over/Under candidates. flagged (hidden by default) = model and market disagree by >40-67%, usually a
+    model blind spot; `flag` names the reason ("large gap"). teammate_out is context only: a same-position rotation
+    receiver in his first game out (redistribute.teammates_out). It isn't a flag: those receivers average a few yards
+    over projection, but from a few big games; they beat it no more often than anyone (42.6% vs 42.7%), so their
+    Unders hit as often as any.
     only_book keeps just that sportsbook's quotes in the output; the market consensus still uses every book.
     dists: per-kind error tables from the backtest (model.fit_dist); without one, the older gamma curve is used., best book per player/market/side, sorted by EV (no EV filter)."""
     if proj.empty or lines.empty:
@@ -80,13 +85,16 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
             # passing TDs sit at 0.5 / 1.5 / 2.5, where projection-over-line ratios swing wildly, so like anytime TD they
             # compare chances instead
             by_chance = is_td or r.market == "ptd"
-            flagged = (not (0.6 <= p_side / max(mk, 1e-6) <= 1.67)) if by_chance else not (0.6 <= p.mu / max(c.line, 0.5) <= 1.67)
+            gap = (not (0.6 <= p_side / max(mk, 1e-6) <= 1.67)) if by_chance else not (0.6 <= p.mu / max(c.line, 0.5) <= 1.67)
+            out_ = getattr(p, "teammate_out", "") or ""
+            out_ = "" if pd.isna(out_) else str(out_)
+            flag = "large gap" if gap else ""
             out.append(dict(
                 player_id=p.player_id, name=p.name, pos=p.pos, team=p.team, opp=p.opp, home=bool(p.home), kind=r.market,
                 mu=p.mu, sd=p.sd, status=p.status, game_id=p.game_id, gameday=p.gameday, gametime=p.gametime,
                 side=side, line=float(r.line), odds=int(odd), book=r.book, p_model=p_side, p_mkt=mk, prob=prob, ev=ev,
                 kelly=max(0.0, ev / (dec - 1)) / 4, books=int(c.books),
-                edge_yds=edge, flagged=flagged, wx=wx))
+                edge_yds=edge, flagged=bool(flag), wx=wx, flag=flag, teammate_out=out_))
     df = pd.DataFrame(out, columns=PICK_COLUMNS)
     if df.empty:
         return df

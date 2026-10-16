@@ -111,3 +111,14 @@ def test_passing_tds_are_flagged_on_chances_not_the_projection_to_line_ratio():
     stale = build_picks(p, lines([("Test Qb", "ptd", 1.5, -140, 110, "A"), ("Test Qb", "ptd", 1.5, -135, 105, "B"),
                                   ("Test Qb", "ptd", 2.5, 150, -190, "C")]), market_weight=0.35)
     assert set(stale.line) == {1.5}   # a whole TD off the consensus is another line, not this market's
+
+
+def test_a_teammate_out_tags_both_sides_without_flagging_either():
+    p = proj(name="Wide Out", pos="WR", kind="rec", mu=30.0, sd=20.0, teammate_out="Missing Receiver")
+    picks = build_picks(p, lines([("Wide Out", "rec", 40.5, -110, -110, "A")]))
+    assert (picks.teammate_out == "Missing Receiver").all() and not picks.flagged.any() and (picks.flag == "").all()
+    plain = build_picks(proj(name="Wide Out", pos="WR", kind="rec", mu=30.0, sd=20.0), lines([("Wide Out", "rec", 40.5, -110, -110, "A")]))
+    assert not plain.flagged.any() and (plain.flag == "").all()          # runs stored before the tag existed have no column
+    gap = build_picks(proj(name="Wide Out", pos="WR", kind="rec", mu=10.0, sd=20.0, teammate_out="X"),
+                      lines([("Wide Out", "rec", 40.5, -110, -110, "A")]))
+    assert (gap.flag == "large gap").all()                                # the stronger reason wins
