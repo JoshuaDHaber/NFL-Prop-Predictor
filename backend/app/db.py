@@ -264,6 +264,15 @@ def make_engine(url=None):
     return eng
 
 
+def _free_volume():
+    """The NBA cache shares the database's volume; clear its old raw gamelogs before SQLite needs room for its WAL."""
+    from .nba.espn import prune_raw_gamelogs
+    n = prune_raw_gamelogs()
+    if n:
+        print(f"Removed {n} raw NBA gamelog files from {config.NBA_CACHE}")
+
+
+_free_volume()
 engine = make_engine()
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 

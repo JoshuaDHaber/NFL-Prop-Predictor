@@ -35,17 +35,20 @@ def _cache_path(url: str) -> str:
     return os.path.join(config.NBA_CACHE, hashlib.sha1(url.encode()).hexdigest()[:20] + ".json")
 
 
-def get_json(url: str, max_age_hours: Optional[float] = 6) -> dict:
-    """GET a JSON document through the disk cache (max_age_hours=None: cached forever). A failed download falls back
-    to the last good copy, however old."""
-    path = _cache_path(url)
+def _download(url: str) -> dict:
+    r = _session.get(url, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+def _cached(path: str, max_age_hours: Optional[float], fetch):
+    """fetch() through a JSON file at path (max_age_hours=None: cached forever). A failed fetch falls back to the
+    last good copy, however old."""
     if os.path.exists(path) and (max_age_hours is None or time.time() - os.path.getmtime(path) < max_age_hours * 3600):
         with open(path) as f:
             return json.load(f)
     try:
-        r = _session.get(url, timeout=30)
-        r.raise_for_status()
-        js = r.json()
+        js = fetch()
     except (requests.RequestException, ValueError):
         if os.path.exists(path):
             with open(path) as f:
@@ -56,6 +59,27 @@ def get_json(url: str, max_age_hours: Optional[float] = 6) -> dict:
         json.dump(js, f)
     os.replace(tmp, path)
     return js
+
+
+def get_json(url: str, max_age_hours: Optional[float] = 6) -> dict:
+    """GET a JSON document through the disk cache."""
+    return _cached(_cache_path(url), max_age_hours, lambda: _download(url))
+
+
+def prune_raw_gamelogs() -> int:
+    """Delete raw ESPN gamelog responses cached by older versions (~400 KB each, 550+ MB in all: they filled the
+    500 MB volume and SQLite then failed with "disk I/O error"). Game logs are now cached as parsed rows."""
+    removed = 0
+    if not os.path.isdir(config.NBA_CACHE):
+        return 0
+    for e in os.scandir(config.NBA_CACHE):
+        if e.is_file() and e.name.endswith(".json"):
+            with open(e.path, "rb") as f:
+                head = f.read(12)
+            if head.startswith(b'{"filters":'):   # only the gamelog endpoint's responses start this way
+                os.remove(e.path)
+                removed += 1
+    return removed
 
 
 def season_for(day: date) -> int:
@@ -193,16 +217,20 @@ def _num(v):
 
 
 def gamelogs(player_ids, seasons, current: int, log=print) -> pd.DataFrame:
-    """Every listed player's games in the given seasons (ESPN season years). Finished seasons are cached for good."""
+    """Every listed player's games in the given seasons (ESPN season years). Finished seasons are cached for good.
+    Only the parsed rows are kept on disk (a few KB per player-season, vs ~400 KB for ESPN's raw response)."""
     jobs = [(pid, s) for pid in player_ids for s in seasons]
+    folder = os.path.join(config.NBA_CACHE, "gamelogs")
+    os.makedirs(folder, exist_ok=True)
 
     def one(job):
         pid, s = job
+        url = f"{WEB}/athletes/{pid}/gamelog?season={s}"
         try:
-            js = get_json(f"{WEB}/athletes/{pid}/gamelog?season={s}", max_age_hours=3 if s >= current else None)
+            return _cached(os.path.join(folder, f"{pid}_{s}.json"), 3 if s >= current else None,
+                           lambda: [r for r in parse_gamelog(_download(url), pid) if r["season"] == s])
         except requests.RequestException:
             return []
-        return [r for r in parse_gamelog(js, pid) if r["season"] == s]
     t0 = time.time()
     with ThreadPoolExecutor(12) as ex:
         rows = [r for rs in ex.map(one, jobs) for r in rs]
