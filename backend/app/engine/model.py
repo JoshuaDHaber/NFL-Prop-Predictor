@@ -23,6 +23,10 @@ from . import td as tdm
 from . import weather as wxm
 
 HALFLIFE = 5.0          # games
+# weight of a QB's non-start games (relief, or the start he left hurt) next to his starts. Fitted on the backtest's
+# expected starters: 1 (all games alike) under-projected them by 6 yards, 0 (starts only) over-projected by 7 and
+# dropped the real chance of an early exit; 0.35 had the lowest error (passing MAE 62.3 -> 61.9, bias +1.5).
+NONSTART_W = 0.35
 VOL_PRIOR_K = {"rush": 0.5, "rec": 0.5, "pass": 0.2, "recs": 0.5, "ptd": 0.2}   # pseudo-games of shrinkage on volume (QB volume is stable)
 EFF_K = {"rush": 40.0, "rec": 30.0, "pass": 120.0, "recs": 30.0, "ptd": 400.0}   # pseudo-attempts of shrinkage on efficiency
 OPP_SHRINK_GAMES = 8.0
@@ -47,7 +51,25 @@ LNG_LAMBDA = np.linspace(0.0, 16.0, 161)   # expected catches at which long_tabl
 def prep(stats):
     df = stats.sort_values(["season", "week"]).copy()
     df["t"] = df.season * 100 + df.week
+    if {"attempts", "position", "team"} <= set(df.columns):
+        # the team's starting QB that game: its leading passer (a relief or injury-shortened outing is not a start)
+        att = df.attempts.fillna(0)
+        df["qb_start"] = (df.position == "QB") & (att > 0) & (att == att.groupby([df.team, df.t]).transform("max"))
     return df
+
+
+def starts_only(hist, pos):
+    """A QB's history weighted toward his starts, when he has any: his relief snaps and the game he got hurt in say
+    little about how much he throws when he starts (Darnold's 2-attempt injury exit had him projected at 27
+    attempts, then he threw 51). Non-start games keep NONSTART_W of their weight (a `_w` column)."""
+    if pos != "QB" or "qb_start" not in hist or not hist.qb_start.any() or hist.qb_start.all():
+        return hist
+    if NONSTART_W == 0:
+        out = hist[hist.qb_start.to_numpy()]
+    else:
+        out = hist.assign(_w=np.where(hist.qb_start.to_numpy(), 1.0, NONSTART_W))
+    out.attrs = dict(hist.attrs)
+    return out
 
 
 def league_priors(df, catches=None):
@@ -129,6 +151,8 @@ def project_player(hist, kind, prior_eff, opp_dev=0.0, spread=0.0):
     # age in the player's own games, measured over ALL his team-games in hist (including 0-usage)
     ages = np.arange(len(hist))[::-1]
     w_all = 0.5 ** (ages / HALFLIFE)
+    if "_w" in hist:
+        w_all = w_all * hist["_w"].to_numpy()
     vol_all = hist[c["vol"]].to_numpy(float)
     vol_hat = (w_all * vol_all).sum() / (w_all.sum() + VOL_PRIOR_K[kind])
     w = w_all[(hist[c["vol"]] > 0).to_numpy()]
@@ -144,6 +168,7 @@ def components(hist, pos, priors, opp, spread, wx=None):
     """Per-kind (mu, vol, eff) for one player, no volume floor applied. wx: per-kind weather multipliers on mu
     (volume is left alone, so touchdown and redistribution math don't change)."""
     out = {}
+    hist = starts_only(hist, pos)
     for kind in CFG:
         pe = priors.get((kind, pos))
         if pe is None:
@@ -196,13 +221,14 @@ def actual_hist(df, kind):
     return df["receiving_long"] if kind == "lng" else df[CFG[kind]["yds"]]
 
 
-def _lift_members(members, lost, rho, records=None, t=None, affected=None, only=None):
+def _lift_members(members, lost, rho, records=None, t=None, affected=None, only=None, lead_pid=None):
     """Hand lost volume to active teammates of the same position group (in place on each member's comp).
 
     members: dicts with pid, pos, comp (and row, for fitting). only: pids allowed to receive (default: all).
     With records, collect (role, expected extra volume, observed extra volume, t) to fit rho.
     Replacement roles (quarterback attempts) are not shared: the lead active QB takes over the missing starter's
-    attempts whenever redistribution is on (rho given)."""
+    attempts whenever redistribution is on (rho given). lead_pid: the QB expected to start, when known (else the one
+    projected for the most attempts)."""
     from . import redistribute as rd
     receivers = [c for c in members if only is None or c["pid"] in only]
     if rho is not None:
@@ -213,7 +239,7 @@ def _lift_members(members, lost, rho, records=None, t=None, affected=None, only=
                 if kind in c["comp"] and lost.get(key, 0) > 0:
                     groups.setdefault(key, []).append(c)
             for key, cands in groups.items():
-                lead = max(cands, key=lambda c: c["comp"][kind][1])   # the QB expected to play
+                lead = next((c for c in cands if c["pid"] == lead_pid), None) or max(cands, key=lambda c: c["comp"][kind][1])
                 mu, vol, eff = lead["comp"][kind]
                 if vol < lost[key] and vol > 0:
                     lead["comp"][kind] = (mu * lost[key] / vol, lost[key], eff)
@@ -275,6 +301,7 @@ def walk_forward(df, priors, sched, start_t, td_priors=None, rho=None, records=N
     With records (a list), the data to fit rho is collected instead/as well. Rows carry an `affected` flag:
     True when a teammate was absent in that game (computed only when rho or records is given).
     Rows also carry the game's weather (wx_temp, wx_wind: NaN indoors) and wx, the multiplier applied with wx_coef.
+    Like the live projections, only each team-game's expected starting QB is scored (backup_qbs), not a relief arm.
     """
     spread_map = _spread_lookup(sched)
     wx_hist = wxm.history(sched)
@@ -299,9 +326,12 @@ def walk_forward(df, priors, sched, start_t, td_priors=None, rho=None, records=N
     if rho is not None or records is not None:
         from . import redistribute as rd
         affected = _apply_redistribution(ctx, rd.Logs(df), priors, opp_cache, spread_map, rho, records)
+    skip = backup_qbs(df, ctx)
     rows = []
     for c in ctx:
         pid, hist, one, r = c["pid"], c["hist"], c["one"], c["row"]
+        if (pid, c["t"]) in skip:
+            continue
         aff = (pid, c["t"]) in affected
         implied = implied_map.get((c["season"], c["week"], c["team"]))
         for kind, (mu, vol, eff) in all_kinds(hist, c["pos"], priors, opp_cache[c["t"]], c["sp"], c["comp"], implied).items():
@@ -316,6 +346,29 @@ def walk_forward(df, priors, sched, start_t, td_priors=None, rho=None, records=N
 
 
 Z_PROBS = np.linspace(0, 1, 41)
+
+
+def backup_qbs(df, ctx):
+    """(player_id, t) of backtest QBs who weren't their team's expected starter among the QBs who played that game.
+    The live projections drop backups, so scoring their relief snaps would only skew the error tables."""
+    from . import redistribute as rd
+    if "qb_start" not in df:
+        return set()
+    starts = {tm: g for tm, g in df[df.qb_start].groupby("team")}
+    games = {tm: np.sort(g.t.unique()) for tm, g in df.groupby("team")}
+    by_game = {}
+    for c in ctx:
+        if c["pos"] == "QB":
+            by_game.setdefault((c["team"], c["t"]), set()).add(c["pid"])
+    skip = set()
+    for (team, t), qbs in by_game.items():
+        if len(qbs) < 2 or team not in starts:
+            continue
+        past = games[team][games[team] < t]
+        starter = rd.pick_starter(starts[team], past, qbs, season=t // 100)
+        if starter is not None:
+            skip |= {(pid, t) for pid in qbs - {starter}}
+    return skip
 
 
 def fit_dist(bt):
@@ -389,17 +442,26 @@ def prob_over_under(mu, line, var):
 
 
 def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_priors=None, td_scale=1.0, rho=None, absent_ids=(),
-                         game_wx=None):
+                         game_wx=None, ruled_out=frozenset(), questionable=(), sat_out=frozenset()):
     """Project all active players for games not yet played in the target week.
 
     With rho, volume from absent regulars (ruled out/doubtful via absent_ids, or no longer on the active roster)
-    is handed to their teammates in the same position group. game_wx: game_id -> per-kind weather multipliers."""
+    is handed to their teammates in the same position group. game_wx: game_id -> per-kind weather multipliers.
+
+    Only the expected starting QB is projected (redistribute.pick_starter, using ruled_out: (t, player_id) pairs ruled
+    Out or Doubtful in past weeks, and sat_out: listed Questionable and didn't play): a backup's handful of snaps isn't
+    a market, and projecting him split the team's passing between the two. While the starter is listed in
+    `questionable`, his backups are kept (and his own past Questionable weeks don't count, as he's not back yet)."""
     season, week = divmod(week_t, 100)
     games = sched[(sched.season == season) & (sched.week == week) & sched.home_score.isna()]
     opp = opp_table(df, week_t)
     implied_map = tdm.implied_points(sched)
     latest = df.sort_values("t").groupby("player_id").tail(1).set_index("player_id")
     by_player = {pid: g for pid, g in df.groupby("player_id")}
+    from . import redistribute as rd
+    starts = df[df.qb_start] if "qb_start" in df else df.iloc[:0]
+    ruled = set(ruled_out) | {(week_t, pid) for pid in absent_ids}
+    sat = {(t, pid) for t, pid in sat_out if pid not in questionable}
     logs = None
     if rho is not None:   # redistribution on (a quarterback replacement needs no fitted share)
         from . import redistribute as rd
@@ -420,8 +482,10 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
                 hist = hist.iloc[:]  # a view of the player's rows; attrs are set per use
                 hist.attrs["opp"] = other
                 members.append(dict(pid=pid, p=p, hist=hist, pos=p.position, comp=components(hist, p.position, priors, opp, sp, wx)))
+            qbs = {c["pid"] for c in members if c["pos"] == "QB" and c["pid"] not in absent_ids}
+            past = np.sort(df[(df.team == team) & (df.t < week_t)].t.unique())
+            starter = rd.pick_starter(starts[starts.team == team], past, qbs, ruled, season, sat) if qbs else None
             if rho is not None:
-                from . import redistribute as rd
                 # not absent: healthy members, and anyone active on another team's roster (traded away, not missing)
                 active = {pid for pid, tm in roster.items() if not (tm == team and pid in absent_ids)}
                 receivers = {c["pid"] for c in members if c["pid"] not in absent_ids}
@@ -434,7 +498,10 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
 
                     lost = rd.lost_volume(absent, comp_fn)
                     if lost:
-                        _lift_members(members, lost, rho, only=receivers)
+                        _lift_members(members, lost, rho, only=receivers, lead_pid=starter)
+            if starter is not None and starter not in questionable:
+                # a ruled-out QB stays, so the pipeline lists him among the excluded
+                members = [c for c in members if c["pos"] != "QB" or c["pid"] == starter or c["pid"] in absent_ids]
             for c in members:
                 pid, p, hist, comp = c["pid"], c["p"], c["hist"], c["comp"]
                 if td_priors is not None:

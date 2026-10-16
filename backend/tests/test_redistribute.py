@@ -221,3 +221,71 @@ def test_live_a_ruled_out_starter_makes_his_backup_the_projected_starter():
     assert "qb2" not in healthy and "qb1" in healthy
     assert out["qb2"] > 150 and "qb3" not in out                  # qb2 is projected for a starter's workload, qb3 is not
     assert passes(rho=None, absent_ids={"qb1"}).get("qb2") is None  # off means off
+
+
+# ---------- quarterbacks: only the expected starter is projected ----------
+def starts(*pairs):
+    return pd.DataFrame(pairs, columns=["player_id", "t"])
+
+
+def test_the_starter_is_whoever_made_the_teams_latest_start():
+    games = [202601, 202602, 202603, 202604]
+    assert rd.pick_starter(starts(("a", 202601), ("a", 202602), ("b", 202603), ("b", 202604)), games, {"a", "b"}) == "b"   # benched
+    assert rd.pick_starter(starts(("a", 202601)), games, {"b"}) is None                                                  # nobody to judge by
+
+
+def test_a_starter_back_from_injury_gets_his_job_back():
+    """Darnold: hurt in week 1 (Lock threw 22 of 24), out week 2, back week 3."""
+    games = [202517, 202518, 202601, 202602]
+    log = starts(("darnold", 202517), ("darnold", 202518), ("lock", 202601), ("lock", 202602))
+    ruled = {(202602, "darnold")}
+    assert rd.pick_starter(log, games, {"darnold", "lock"}, ruled) == "darnold"
+    assert rd.pick_starter(log, games, {"darnold", "lock"}) == "lock"          # without the injury report, Lock looks like the starter
+
+
+def test_a_new_season_looks_past_a_week_18_rest_game():
+    games = [202516, 202517, 202518]
+    log = starts(("allen", 202516), ("allen", 202517), ("trubisky", 202518))
+    assert rd.pick_starter(log, games, {"allen", "trubisky"}, season=2026) == "allen"
+    assert rd.pick_starter(log, games, {"allen", "trubisky"}, season=2025) == "trubisky"   # within the season it's the latest start
+
+
+def test_a_qbs_volume_comes_from_his_starts_not_the_game_he_got_hurt_in():
+    rows = [row("qb1", "QB", w, attempts=a) for w, a in ((1, 34), (2, 33), (3, 2), (5, 35))]
+    rows += [row("qb2", "QB", w, attempts=a) for w, a in ((3, 30), (4, 31))]
+    df = model.prep(pd.DataFrame(rows, columns=COLS))
+    assert df.set_index(["player_id", "week"]).qb_start.to_dict() == {
+        ("qb1", 1): True, ("qb1", 2): True, ("qb1", 3): False, ("qb1", 5): True, ("qb2", 3): True, ("qb2", 4): True}
+    hist = df[df.player_id == "qb1"]
+    assert list(model.starts_only(hist, "QB")._w) == [1.0, 1.0, model.NONSTART_W, 1.0]
+    assert "_w" not in model.starts_only(hist, "WR")                                  # only quarterbacks
+    full, weighted = (model.project_player(h, "pass", 7.0)[1] for h in (hist, model.starts_only(hist, "QB")))
+    assert weighted > full + 3                                                        # the 2-attempt exit drags him down less
+
+
+def test_live_a_backup_is_not_projected_unless_the_starter_is_questionable():
+    df = qb_league(qb1_weeks=range(1, 9), weeks=range(1, 9))
+    df.loc[df.player_id == "qb2", "attempts"] = 18     # a backup with enough relief snaps to be projected on his own
+    df = model.prep(df.drop(columns="qb_start"))
+    s, pri = sched(), model.league_priors(df)
+    dist = {k: dict(mu=[1.0, 400.0], sd=[40.0, 40.0], z=[float(z) for z in np.linspace(-2, 2, 41)]) for k in ("rush", "rec", "pass", "rr", "recs")}
+    roster = {pid: "AAA" for pid in ("qb1", "qb2", "qb3", "rb", "wr")}
+    rho = {"rush": 0.5, "rec": 0.0, "pass": 0.0}
+
+    def qbs(**kw):
+        p = model.upcoming_projections(df, s, pri, dist, 202609, roster, rho=rho, **kw)
+        return set(p[p.pos == "QB"].player_id)
+
+    assert qbs(absent_ids=set()) == {"qb1"}
+    assert qbs(absent_ids=set(), questionable={"qb1"}) == {"qb1", "qb2"}
+    out = qbs(absent_ids={"qb1"})                      # (qb1's own rows are dropped later, by the pipeline's status filter)
+    assert "qb2" in out and "qb3" not in out
+
+
+def test_a_starter_who_sat_out_a_questionable_week_gets_his_job_back_once_off_the_report():
+    """Caleb Williams: out weeks 3-4, Questionable and inactive week 5, full practice week 6."""
+    games = [202601, 202602, 202603, 202604, 202605]
+    log = starts(("caleb", 202601), ("caleb", 202602), ("keenum", 202603), ("bagent", 202604), ("bagent", 202605))
+    ruled, sat = {(202603, "caleb"), (202604, "caleb")}, {(202605, "caleb")}
+    assert rd.pick_starter(log, games, {"caleb", "bagent"}, ruled) == "bagent"
+    assert rd.pick_starter(log, games, {"caleb", "bagent"}, ruled, sat_out=sat) == "caleb"

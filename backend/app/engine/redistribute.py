@@ -135,3 +135,32 @@ def fit_rho(records: list) -> dict:
 def applied(rho: dict) -> dict:
     """The shares actually used: the fit, shrunk, for the active roles; zero for the rest."""
     return {k: (v * SHRINK if k in ACTIVE_ROLES else 0.0) for k, v in rho.items()}
+
+
+
+STARTER_WINDOW = 16            # team games looked back over to decide who starts at quarterback
+
+
+def pick_starter(starts: pd.DataFrame, team_games, cands, ruled_out=frozenset(), season=None, sat_out=frozenset()):
+    """The quarterback expected to start: the candidate who made the team's most recent start, with two kinds of
+    start looked past. A start made while another candidate was ruled out that week or the next (the game he got
+    hurt in, then the games he missed) is a fill-in, so a starter back from injury gets his job back. And a new
+    season looks past last season's week 18, often a rest game for a clinched starter. None when no candidate has
+    a counted start.
+
+    starts: the team's starts (player_id, t), one per game. team_games: the team's game times before this one,
+    sorted. ruled_out: (t, player_id) pairs ruled Out or Doubtful. sat_out: (t, player_id) pairs listed Questionable
+    who then didn't play, a fill-in for that game only. season: the season being projected."""
+    team_games = list(team_games)
+    games = set(team_games[-STARTER_WINDOW:])
+    nxt = dict(zip(team_games, team_games[1:] + [None]))
+    best = {}
+    for pid, t in zip(starts.player_id, starts.t):
+        if pid not in cands or t not in games:
+            continue
+        if season is not None and t // 100 < season and t % 100 >= 18:
+            continue
+        if any(o != pid and ((t, o) in ruled_out or (nxt[t], o) in ruled_out or (t, o) in sat_out) for o in cands):
+            continue
+        best[pid] = max(best.get(pid, 0), t)
+    return max(best, key=best.get) if best else None

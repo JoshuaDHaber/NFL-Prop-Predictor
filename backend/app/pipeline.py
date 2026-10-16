@@ -73,6 +73,15 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
         dnp = cur_inj.practice_status.fillna("").str.startswith("Did Not") & cur_inj.report_status.isna() & ~resting
         status = dict(zip(cur_inj.gsis_id, cur_inj.report_status.where(~dnp, "DNP")))
     drop = {"Out", "Doubtful"} | (set() if keep_dnp else {"DNP"})
+    # past weeks' Out/Doubtful: a start made while the starter was out is a fill-in (model.upcoming_projections)
+    # and Questionable then didn't play
+    ruled_out, sat_out, played_ids = set(), set(), set(zip(stats.t, stats.player_id))
+    for yr, f in ((season - 1, data.load_injuries(season - 1)), (season, inj)):
+        if not f.empty:
+            o = f[f.report_status.isin(["Out", "Doubtful"])]
+            ruled_out |= set(zip(yr * 100 + o.week.astype(int), o.gsis_id))
+            q = f[f.report_status == "Questionable"]
+            sat_out |= set(zip(yr * 100 + q.week.astype(int), q.gsis_id)) - played_ids
     names = {odds.norm(n) for n in exclude}
     manual_ids = set(stats[stats.player_display_name.map(odds.norm).isin(names)].player_id) if names else set()
     absent_ids = {pid for pid, s_ in status.items() if s_ in drop} | manual_ids
@@ -116,7 +125,8 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
     log("Projecting upcoming games...")
     proj = model.upcoming_projections(stats, sched, priors, var_params, week_t, data.load_roster(season),
                                       td_priors=td_pri, td_scale=td_scale, rho=rho, absent_ids=absent_ids,
-                                      game_wx={g: w["factors"] for g, w in game_weather.items()})
+                                      game_wx={g: w["factors"] for g, w in game_weather.items()}, ruled_out=ruled_out, sat_out=sat_out,
+                                      questionable={pid for pid, s_ in status.items() if s_ == "Questionable"})
 
     # team win chances: cheap (seconds), so fitted fresh every run, fast or full
     log("Team ratings and win probabilities...")
