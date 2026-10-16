@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Game, InjuredPlayer, InjuryReport, Kind } from "../api";
 import { kickoff, timeAgo } from "../format";
+import { getLeague } from "../league";
 
 interface Props {
   report: InjuryReport;
@@ -18,16 +19,26 @@ function badge(p: InjuredPlayer): { text: string; cls: string; title: string } {
   if (p.status === "Out") return { text: "Out", cls: "out", title: "Ruled out" };
   if (p.status === "Doubtful") return { text: "Doubtful", cls: "doubt", title: "Doubtful: rarely plays" };
   if (p.status === "Questionable") return { text: "Questionable", cls: "quest", title: "Questionable: a game-time decision" };
+  // NBA statuses (ESPN)
+  if (p.status === "Day-To-Day") return { text: "Day-to-day", cls: "quest", title: "Day-to-day: often a game-time decision" };
+  if (p.status === "Probable") return { text: "Probable", cls: "rest", title: "Probable: expected to play" };
+  if (p.status === "Suspension") return { text: "Suspended", cls: "out", title: "Suspended" };
   if (RESERVE.has(p.status)) return { text: p.status, cls: "out", title: p.status === "IR" ? "Injured reserve" : p.status === "PUP" ? "Physically unable to perform list" : p.status === "NFI" ? "Non-football injury list" : "Reserve list" };
   if (p.rest) return { text: "Rest", cls: "rest", title: "Not injury related: a veteran's rest day" };
   return { text: p.practice === "DNP" ? "DNP" : "Limited", cls: "banged", title: `No game status yet; ${p.practice === "DNP" ? "did not practice" : "limited in practice"}` };
 }
 
+/** "Nov 1", or "Oct 1, 2027" when it isn't this year (a season-ending injury). */
+function returnText(d: string): string {
+  const at = new Date(`${d}T12:00:00`);
+  return at.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(at.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}) });
+}
+
 function summary(players: InjuredPlayer[]): string {
   const n = (f: (p: InjuredPlayer) => boolean) => players.filter(f).length;
   const parts: [number, string][] = [
-    [n((p) => p.status === "Out"), "out"], [n((p) => p.status === "Doubtful"), "doubtful"], [n((p) => p.status === "Questionable"), "questionable"],
-    [n((p) => !p.status && !p.rest), "limited/DNP"],
+    [n((p) => p.status === "Out" || p.status === "Suspension"), "out"], [n((p) => p.status === "Doubtful"), "doubtful"], [n((p) => p.status === "Questionable"), "questionable"],
+    [n((p) => p.status === "Day-To-Day"), "day-to-day"], [n((p) => !p.status && !p.rest), "limited/DNP"],
   ];
   return parts.filter(([c]) => c).map(([c, l]) => `${c} ${l}`).join(" · ") || "Nobody on the report";
 }
@@ -42,6 +53,8 @@ function Row({ p, onSelect }: { p: InjuredPlayer; onSelect: Props["onSelect"] })
       <span className="inj-name">
         {p.kind ? <button className="link strong" onClick={() => onSelect(p.player_id, p.kind as Kind)} title="Open his projections and props">{p.name}</button> : p.name}
         {(p.injury || practice) && <span className="mut"> {[p.rest ? "" : p.injury, practice && `${practice} in practice`].filter(Boolean).join(" · ")}</span>}
+        {p.return_date && p.status !== "Day-To-Day" && <span className="mut"> · back ~{returnText(p.return_date)}</span>}
+        {p.comment && <span className="inj-note mut">{p.comment}</span>}
       </span>
     </li>
   );
@@ -63,7 +76,7 @@ function Team({ team, home, players, side, showReserve, onSelect }: {
         if (!list.length) return null;
         return (
           <div key={g}>
-            {side === "all" && <h5>{label}</h5>}
+            {side === "all" && getLeague() !== "nba" && <h5>{label}</h5>}
             <ul className="inj-list">{list.map((p) => <Row key={p.player_id} p={p} onSelect={onSelect} />)}</ul>
           </div>
         );
@@ -90,9 +103,10 @@ export function GameInjuries({ game, report, side = "all", showReserve = false, 
 
 /** Players listed Out, Doubtful or Questionable (the reserve lists left out). */
 export const gameStatusCounts = (players: InjuredPlayer[]) => ({
-  out: players.filter((p) => p.status === "Out").length,
+  out: players.filter((p) => p.status === "Out" || p.status === "Suspension").length,
   doubtful: players.filter((p) => p.status === "Doubtful").length,
   questionable: players.filter((p) => p.status === "Questionable").length,
+  dayToDay: players.filter((p) => p.status === "Day-To-Day").length,   // NBA
 });
 
 export default function Injuries({ report, games, onSelect }: Props) {

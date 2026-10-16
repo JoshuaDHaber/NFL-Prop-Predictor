@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import React, { Fragment, useEffect, useState } from "react";
-import { api, type ScheduleSlot, type SyncRun } from "../api";
+import { api, type CreditStatus, type ScheduleSlot, type SyncRun } from "../api";
 import { setToken, useToken } from "../auth";
 import { BASE } from "../env";
 import { timeAgo } from "../format";
@@ -93,6 +93,12 @@ export default function AdminPage({ embedded = false }: { embedded?: boolean }) 
           another key and deploy. The next sync uses the new key.
         </div>
       )}
+      {d.credits_nba?.low && (
+        <div className="banner">
+          <b>Rotate the NBA Odds API key.</b> The key ending {d.credits_nba.key_hint} has {d.credits_nba.remaining} credits left, at or under the floor
+          of {d.credits_nba.floor}, so NBA syncs have stopped fetching odds. Replace <code>ODDS_API_KEY_NBA</code> in Railway's <b>Variables</b> and deploy.
+        </div>
+      )}
       {!d.auto_sync.enabled && (
         <div className="banner">Scheduled syncs are <b>off</b> on this server. Set <code>AUTO_SYNC=1</code> to turn them on (they're on by default on Railway).</div>
       )}
@@ -105,13 +111,8 @@ export default function AdminPage({ embedded = false }: { embedded?: boolean }) 
               <span className="mut">{d.auto_sync.next_label} · {localWhen(d.auto_sync.next_at)}</span></>
           ) : <div className="big">Off</div>}
         </div>
-        <div className="card admin-card">
-          <span className="mut">Odds API credits</span>
-          <div className={`big${c.low ? " under" : ""}`}>{c.remaining ?? "?"}</div>
-          <span className="mut">
-            {c.error ?? `Key …${c.key_hint} · stops at ${c.floor}`}{c.checked_at && !c.error ? ` · checked ${timeAgo(c.checked_at, now)}` : ""}
-          </span>
-        </div>
+        <CreditCard label="Odds API credits (NFL)" k={c} now={now} />
+        {d.credits_nba && <CreditCard label="Odds API credits (NBA)" k={d.credits_nba} now={now} />}
         <div className="card admin-card">
           <span className="mut">Now</span>
           {running ? (
@@ -170,5 +171,17 @@ export default function AdminPage({ embedded = false }: { embedded?: boolean }) 
         </table>
       </div>
     </>)
+  );
+}
+
+function CreditCard({ label, k, now }: { label: string; k: CreditStatus; now: number }) {
+  return (
+    <div className="card admin-card">
+      <span className="mut">{label}</span>
+      <div className={`big${k.low ? " under" : ""}`}>{k.remaining ?? "?"}</div>
+      <span className="mut">
+        {k.error ?? `Key …${k.key_hint} · stops at ${k.floor}`}{k.checked_at && !k.error ? ` · checked ${timeAgo(k.checked_at, now)}` : ""}
+      </span>
+    </div>
   );
 }

@@ -3,6 +3,7 @@ import { KIND_LABEL, americanOdds, kickoff, pct, playLabel, signedPct, weatherSh
 import { gameStatusCounts } from "./Injuries";
 import { favored } from "./Moneylines";
 import TeamLogo from "./TeamLogo";
+import { getLeague } from "../league";
 import { matchupColors, shadeVars } from "../teams";
 
 interface Props {
@@ -27,7 +28,7 @@ function Tile({ g, picks, ml, injuries, onOpen }: { g: Game; picks: Pick[]; ml?:
   const [, , away, home] = g.game_id.split("_");
   const top = picks[0];
   const inj = injuries ? gameStatusCounts([...(injuries.teams[away] ?? []), ...(injuries.teams[home] ?? [])]) : null;
-  const injText = inj && [inj.out && `${inj.out} out`, inj.doubtful && `${inj.doubtful} doubtful`, inj.questionable && `${inj.questionable} questionable`].filter(Boolean).join(" · ");
+  const injText = inj && [inj.out && `${inj.out} out`, inj.doubtful && `${inj.doubtful} doubtful`, inj.questionable && `${inj.questionable} questionable`, inj.dayToDay && `${inj.dayToDay} day-to-day`].filter(Boolean).join(" · ");
   const [a, h] = ml?.sides ?? [];
   const wx = weatherBit(g);
   const [awayColor, homeColor] = matchupColors(away, home);
@@ -42,7 +43,7 @@ function Tile({ g, picks, ml, injuries, onOpen }: { g: Game; picks: Pick[]; ml?:
       {a && h
         ? <span className="ml-bar gt-bar" aria-hidden><i className="tbar" style={{ width: `${a.prob * 100}%`, ...shadeVars(awayColor) }} /><i className="tbar" style={{ width: `${h.prob * 100}%`, ...shadeVars(homeColor) }} /></span>
         : <span className="gt-bar gt-bar-empty" aria-hidden />}
-      <span className="gt-line mut">{ml ? (ml.spread != null ? `Spread: ${favored(ml, ml.spread)}` : `Model: ${favored(ml, ml.margin)}`) : "No moneyline yet"}</span>
+      <span className="gt-line mut">{ml ? (ml.spread != null ? `Spread: ${favored(ml, ml.spread)}` : `Model: ${favored(ml, ml.margin)}`) : "No moneyline yet"}{ml?.total != null && ` · Total ${ml.total}`}</span>
       <span className="gt-prop">
         <span className="tile-label">Top prop</span>
         {top ? <>
@@ -52,7 +53,7 @@ function Tile({ g, picks, ml, injuries, onOpen }: { g: Game; picks: Pick[]; ml?:
       </span>
       <span className="gt-foot">
         <span>{picks.length ? `${picks.length} +EV prop${picks.length === 1 ? "" : "s"}` : ""}</span>
-        <span>{inj == null ? "" : injText ? `🩹 ${injText}` : "No game statuses yet"}</span>
+        <span>{inj == null ? "" : injText ? `🩹 ${injText}` : getLeague() === "nba" ? "No injuries listed" : "No game statuses yet"}</span>
       </span>
       <span className="gt-go">Game overview →</span>
     </button>
@@ -62,11 +63,12 @@ function Tile({ g, picks, ml, injuries, onOpen }: { g: Game; picks: Pick[]; ml?:
 /** The slate: one tile per game with its win chances, top prop and injury count. A tile opens that game's overview. */
 export default function Games({ games, picks, moneylines, injuries, onOpen }: Props) {
   if (!games.length) return <div className="card empty">No games on the slate yet. They appear after the next scheduled sync.</div>;
+  const nba = getLeague() === "nba";
   const byGame = new Map<string, Pick[]>();
   for (const p of [...picks].filter((p) => !p.flagged).sort((x, y) => y.ev - x.ev)) byGame.set(p.game_id, [...(byGame.get(p.game_id) ?? []), p]);
   const mlByGame = new Map(moneylines.map((m) => [m.game_id, m]));
   return (
-    <section className="gt-grid" aria-label="This week's games">
+    <section className="gt-grid" aria-label={nba ? "Upcoming games" : "This week's games"}>
       {games.map((g) => <Tile key={g.game_id} g={g} picks={byGame.get(g.game_id) ?? []} ml={mlByGame.get(g.game_id)} injuries={injuries} onOpen={onOpen} />)}
     </section>
   );

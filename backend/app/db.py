@@ -110,6 +110,66 @@ class OddsHistory(Base):
     __table_args__ = (Index("ix_odds_history_game_market", "game_id", "market"),)
 
 
+class NbaRun(Base):
+    """One NBA model run: projections for the slate (the next two game dates), team ratings, backtest."""
+    __tablename__ = "nba_runs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    season: Mapped[int] = mapped_column(Integer)
+    slate: Mapped[list] = mapped_column(JSON, default=list)       # Eastern dates covered, YYYY-MM-DD
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    backtest: Mapped[dict] = mapped_column(JSON)
+    variance: Mapped[dict] = mapped_column(JSON)                  # per-kind error tables (engine.model.fit_dist)
+    excluded: Mapped[list] = mapped_column(JSON, default=list)
+    games: Mapped[list] = mapped_column(JSON, default=list)       # the slate's games (nba/espn.parse_scoreboard rows)
+    teams: Mapped[dict] = mapped_column(JSON, nullable=True)      # game_id -> ratings and win probability (nba/model.py)
+    projections: Mapped[list["NbaProjection"]] = relationship(back_populates="run", cascade="all, delete-orphan")
+
+
+class NbaProjection(Base):
+    """Same columns as Projection, so the shared pricing code and API schemas apply. vol = projected minutes,
+    eff = per-minute rate (opponent-adjusted), spread = the team's expected margin from the market spread."""
+    __tablename__ = "nba_projections"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("nba_runs.id", ondelete="CASCADE"), index=True)
+    player_id: Mapped[str] = mapped_column(String(20), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    pos: Mapped[str] = mapped_column(String(4))
+    team: Mapped[str] = mapped_column(String(5))
+    opp: Mapped[str] = mapped_column(String(5))
+    home: Mapped[bool] = mapped_column(Boolean)
+    kind: Mapped[str] = mapped_column(String(6))
+    mu: Mapped[float] = mapped_column(Float)
+    sd: Mapped[float] = mapped_column(Float)
+    vol: Mapped[float] = mapped_column(Float)
+    eff: Mapped[float] = mapped_column(Float)
+    spread: Mapped[float] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(20), default="")
+    game_id: Mapped[str] = mapped_column(String(32), index=True)
+    gameday: Mapped[str] = mapped_column(String(12))
+    gametime: Mapped[str] = mapped_column(String(8), default="")
+    last5: Mapped[list] = mapped_column(JSON)
+    wx: Mapped[float] = mapped_column(Float, nullable=True, default=1.0)   # always 1: no weather indoors
+    teammate_out: Mapped[str] = mapped_column(String(160), nullable=True, default="")
+    run: Mapped[NbaRun] = relationship(back_populates="projections")
+
+
+class NbaOddsLine(Base):
+    """NBA quotes (points, rebounds, assists, moneyline), shaped like OddsLine; kept apart so the NFL board never sees them."""
+    __tablename__ = "nba_odds_lines"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    player: Mapped[str] = mapped_column(String(80))
+    market: Mapped[str] = mapped_column(String(6), index=True)
+    line: Mapped[float] = mapped_column(Float)
+    over_odds: Mapped[float] = mapped_column(Float, nullable=True)
+    under_odds: Mapped[float] = mapped_column(Float, nullable=True)
+    book: Mapped[str] = mapped_column(String(40))
+    over_link: Mapped[str] = mapped_column(String(500), nullable=True)
+    under_link: Mapped[str] = mapped_column(String(500), nullable=True)
+    event_link: Mapped[str] = mapped_column(String(500), nullable=True)
+    game_id: Mapped[str] = mapped_column(String(32), nullable=True, index=True)
+
+
 class SyncRun(Base):
     """One sync (model run and/or odds fetch), scheduled or started by hand: the admin page's run log."""
     __tablename__ = "sync_runs"
@@ -208,14 +268,14 @@ engine = make_engine()
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 
 
-def current_lines(session):
-    """The newest quotes, as a DataFrame in the shape engine.picks expects.
+def current_lines(session, table=None):
+    """The newest quotes, as a DataFrame in the shape engine.picks expects (table: OddsLine, or NbaOddsLine).
 
     Newest per market AND game, so lines fetched for different games at different times (Thursday's game first,
     the Sunday slate later) all stay visible. Rows from before game_id existed are grouped per market."""
     import pandas as pd
     from sqlalchemy import select
-    rows = session.scalars(select(OddsLine)).all()
+    rows = session.scalars(select(table or OddsLine)).all()
     newest = {}
     for r in rows:
         k = (r.market, r.game_id)

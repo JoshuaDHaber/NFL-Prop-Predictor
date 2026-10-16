@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { api, type Kind, type LadderRow, type QuoteSide } from "../api";
 import { useBetSlip } from "../BetSlipContext";
 import { IS_STATIC } from "../env";
-import { americanOdds, fmtProj, playLabel, signedPct, timeAgo, unit } from "../format";
+import { americanOdds, fmtProj, isNba, playLabel, signedPct, timeAgo, unit } from "../format";
 import { legId, type Leg } from "../slip";
 
 export interface PlayerCtx { playerId: string; name: string; team: string; opp: string; home: boolean; gameId: string }
@@ -27,7 +27,7 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
   const isTd = kind === "td"; // anytime TD: one line (0.5), shown as Yes / No
   const qc = useQueryClient();
   const slip = useBetSlip();
-  const meta = qc.getQueryData<{ has_odds_key: boolean; can_write: boolean }>(["meta"]);
+  const meta = qc.getQueryData<{ has_odds_key: boolean; can_write: boolean; supports_alt?: boolean }>(["meta"]);
   const [allBooks, setAllBooks] = useState(false);
   const [onlyEv, setOnlyEv] = useState(false);
   const [limitOdds, setLimitOdds] = useState(true);
@@ -108,7 +108,7 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
               <thead><tr><th>{isTd ? "Market" : "Line"}</th><th>{isTd ? "Yes" : "Over"}</th><th>{isTd ? "No" : "Under"}</th></tr></thead>
               <tbody>
                 {shown.map((r) => (
-                  <tr key={r.key} className={!isTd && Math.abs(r.line - mu) < 5 ? "near" : ""}>
+                  <tr key={r.key} className={!isTd && Math.abs(r.line - mu) < (isNba(kind) ? 1.5 : 5) ? "near" : ""}>
                     <td><b>{isTd ? "Anytime TD" : r.line}</b>{r.alt && <span className="alt">alt</span>}</td>
                     {cell(r.over)}{cell(r.under)}
                   </tr>
@@ -117,7 +117,7 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
               </tbody>
             </table>
           </div>
-          {!hasAlt && !IS_STATIC && !isTd && meta?.can_write && (
+          {!hasAlt && !IS_STATIC && !isTd && meta?.can_write && meta.supports_alt !== false && (
             <div className="alt-cta">
               <button className="primary" onClick={load} disabled={!meta?.has_odds_key || fetchAlt.isPending}>
                 {fetchAlt.isPending ? "Fetching…" : "Load alternate lines"}

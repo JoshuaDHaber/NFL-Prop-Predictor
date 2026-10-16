@@ -138,12 +138,15 @@ def _none(v):
     return None if v is None or (isinstance(v, float) and np.isnan(v)) or v == "" else v
 
 
-def price(games: dict, lines: pd.DataFrame, market_weight: float = 0.35, only_book: str = None) -> list[dict]:
+def price(games: dict, lines: pd.DataFrame, market_weight: float = 0.35, only_book: str = None, names: dict = None,
+          min_market_weight: float = ML_MIN_MARKET_WEIGHT) -> list[dict]:
     """Both sides of every game: model, market and blended win chance, and the best price (at only_book, if given).
-    The market's chance is the no-vig consensus across every book, as on the props board."""
-    abbr = {v: k for k, v in odds.TEAM_NAMES.items()}
+    The market's chance is the no-vig consensus across every book, as on the props board. names maps team
+    abbreviations to the Odds API's team names (the NFL's by default)."""
+    names = names or odds.TEAM_NAMES
+    abbr = {v: k for k, v in names.items()}
     lines = lines[lines.market == "ml"] if not lines.empty else lines
-    w = max(market_weight, ML_MIN_MARKET_WEIGHT)
+    w = max(market_weight, min_market_weight)
     out = []
     for gid, g in sorted(games.items(), key=lambda kv: (kv[1]["gameday"], kv[1]["gametime"], kv[0])):
         gl = lines[(lines.game_id == gid)] if not lines.empty else lines
@@ -154,7 +157,7 @@ def price(games: dict, lines: pd.DataFrame, market_weight: float = 0.35, only_bo
             both = q[q.over_odds.notna() & q.under_odds.notna()] if not q.empty else q
             p_mkt = float(no_vig(both.over_odds, both.under_odds).mean()) if not both.empty else None
             prob = p_model if p_mkt is None else (1 - w) * p_model + w * p_mkt
-            side = dict(team=team, name=odds.TEAM_NAMES.get(team, team), home=home, p_model=p_model, p_mkt=p_mkt, prob=prob,
+            side = dict(team=team, name=names.get(team, team), home=home, p_model=p_model, p_mkt=p_mkt, prob=prob,
                         books=int(q.book.nunique()) if not q.empty else 0,
                         odds=None, book=None, ev=None, kelly=None, link=None, event_link=None)
             pool = q[q.over_odds.notna()] if not q.empty else q
@@ -168,5 +171,5 @@ def price(games: dict, lines: pd.DataFrame, market_weight: float = 0.35, only_bo
                             link=_none(best.get("over_link")), event_link=_none(best.get("event_link")))
             sides.append(side)
         out.append(dict(game_id=gid, label=f"{g['away']} @ {g['home']}", gameday=g["gameday"], gametime=g["gametime"],
-                        margin=g["margin"], spread=g.get("spread"), sides=sides))
+                        margin=g["margin"], spread=g.get("spread"), total=g.get("total"), sides=sides))
     return out

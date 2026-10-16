@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, type Kind } from "../api";
-import { KIND_LABEL, KIND_SHORT, effText, fmtProj, fmtSd, isCount, matchup, unit, volLabel, weatherText, wxEffect } from "../format";
+import { KIND_LABEL, KIND_SHORT, effText, fmtProj, fmtSd, isCount, isNba, matchup, unit, volLabel, weatherText, wxEffect } from "../format";
 import Avatar from "./Avatar";
 import LineLadder, { ODDS_RANGE } from "./LineLadder";
 
@@ -85,7 +85,7 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
                   <XAxis dataKey="label" tick={{ fontSize: 10, fill: "var(--mut)" }} interval={0} angle={-35} textAnchor="end" height={50} />
                   <YAxis tick={{ fontSize: 11, fill: "var(--mut)" }} />
-                  <Tooltip formatter={(v: number) => (isTd ? [`${v}`, "TDs"] : kind === "ptd" ? [`${v}`, "Passing TDs"] : isCount(kind) ? [`${v}`, "Receptions"] : [`${v} yds`, kind === "lng" ? "Longest" : "Yards"])}
+                  <Tooltip formatter={(v: number) => (isNba(kind) ? [`${v}`, KIND_LABEL[kind]] : isTd ? [`${v}`, "TDs"] : kind === "ptd" ? [`${v}`, "Passing TDs"] : isCount(kind) ? [`${v}`, "Receptions"] : [`${v} yds`, kind === "lng" ? "Longest" : "Yards"])}
                     labelFormatter={(l, items) => `${l} ${items[0]?.payload ? "vs " + items[0].payload.opp : ""}`}
                     contentStyle={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--ink)" }} />
                   <Bar dataKey="yards" fill="var(--acc)" radius={[3, 3, 0, 0]} />

@@ -202,16 +202,17 @@ def archive_quotes(df: pd.DataFrame, session, fetched_at: datetime, alt: bool) -
                     for r, g in zip(df.itertuples(), gid))
 
 
-def store_lines(df: pd.DataFrame, session) -> int:
+def store_lines(df: pd.DataFrame, session, table=OddsLine) -> int:
     """Store main-market quotes. Each (market, game) is one snapshot: its older rows are replaced, so the table
-    holds only current lines and a later fetch for other games never hides the ones already stored."""
+    holds only current lines and a later fetch for other games never hides the ones already stored.
+    table: OddsLine, or NbaOddsLine for the NBA (both are archived to odds_history; NBA game ids can't collide)."""
     fetched = df["fetched_at"] if "fetched_at" in df else pd.Series(time.time(), index=df.index)
     gid = df["game_id"] if "game_id" in df else pd.Series([None] * len(df), index=df.index)
     df = df.assign(_gid=gid.where(gid.notna(), None))
     for (market, game_id), g in df.groupby(["market", df["_gid"].fillna("")]):
         game_id = game_id or None
         t = datetime.utcfromtimestamp(float(fetched[g.index].max()))
-        session.add_all(OddsLine(fetched_at=t, player=r.player, market=market, line=float(r.line),
+        session.add_all(table(fetched_at=t, player=r.player, market=market, line=float(r.line),
                                  over_odds=None if pd.isna(r.over_odds) else float(r.over_odds),
                                  under_odds=None if pd.isna(r.under_odds) else float(r.under_odds), book=r.book,
                                  over_link=_s(getattr(r, "over_link", None)), under_link=_s(getattr(r, "under_link", None)),
@@ -220,8 +221,8 @@ def store_lines(df: pd.DataFrame, session) -> int:
         archive_quotes(g, session, t, alt=False)
         session.flush()
         if game_id:
-            session.query(OddsLine).filter(OddsLine.market == market, OddsLine.game_id == game_id,
-                                           OddsLine.fetched_at < t).delete()
+            session.query(table).filter(table.market == market, table.game_id == game_id,
+                                        table.fetched_at < t).delete()
     session.commit()
     return len(df)
 

@@ -14,7 +14,8 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 
 from . import config, pipeline
-from .db import Run, SessionLocal, SyncRun
+from .db import NbaRun, Run, SessionLocal, SyncRun
+from .nba import pipeline as nba_pipeline
 
 ET = ZoneInfo("America/New_York")
 CATCH_UP = timedelta(hours=3)   # a slot missed by less than this (a redeploy at the wrong moment) runs on startup
@@ -31,6 +32,7 @@ class Slot:
     odds: str               # none | missing | thin | all
     full: bool = False      # refit the calibration
     why: str = ""
+    league: str = "nfl"     # nfl | nba
 
 
 EVERY_DAY = (0, 1, 2, 3, 4, 5, 6)
@@ -45,6 +47,13 @@ SLOTS = [
     Slot("sat-injuries", "Saturday statuses", (5,), 10, 0, "none", why="Model run after Friday's game statuses. No credits"),
     Slot("sun-pregame", "Sunday pregame", (6,), 11, 0, "none", why="Model run with the latest statuses. No credits"),
     Slot("sun-topup", "Sunday top-up", (6,), 11, 30, "thin", why="Last top-up of thin games before the early kickoffs"),
+    # NBA (its own key, ODDS_API_KEY_NBA): games every day, props posted the day of
+    Slot("nba-morning", "NBA morning", EVERY_DAY, 10, 0, "missing", league="nba",
+         why="NBA model run after last night's box scores, moneylines (1 credit), props already posted for today (3 per game)"),
+    Slot("nba-afternoon", "NBA afternoon", EVERY_DAY, 14, 0, "missing", league="nba",
+         why="NBA model run, moneylines, and props for today's games that had none in the morning"),
+    Slot("nba-pregame", "NBA pregame", EVERY_DAY, 18, 0, "all", league="nba",
+         why="NBA model run with the late injury news, and a fresh pull of tonight's props and moneylines (3 per game)"),
 ]
 BY_ID = {s.id: s for s in SLOTS}
 
@@ -97,9 +106,10 @@ def claim() -> bool:
 
 
 def run(odds_mode: str, full: bool = False, slot: str = "manual", trigger: str = "manual",
-        scheduled_for: Optional[datetime] = None) -> None:
+        scheduled_for: Optional[datetime] = None, league: str = "nfl") -> None:
     """Run a claimed job: the model (unless this host only fetches odds), then odds. Logs it as a SyncRun."""
-    run_model = config.PROJECTIONS_ON_SERVER()
+    nba = league == "nba"
+    run_model = nba or config.PROJECTIONS_ON_SERVER()   # the NBA model is small enough for any host
     steps = int(run_model) + int(odds_mode != "none")
     _job.update(steps=steps, step=0, stage=None, detail=None, progress=None)
     with SessionLocal() as s:
@@ -118,7 +128,10 @@ def run(odds_mode: str, full: bool = False, slot: str = "manual", trigger: str =
 
     res, status, parts, error = {}, "ok", [], None
     try:
-        if run_model:
+        if nba:
+            _job.update(step=1, stage="Running the NBA model", progress=None)
+            parts.append("NBA model run" if nba_pipeline.run_projections(log=log) else "No NBA games coming up")
+        elif run_model:
             _job.update(step=1, stage="Running the model" + (" (full recalibration)" if full else ""), progress=None)
             pipeline.run_projections(log=log, full=full)
             parts.append("Model recalibrated" if full else "Model run")
@@ -126,8 +139,8 @@ def run(odds_mode: str, full: bool = False, slot: str = "manual", trigger: str =
             log("Projections run off-server on this host; fetching odds only")
         if odds_mode != "none":
             _job.update(step=steps, stage="Fetching odds", detail=None, progress=0.0)
-            res = pipeline.refresh_odds(odds_mode, log=log, progress=odds_progress,
-                                        credit_floor=config.ODDS_CREDIT_FLOOR()) or {}
+            refresh = nba_pipeline.refresh_odds if nba else pipeline.refresh_odds
+            res = refresh(odds_mode, log=log, progress=odds_progress, credit_floor=config.ODDS_CREDIT_FLOOR()) or {}
             parts.append(_odds_summary(res))
             if res.get("skipped_for_credits"):
                 status = "partial"
@@ -139,9 +152,9 @@ def run(odds_mode: str, full: bool = False, slot: str = "manual", trigger: str =
         try:
             with SessionLocal() as s:
                 rec = s.get(SyncRun, rec_id)
-                latest = s.scalars(select(Run).order_by(Run.id.desc()).limit(1)).first()
+                latest = s.scalars(select(NbaRun if nba else Run).order_by((NbaRun if nba else Run).id.desc()).limit(1)).first()
                 rec.finished_at, rec.status, rec.error = datetime.utcnow(), status, error
-                rec.season, rec.week = (latest.season, latest.week) if latest else (None, None)
+                rec.season, rec.week = (latest.season, None if nba else latest.week) if latest else (None, None)
                 rec.games_fetched = int(res.get("fetched", 0))
                 rec.credits_before, rec.credits_after = res.get("credits_before"), res.get("credits_after")
                 rec.summary = (" · ".join(p for p in parts if p) or (error or ""))[:500]
@@ -187,7 +200,7 @@ def _fire(slot: Slot, at: datetime, trigger: str, stop: threading.Event) -> None
                               finished_at=datetime.utcnow(), status="skipped", summary="Another sync was still running"))
                 s.commit()
             return
-    run(slot.odds, slot.full, slot.id, trigger, at)
+    run(slot.odds, slot.full, slot.id, trigger, at, slot.league)
 
 
 def _loop(stop: threading.Event) -> None:
@@ -229,7 +242,7 @@ def stop() -> None:
     _stop.set()
 
 
-def upcoming(now: Optional[datetime] = None) -> list[tuple[datetime, Slot]]:
-    """Every slot with its next run time, soonest first."""
+def upcoming(now: Optional[datetime] = None, league: Optional[str] = None) -> list[tuple[datetime, Slot]]:
+    """Every slot (of one league, if given) with its next run time, soonest first."""
     now = now or datetime.utcnow()
-    return sorted(((next_fire(s, now), s) for s in SLOTS), key=lambda x: x[0])
+    return sorted(((next_fire(s, now), s) for s in SLOTS if league in (None, s.league)), key=lambda x: x[0])

@@ -62,12 +62,14 @@ def implied(a):
     return 1 / american_to_dec(a)
 
 
-def list_events(key):
-    """Upcoming events as {id, away, home} with nflverse team abbreviations (this call is free)."""
-    r = requests.get(f"{API}/events", params={"apiKey": key}, timeout=30)
+def list_events(key, api=API, names=None):
+    """Upcoming events as {id, away, home, commence} with the app's team abbreviations (this call is free).
+    api and names (abbreviation -> Odds API team name) default to the NFL's."""
+    r = requests.get(f"{api}/events", params={"apiKey": key}, timeout=30)
     r.raise_for_status()
-    by_name = {v: k for k, v in TEAM_NAMES.items()}
-    return [dict(id=e["id"], away=by_name.get(e["away_team"]), home=by_name.get(e["home_team"])) for e in r.json()]
+    by_name = {v: k for k, v in (names or TEAM_NAMES).items()}
+    return [dict(id=e["id"], away=by_name.get(e["away_team"]), home=by_name.get(e["home_team"]),
+                 commence=e.get("commence_time")) for e in r.json()]
 
 
 def credits_remaining(key):
@@ -83,19 +85,24 @@ def find_event_id(key, away, home):
     return next((e["id"] for e in list_events(key) if e["away"] == away and e["home"] == home), None)
 
 
-def fetch_game_odds(key, event_id, main_kinds, alt_kinds=(), regions="us"):
+def fetch_game_odds(key, event_id, main_kinds, alt_kinds=(), regions="us", api=API, markets=None, alt_markets=None):
     """Main and/or alternate yardage lines for one game, with bookmaker betslip links where offered.
 
-    Returns (long DataFrame, credits_remaining). Costs one credit per market requested.
+    Returns (long DataFrame, credits_remaining). Costs one credit per market requested. api and markets (Odds API
+    market key -> the app's kind) default to the NFL's.
     """
-    keys = [k for k, v in MARKETS.items() if v in main_kinds] + [k for k, v in ALT_MARKETS.items() if v in alt_kinds]
-    r = requests.get(f"{API}/events/{event_id}/odds", timeout=30, params=dict(
+    markets = MARKETS if markets is None else markets
+    alt_markets = ALT_MARKETS if alt_markets is None else alt_markets
+    keys = [k for k, v in markets.items() if v in main_kinds] + [k for k, v in alt_markets.items() if v in alt_kinds]
+    r = requests.get(f"{api}/events/{event_id}/odds", timeout=30, params=dict(
         apiKey=key, regions=regions, markets=",".join(keys), oddsFormat="american", includeLinks="true"))
     r.raise_for_status()
     rows = []
     for bk in r.json().get("bookmakers", []):
         for m in bk["markets"]:
-            kind = {**MARKETS, **ALT_MARKETS}[m["key"]]
+            kind = {**markets, **alt_markets}.get(m["key"])
+            if kind is None:
+                continue
             if kind == "ml":
                 rows.extend(_moneyline_rows(m["outcomes"], bk))
                 continue

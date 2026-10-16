@@ -28,6 +28,7 @@ from .engine import injuries as injm
 from .engine import moneyline as mlm
 from .engine.ladder import build_ladder
 from .engine.picks import build_picks
+from .nba import routes as nba_routes
 from .schemas import (AdminState, AltFetchResult, AutoSync, CreditStatus, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, InjuryReport, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, ProjectionOut,
                       RefreshRequest, RunInfo)
 
@@ -189,6 +190,7 @@ def _release_memory():
     _injury_report.cache_clear()
     _stats.cache_clear()   # game logs in the player drawer come from the stats files, which a sync just refreshed
     _pick_cache.clear()
+    nba_routes.clear_caches()
     gc.collect()
     try:
         import ctypes
@@ -464,11 +466,17 @@ def refresh_plan(request: Request, odds: Literal["none", "missing", "thin", "all
                     will_recalibrate=will_recalibrate, calibration=cal)
 
 
-def _auto_sync() -> AutoSync:
+def _auto_sync(league: Optional[str] = "nfl") -> AutoSync:
+    """The next scheduled sync of one league (None: of either)."""
     if not config.AUTO_SYNC():
         return AutoSync(enabled=False)
-    at, slot = scheduler.upcoming()[0]
+    at, slot = scheduler.upcoming(league=league)[0]
     return AutoSync(enabled=True, next_at=at.isoformat(), next_label=slot.label)
+
+
+nba_routes.is_admin = lambda request: is_admin(request)
+nba_routes.auto_sync = lambda: _auto_sync("nba")
+app.include_router(nba_routes.router)
 
 
 # ---------- admin page: the schedule, the run log, the key's credits ----------
@@ -483,10 +491,10 @@ def require_admin(request: Request):
 _credits: dict = {}   # key -> (checked_at, remaining or error): the admin page polls, the balance changes slowly
 
 
-def _credit_status() -> CreditStatus:
-    key, floor = config.ODDS_API_KEY(), config.ODDS_CREDIT_FLOOR()
+def _credit_status(league: str = "nfl") -> CreditStatus:
+    key, floor = (config.ODDS_API_KEY_NBA() if league == "nba" else config.ODDS_API_KEY()), config.ODDS_CREDIT_FLOOR()
     if not key:
-        return CreditStatus(floor=floor, error="No ODDS_API_KEY set")
+        return CreditStatus(floor=floor, error=f"No {'ODDS_API_KEY_NBA' if league == 'nba' else 'ODDS_API_KEY'} set")
     now = time.time()
     if key not in _credits or now - _credits[key][0] > 60 or _job["state"] == "running":
         try:
@@ -513,10 +521,11 @@ def admin_state(limit: int = Query(60, ge=1, le=500), db: Session = Depends(get_
     last = {}
     for r in runs:
         last.setdefault(r.slot, r)
-    slots = [SlotOut(id=s.id, label=s.label, when=scheduler.describe(s), odds_mode=s.odds, full=s.full, why=s.why,
+    slots = [SlotOut(id=s.id, label=s.label, league=s.league, when=scheduler.describe(s), odds_mode=s.odds, full=s.full, why=s.why,
                      next_at=at.isoformat(), last_run=SyncRunOut(**_run_out(last[s.id])) if s.id in last else None)
              for at, s in scheduler.upcoming()]
-    return AdminState(auto_sync=_auto_sync(), timezone="America/New_York", credits=_credit_status(), slots=slots,
+    return AdminState(auto_sync=_auto_sync(None), timezone="America/New_York", credits=_credit_status(),
+                      credits_nba=_credit_status("nba"), slots=slots,
                       runs=[SyncRunOut(**_run_out(r)) for r in runs], job=JobStatus(**_job),
                       can_run_projections=config.PROJECTIONS_ON_SERVER())
 
@@ -537,7 +546,7 @@ def admin_run_now(slot_id: str, bg: BackgroundTasks):
         raise HTTPException(404, "No such schedule slot")
     if not scheduler.claim():
         raise HTTPException(409, "A sync is already running")
-    bg.add_task(scheduler.run, slot.odds, slot.full, slot.id, "manual")
+    bg.add_task(scheduler.run, slot.odds, slot.full, slot.id, "manual", None, slot.league)
     return JobStatus(**_job)
 
 

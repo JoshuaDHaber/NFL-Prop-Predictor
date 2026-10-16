@@ -29,6 +29,10 @@ CORS_ORIGINS = lambda: [o.strip() for o in os.environ.get("CORS_ORIGINS", "http:
 # the weekly model run needs ~400 MB; small hosts set this to 0 and run it elsewhere against the same database
 PROJECTIONS_ON_SERVER = lambda: os.environ.get("PROJECTIONS_ON_SERVER", "1") != "0"
 ODDS_API_KEY = lambda: os.environ.get("ODDS_API_KEY")  # read lazily so tests can set it
+# the NBA side has its own Odds API key, so its daily syncs never eat into the NFL key's credits
+ODDS_API_KEY_NBA = lambda: os.environ.get("ODDS_API_KEY_NBA")
+# ESPN responses for the NBA model (game logs, rosters, schedule); next to the database so they survive redeploys
+NBA_CACHE = os.environ.get("NBA_CACHE") or os.path.join(BASE_DIR, "data", "nba_cache")
 # Scheduled syncs (app/scheduler.py): on by default on Railway, off elsewhere so a laptop never spends credits by itself
 AUTO_SYNC = lambda: os.environ.get("AUTO_SYNC", "1" if os.environ.get("RAILWAY_ENVIRONMENT_NAME") else "0") == "1"
 # odds fetches stop before a key drops under this many credits; rotate ODDS_API_KEY when the admin page says so

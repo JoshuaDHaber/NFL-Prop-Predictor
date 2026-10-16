@@ -1,8 +1,10 @@
 import type { Filters, Game, Kind } from "../api";
 import { IS_STATIC } from "../env";
-import { KIND_SHORT, MARKET_TABS, SUB_LABEL, groupOf, kickoff, pct, signedPct } from "../format";
+import { KIND_SHORT, MARKET_TABS, NBA_KINDS, SUB_LABEL, groupOf, kickoff, pct, signedPct } from "../format";
+import { getLeague } from "../league";
 
-const ICON: Record<Kind | "all", string> = { all: "📊", rush: "🏃", rec: "🙌", recs: "🧤", pass: "🎯", rr: "⚡", td: "🏈", ptd: "🎯", lng: "🚀" };
+const ICON: Record<Kind | "all", string> = { all: "📊", rush: "🏃", rec: "🙌", recs: "🧤", pass: "🎯", rr: "⚡", td: "🏈", ptd: "🎯", lng: "🚀",
+  pts: "🏀", reb: "🔁", ast: "🤝" };
 
 interface Props {
   filters: Filters;
@@ -15,10 +17,11 @@ interface Props {
 export default function Controls({ filters, onChange, games, books, showPickControls }: Props) {
   const set = (patch: Partial<Filters>) => onChange({ ...filters, ...patch });
   const group = groupOf(filters.kind);   // receiving and passing markets sit under one sub tab each
+  const nba = getLeague() === "nba";
   return (
     <section className="controls" aria-label="Filters">
       <div className="seg" role="tablist" aria-label="Market">
-        {MARKET_TABS.map((k) => {
+        {(nba ? ["all", ...NBA_KINDS] as const : MARKET_TABS).map((k) => {
           if (typeof k === "object") {
             const on = group === k;
             return (
@@ -55,7 +58,7 @@ export default function Controls({ filters, onChange, games, books, showPickCont
       )}
       <div className="games" role="tablist" aria-label="Game">
         <button role="tab" aria-selected={filters.game === "all"} className={`game${filters.game === "all" ? " on" : ""}`} onClick={() => set({ game: "all" })}>
-          <b>All games</b><small>{games.length} this week</small>
+          <b>All games</b><small>{games.length} {nba ? "on the slate" : "this week"}</small>
         </button>
         {games.map((g) => (
           <button key={g.game_id} role="tab" aria-selected={filters.game === g.game_id} className={`game${filters.game === g.game_id ? " on" : ""}`}

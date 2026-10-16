@@ -2,7 +2,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel
 
-Kind = Literal["rush", "rec", "pass", "rr", "td", "recs", "ptd", "lng"]
+Kind = Literal["rush", "rec", "pass", "rr", "td", "recs", "ptd", "lng", "pts", "reb", "ast"]  # the last three: NBA
 
 
 class RunInfo(BaseModel):
@@ -258,6 +258,9 @@ class InjuredPlayer(BaseModel):
     practice: str           # DNP | Limited | Full | "" (not on the practice report)
     rest: bool              # a veteran's rest day, not an injury
     kind: Optional[str] = None  # a market the app projects for him (opens his player drawer)
+    comment: str = ""           # NBA (ESPN): the latest news line, e.g. "won't play Monday against the Thunder"
+    return_date: Optional[str] = None  # NBA (ESPN): estimated return, YYYY-MM-DD
+    updated: Optional[str] = None      # NBA (ESPN): when the status was last updated (UTC ISO)
 
 
 class InjuryReport(BaseModel):
@@ -275,6 +278,7 @@ class MoneylineGame(BaseModel):
     gametime: str
     margin: float                  # the model's predicted home margin, points
     spread: Optional[float] = None # the market's (nflverse) home spread, points
+    total: Optional[float] = None  # the market's points total (NBA, from ESPN)
     sides: list[MoneylineSide]     # away, home
 
 
@@ -314,6 +318,7 @@ class SyncRunDetail(SyncRunOut):
 class SlotOut(BaseModel):
     id: str
     label: str
+    league: str = "nfl"
     when: str                         # "Wed 10:00 AM ET"
     odds_mode: str
     full: bool
@@ -326,7 +331,29 @@ class AdminState(BaseModel):
     auto_sync: AutoSync
     timezone: str
     credits: CreditStatus
+    credits_nba: Optional[CreditStatus] = None   # the NBA's own key (ODDS_API_KEY_NBA)
     slots: list[SlotOut]
     runs: list[SyncRunOut]
     job: JobStatus
     can_run_projections: bool
+
+
+class NbaRunInfo(BaseModel):
+    id: int
+    season: int                       # ESPN's season year: 2027 is the 2026-27 season
+    slate: list[str]                  # the Eastern dates the run projects
+    created_at: str
+    excluded: list[str]
+
+
+class NbaMeta(BaseModel):
+    league: Literal["nba"] = "nba"
+    run: Optional[NbaRunInfo]
+    backtest: dict[str, BacktestStat]
+    odds: dict[str, OddsInfo]
+    games: list[Game]
+    has_odds_key: bool
+    books: list[str] = []
+    auto_sync: Optional[AutoSync] = None
+    can_write: bool = False
+    supports_alt: bool = False        # no alternate-line fetches for the NBA yet

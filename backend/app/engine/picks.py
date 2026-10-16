@@ -15,7 +15,7 @@ PICK_COLUMNS = [
 ]
 # a quote this far from the consensus line (or 30% of it) is an alternate or stale line; receptions are counted in catches,
 # passing TDs in touchdowns (lines step 0.5 / 1.5 / 2.5, so a whole TD off the consensus is another line)
-STALE_MIN_GAP = {"recs": 1.5, "ptd": 0.9}
+STALE_MIN_GAP = {"recs": 1.5, "ptd": 0.9, "pts": 4.0, "reb": 2.0, "ast": 2.0}  # NBA points, rebounds, assists
 
 
 def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 0.35, only_book: str = None,

@@ -15,6 +15,8 @@ import { useWaking } from "./auth";
 import { API_URL, BASE, IS_STATIC } from "./env";
 import { KIND_LABEL, americanOdds, fmtProj, fmtSd, marketLabel, projCaption, matchup, playLabel, signedPct, timeAgo } from "./format";
 import ThemeToggle from "./components/ThemeToggle";
+import LeagueSwitch from "./components/LeagueSwitch";
+import { useLeague } from "./LeagueContext";
 import TopTiles, { type Tile } from "./components/TopTiles";
 import { importOrReload } from "./staleChunk";
 import { localWhen } from "./sync";
@@ -24,6 +26,7 @@ import { PARLAY_FILTERS, useParlayBoard } from "./useParlayBoard";
 // keeps the charting library out of the first load; a tab left open across a deploy reloads to the new build
 const PlayerDrawer = lazy(() => importOrReload(() => import("./components/PlayerDrawer")));
 const AdminPage = lazy(() => importOrReload(() => import("./components/AdminPage")));
+const NbaApp = lazy(() => importOrReload(() => import("./NbaApp")));
 /** The owner's sync page lives at <base>/admin; everything else is the public app. */
 const IS_ADMIN_PAGE = !IS_STATIC && window.location.pathname.slice(BASE.length - 1).replace(/\/+$/, "") === "/admin";
 
@@ -38,7 +41,9 @@ const PREFERRED_GAME_BOOK = "FanDuel";
 const storedGameBook = () => { try { return localStorage.getItem(GAME_BOOK_KEY); } catch { return null; } };
 
 export default function App() {
-  return IS_ADMIN_PAGE ? <Suspense fallback={null}><AdminPage /></Suspense> : <PublicApp />;
+  const { league } = useLeague();
+  if (IS_ADMIN_PAGE) return <Suspense fallback={null}><AdminPage /></Suspense>;
+  return league === "nba" ? <Suspense fallback={<div className="wrap"><p className="mut">Loading…</p></div>}><NbaApp /></Suspense> : <PublicApp />;
 }
 
 function PublicApp() {
@@ -146,6 +151,7 @@ function PublicApp() {
           </div>
         </div>
         <div className="head-actions">
+          <LeagueSwitch />
           {IS_STATIC && <div className="demo-tag" title="This page reads a saved snapshot, not a live server">Demo snapshot</div>}
         </div>
       </header>

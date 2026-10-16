@@ -1,7 +1,11 @@
 import { getToken, setWaking } from "./auth";
 import { API_URL, BASE, IS_STATIC } from "./env";
+import { getLeague } from "./league";
 
-export type Kind = "rush" | "rec" | "pass" | "rr" | "td" | "recs" | "ptd" | "lng";
+/** NFL markets, then the NBA's points, rebounds and assists. */
+export type Kind = "rush" | "rec" | "pass" | "rr" | "td" | "recs" | "ptd" | "lng" | "pts" | "reb" | "ast";
+export type NbaKind = "pts" | "reb" | "ast";
+const NBA_KIND_SET = new Set<Kind>(["pts", "reb", "ast"]);
 
 export interface CalibrationBin { predicted: number; actual: number; n: number }
 /** Yardage kinds report mean absolute error in yards; anytime TD reports Brier scores (metric: "brier"). */
@@ -26,8 +30,8 @@ export interface SyncRun {
   games_fetched: number; credits_before: number | null; credits_after: number | null; summary: string; error: string | null;
 }
 export interface SyncRunDetail extends SyncRun { log: string[] }
-export interface ScheduleSlot { id: string; label: string; when: string; odds_mode: string; full: boolean; why: string; next_at: string; last_run: SyncRun | null }
-export interface AdminState { auto_sync: AutoSync; timezone: string; credits: CreditStatus; slots: ScheduleSlot[]; runs: SyncRun[]; job: JobStatus; can_run_projections: boolean }
+export interface ScheduleSlot { id: string; label: string; league?: "nfl" | "nba"; when: string; odds_mode: string; full: boolean; why: string; next_at: string; last_run: SyncRun | null }
+export interface AdminState { auto_sync: AutoSync; timezone: string; credits: CreditStatus; credits_nba?: CreditStatus | null; slots: ScheduleSlot[]; runs: SyncRun[]; job: JobStatus; can_run_projections: boolean }
 
 export interface BacktestStat {
   n: number; mae_model: number; mae_naive: number; bias: number; metric?: "mae" | "brier"; calibration?: CalibrationBin[];
@@ -110,15 +114,31 @@ export interface MoneylineSide {
   p_model: number; p_mkt: number | null; prob: number; books: number;
   odds: number | null; book: string | null; ev: number | null; kelly: number | null; link: string | null; event_link: string | null;
 }
-export interface MoneylineGame { game_id: string; label: string; gameday: string; gametime: string; margin: number; spread: number | null; sides: MoneylineSide[] }
+export interface MoneylineGame { game_id: string; label: string; gameday: string; gametime: string; margin: number; spread: number | null; total?: number | null; sides: MoneylineSide[] }
 /** This week's injury report per team (both sides of the ball) plus reserve lists. Times are UTC without a zone suffix. */
 export interface InjuredPlayer {
   player_id: string; name: string; pos: string; team: string; side: "off" | "def" | "st";
   status: string;     // Out | Doubtful | Questionable | "" (no game status) | IR | PUP | NFI | Reserve
   injury: string; practice: "DNP" | "Limited" | "Full" | ""; rest: boolean;
   kind: Kind | null;  // a market the app projects for him (opens his drawer)
+  comment?: string;            // NBA (ESPN): the latest news line
+  return_date?: string | null; // NBA: estimated return, YYYY-MM-DD
+  updated?: string | null;     // NBA: when the status changed (UTC ISO)
 }
 export interface InjuryReport { season: number | null; week: number | null; report_week: number | null; fetched_at: string | null; teams: Record<string, InjuredPlayer[]> }
+/** /api/nba/meta: the NBA slate (the next two game dates), its odds and the model's backtest. */
+export interface NbaMeta {
+  league: "nba";
+  run: { id: number; season: number; slate: string[]; created_at: string; excluded: string[] } | null;
+  backtest: Record<string, BacktestStat>;
+  odds: Record<string, { fetched_at: string; lines: number }>;
+  games: Game[];
+  has_odds_key: boolean;
+  books: string[];
+  auto_sync?: AutoSync | null;
+  can_write: boolean;
+  supports_alt: boolean;
+}
 export interface AltFetchResult { kinds: string[]; alt_quotes: number; linked: number; credits_remaining: string | null }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -143,6 +163,9 @@ export async function request(path: string, init: RequestInit = {}): Promise<Res
   }
 }
 
+/** League data lives under /api/nba/... for the NBA; admin and sync endpoints are shared. */
+const lg = (path: string) => (getLeague() === "nba" ? `nba/${path}` : path);
+
 async function get<T>(path: string, params: Record<string, string | number | boolean | undefined> = {}): Promise<T> {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== "" && v !== "all") qs.set(k, String(v));
@@ -154,16 +177,18 @@ async function get<T>(path: string, params: Record<string, string | number | boo
 export interface Filters { kind: Kind | "all"; side: "all" | "Over" | "Under"; game: string; book: string; q: string; minEv: number; marketWeight: number; flagged: boolean }
 
 const liveApi = {
-  meta: () => get<Meta>("meta"),
+  meta: () => get<Meta>(lg("meta")),
+  nbaMeta: () => get<NbaMeta>("nba/meta"),
   picks: (f: Filters, limit = 300) =>
-    get<Pick[]>("picks", { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, side: f.side, game_id: f.game, book: f.book, q: f.q, min_ev: f.minEv, market_weight: f.marketWeight,
+    get<Pick[]>(lg("picks"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, side: f.side, game_id: f.game, book: f.book, q: f.q, min_ev: f.minEv, market_weight: f.marketWeight,
       include_flagged: f.flagged, limit }),
-  projections: (f: Filters) => get<Projection[]>("projections", { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, game_id: f.game, q: f.q }),
-  player: (id: string, marketWeight: number) => get<PlayerDetail>(`players/${id}`, { market_weight: marketWeight }),
-  moneylines: (book: string, marketWeight: number) => get<MoneylineGame[]>("moneylines", { book, market_weight: marketWeight }),
-  injuries: () => get<InjuryReport>("injuries"),
+  projections: (f: Filters) => get<Projection[]>(lg("projections"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, game_id: f.game, q: f.q }),
+  player: (id: string, marketWeight: number) => get<PlayerDetail>(lg(`players/${id}`), { market_weight: marketWeight }),
+  moneylines: (book: string, marketWeight: number) => get<MoneylineGame[]>(lg("moneylines"), { book, market_weight: marketWeight }),
+  injuries: () => get<InjuryReport>(lg("injuries")),
   /** oddsRange hides prices outside -N..+N (American); 0 shows everything. */
-  lines: (id: string, kind: Kind, oddsRange = 300) => get<Ladder>(`players/${id}/lines`, { kind, odds_range: oddsRange }),
+  // by the market, not the league on screen: a betslip can hold legs from both
+  lines: (id: string, kind: Kind, oddsRange = 300) => get<Ladder>(`${NBA_KIND_SET.has(kind) ? "nba/" : ""}players/${id}/lines`, { kind, odds_range: oddsRange }),
   fetchAlt: async (id: string): Promise<AltFetchResult> => {
     const res = await request(`/api/players/${id}/alt-lines`, { method: "POST" });
     if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail);
@@ -203,6 +228,7 @@ export function limitOdds(quotes: LadderRow[], range: number, kind?: Kind): Ladd
 
 const staticApi: typeof liveApi = {
   meta: () => file<Meta>("meta.json"),
+  nbaMeta: async () => unavailable(),
   picks: async (f, limit = 300) => {
     const all = await file<Pick[]>(`picks/${f.book === "all" ? "all" : slug(f.book)}.json`);
     const q = f.q.toLowerCase();

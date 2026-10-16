@@ -1,3 +1,4 @@
+import { setLeague } from "./league";
 import { describe, expect, it } from "vitest";
 import { luminance, matchupColors, teamLogo } from "./teams";
 
@@ -22,5 +23,17 @@ describe("team colors", () => {
     expect(teamLogo("LA")).toContain("/lar.png");
     expect(teamLogo("WAS")).toContain("/wsh.png");
     expect(teamLogo("XYZ")).toBeNull();
+  });
+});
+
+describe("NBA teams", () => {
+  it("use NBA logos and colors while the NBA is on screen, NFL ones otherwise", () => {
+    setLeague("nba");
+    expect(teamLogo("GS")).toBe("https://a.espncdn.com/i/teamlogos/nba/500/gs.png");
+    const [nbaDal] = matchupColors("DAL", "DEN");
+    setLeague("nfl");
+    expect(teamLogo("GS")).toBeNull();
+    const [nflDal] = matchupColors("DAL", "DEN");
+    expect(nbaDal.light).not.toBe(nflDal.light);   // the Mavericks aren't the Cowboys
   });
 });

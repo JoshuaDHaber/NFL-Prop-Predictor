@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { getLeague } from "./league";
 
 /** Team colors (primary, secondary) and logos, keyed by the nflverse abbreviations the API uses. Logos are ESPN's, as linked by nflverse. */
 const TEAMS: Record<string, [string, string]> = {
@@ -11,10 +12,26 @@ const TEAMS: Record<string, [string, string]> = {
   NYJ: ["#125740", "#000000"], PHI: ["#004C54", "#A5ACAF"], PIT: ["#FFB612", "#101820"], SEA: ["#002244", "#69BE28"],
   SF: ["#AA0000", "#B3995D"], TB: ["#D50A0A", "#34302B"], TEN: ["#0C2340", "#4B92DB"], WAS: ["#5A1414", "#FFB612"],
 };
+/** NBA team colors, keyed by ESPN's abbreviations (the NBA API's); from ESPN's team list. */
+const NBA_TEAMS: Record<string, [string, string]> = {
+  ATL: ["#C8102E", "#FDB927"], BOS: ["#008348", "#BA9653"], BKN: ["#000000", "#FFFFFF"], CHA: ["#008CA8", "#1D1060"],
+  CHI: ["#CE1141", "#000000"], CLE: ["#860038", "#BC945C"], DAL: ["#0064B1", "#BBC4CA"], DEN: ["#0E2240", "#FEC524"],
+  DET: ["#1D428A", "#C8102E"], GS: ["#FDB927", "#1D428A"], HOU: ["#CE0E2D", "#000000"], IND: ["#0C2340", "#FFD520"],
+  LAC: ["#12173F", "#C8102E"], LAL: ["#552583", "#FDB927"], MEM: ["#5D76A9", "#12173F"], MIA: ["#98002E", "#000000"],
+  MIL: ["#00471B", "#EEE1C6"], MIN: ["#266092", "#79BC43"], NO: ["#0A2240", "#B4975A"], NY: ["#1D428A", "#F58426"],
+  OKC: ["#007AC1", "#EF3B24"], ORL: ["#0150B5", "#9CA0A3"], PHI: ["#1D428A", "#E01234"], PHX: ["#29127A", "#E56020"],
+  POR: ["#E03A3E", "#000000"], SAC: ["#5A2D81", "#6A7A82"], SA: ["#000000", "#C4CED4"], TOR: ["#D91244", "#000000"],
+  UTAH: ["#4E008E", "#79A3DC"], WSH: ["#E31837", "#002B5C"],
+};
+/** The current league's colors (NFL and NBA abbreviations overlap: DAL, DEN, DET, MIA, ...). */
+const colors = () => (getLeague() === "nba" ? NBA_TEAMS : TEAMS);
 /** ESPN's file names where they differ from nflverse's abbreviations. */
 const ESPN_SLUG: Record<string, string> = { LA: "lar", WAS: "wsh" };
 
-export const teamLogo = (team: string) => (team in TEAMS ? `https://a.espncdn.com/i/teamlogos/nfl/500/${ESPN_SLUG[team] ?? team.toLowerCase()}.png` : null);
+export const teamLogo = (team: string) => {
+  if (getLeague() === "nba") return team in NBA_TEAMS ? `https://a.espncdn.com/i/teamlogos/nba/500/${team.toLowerCase()}.png` : null;
+  return team in TEAMS ? `https://a.espncdn.com/i/teamlogos/nfl/500/${ESPN_SLUG[team] ?? team.toLowerCase()}.png` : null;
+};
 
 const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 /** Relative luminance (0 black .. 1 white). */
@@ -37,8 +54,8 @@ const FALLBACK: [string, string] = ["#5b6472", "#9aa3b2"];
  * primaries would look alike, and a near-black color is swapped for the secondary on the dark theme.
  */
 export function matchupColors(away: string, home: string): [TeamShade, TeamShade] {
-  const [a1, a2] = TEAMS[away] ?? FALLBACK;
-  const [h1, h2] = TEAMS[home] ?? FALLBACK;
+  const [a1, a2] = colors()[away] ?? FALLBACK;
+  const [h1, h2] = colors()[home] ?? FALLBACK;
   const pick = (first: string, second: string, other: string) => (distance(first, other) < CLASH && distance(second, other) >= CLASH ? second : first);
   const darkOf = (c: string, alt: string) => (luminance(c) < TOO_DARK ? alt : c);
   const aDark = darkOf(a1, a2);
