@@ -143,7 +143,7 @@ function PublicApp() {
       <ThemeToggle />
       <header>
         <div>
-          <h1><span className="logo">🏈</span> NFL Prop <span className="grad">Predictor</span></h1>
+          <h1><span className="logo">🏈</span> <span>Best<span className="grad">Props</span></span></h1>
           <div className="sub">
             {m.run ? `${m.run.season} Week ${m.run.week} · projections ${timeAgo(m.run.created_at)}` : "No projections yet"}
             {latestOdds && ` · odds ${timeAgo(latestOdds)}`}

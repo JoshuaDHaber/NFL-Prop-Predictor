@@ -36,3 +36,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     </BetSlipProvider>
   </React.StrictMode>,
 );
+
+// installable on Chrome/Android (and lets it open offline); dev skips it so the service worker never serves stale code
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => { navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {}); });
+}
