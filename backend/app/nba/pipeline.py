@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Callable, Optional
 
 import pandas as pd
+import requests
 
 from .. import config
 from ..db import NbaAltLine, NbaOddsLine, NbaProjection, NbaRun, SessionLocal
@@ -173,8 +174,12 @@ def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[in
         out["games"] = len(plan["games"])
         remaining = None
         if credit_floor is not None:
-            remaining = out["credits_before"] = out["credits_after"] = nfl_odds.credits_remaining(key)
-            log(f"NBA Odds API key has {remaining} credits left (floor {credit_floor})")
+            try:
+                remaining = out["credits_before"] = out["credits_after"] = nfl_odds.credits_remaining(key)
+                log(f"NBA Odds API key has {remaining} credits left (floor {credit_floor})")
+            except requests.RequestException as e:
+                # the balance comes back with every paid response too, so the floor still applies from the first one
+                log(f"  couldn't check the balance ({e}); going ahead, the floor applies from the first response")
         ids = _match_events(nba_odds.list_events(key), slate)   # free
         frames = []
         stamp = time.time()
@@ -201,7 +206,12 @@ def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[in
                 out["skipped_for_credits"] += 1
                 log(f"  skipped {g['label']}: {g['credits']} credits would leave {remaining - g['credits']}, under the floor of {credit_floor}")
                 continue
-            long, left = nba_odds.fetch_props(key, eid, g["need"], g["need_alt"])
+            try:
+                long, left = nba_odds.fetch_props(key, eid, g["need"], g["need_alt"])
+            except requests.RequestException as e:   # one game's failure shouldn't cost the rest their props
+                out["failed"] = out.get("failed", 0) + 1
+                log(f"  {g['label']}: failed after retries ({e}); the next sync tries again")
+                continue
             out["fetched"] += 1
             if left is not None:
                 remaining = out["credits_after"] = int(float(left))

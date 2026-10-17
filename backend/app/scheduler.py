@@ -15,6 +15,7 @@ from sqlalchemy import select
 
 from . import config, pipeline
 from .db import NbaRun, Run, SessionLocal, SyncRun
+from .engine import odds as odds_api
 from .nba import pipeline as nba_pipeline
 
 ET = ZoneInfo("America/New_York")
@@ -120,6 +121,7 @@ def run(odds_mode: str, full: bool = False, slot: str = "manual", trigger: str =
         rec_id = rec.id
 
     def log(msg):
+        msg = odds_api.redact(msg)   # tracebacks and request errors can carry the API key in a URL
         _job["log"].append(msg)
         _job["detail"] = msg.strip()
 
@@ -142,10 +144,10 @@ def run(odds_mode: str, full: bool = False, slot: str = "manual", trigger: str =
             refresh = nba_pipeline.refresh_odds if nba else pipeline.refresh_odds
             res = refresh(odds_mode, log=log, progress=odds_progress, credit_floor=config.ODDS_CREDIT_FLOOR()) or {}
             parts.append(_odds_summary(res))
-            if res.get("skipped_for_credits"):
+            if res.get("skipped_for_credits") or res.get("failed"):
                 status = "partial"
     except Exception as e:  # surfaced to the UI and the run log
-        status, error = "error", f"{type(e).__name__}: {e}"
+        status, error = "error", odds_api.redact(f"{type(e).__name__}: {e}")
         log(traceback.format_exc(limit=3))
     finally:
         # the log row is written before the job reads as finished, so the admin page never sees one without the other
@@ -177,6 +179,8 @@ def _odds_summary(res: dict) -> str:
     bits = [f"odds for {res.get('fetched', 0)} of {res['games']} games"]
     if before is not None and after is not None:
         bits.append(f"{before - after} credits used, {after} left")
+    if res.get("failed"):
+        bits.append(f"{res['failed']} failed (the Odds API errored; the next sync retries)")
     if res.get("skipped_for_credits"):
         bits.append(f"{res['skipped_for_credits']} skipped at the {config.ODDS_CREDIT_FLOOR()}-credit floor: rotate the key")
     return ", ".join(bits)

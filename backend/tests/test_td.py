@@ -116,6 +116,7 @@ def test_anytime_td_feed_becomes_an_over_half_with_links(monkeypatch):
             {"name": "Yes", "description": "Kyle Pitts", "price": 300}]}]}]}
 
     class Resp:
+        status_code = 200
         headers = {"x-requests-remaining": "9"}
         def raise_for_status(self): pass
         def json(self): return payload

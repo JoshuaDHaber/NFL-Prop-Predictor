@@ -7,6 +7,7 @@ from typing import Callable, Optional
 
 import numpy as np
 import pandas as pd
+import requests
 
 from . import config
 from .db import AltLine, OddsHistory, OddsLine, Projection, Run, SessionLocal
@@ -311,8 +312,12 @@ def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[in
             return out
         remaining = None
         if credit_floor is not None:
-            remaining = out["credits_before"] = out["credits_after"] = odds.credits_remaining(key)
-            log(f"Odds API key has {remaining} credits left (floor {credit_floor})")
+            try:
+                remaining = out["credits_before"] = out["credits_after"] = odds.credits_remaining(key)
+                log(f"Odds API key has {remaining} credits left (floor {credit_floor})")
+            except requests.RequestException as e:
+                # every paid response reports the balance too, so the floor still applies from the first one
+                log(f"  couldn't check the balance ({e}); going ahead, the floor applies from the first response")
         events = {(e["away"], e["home"]): e["id"] for e in odds.list_events(key)}
         todo = [(g, events.get((g["away"], g["home"]))) for g in plan["games"]]
         cost = sum(g["credits"] for g, e in todo if e)

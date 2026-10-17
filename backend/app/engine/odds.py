@@ -62,11 +62,38 @@ def implied(a):
     return 1 / american_to_dec(a)
 
 
+RETRY_WAITS = (2.0, 6.0)   # seconds before the second and third tries of a request that hit a server error
+_sleep = time.sleep         # tests swap this out
+
+
+def redact(text) -> str:
+    """The text with any Odds API key replaced: requests puts the full URL, apiKey included, in its error messages."""
+    return re.sub(r"(apiKey=)[^&\s'\"]+", r"\1<redacted>", str(text))
+
+
+def _get(url, params, timeout=30):
+    """GET from The Odds API, retrying server errors (5xx), timeouts and dropped connections up to twice. The API
+    doesn't charge for a failed request. Errors come back with the key redacted."""
+    try:
+        for wait in (*RETRY_WAITS, None):
+            try:
+                r = requests.get(url, params=params, timeout=timeout)
+                if r.status_code < 500 or wait is None:
+                    break
+            except (requests.ConnectionError, requests.Timeout):
+                if wait is None:
+                    raise
+            _sleep(wait)
+        r.raise_for_status()
+        return r
+    except requests.RequestException as e:
+        raise type(e)(redact(e), response=getattr(e, "response", None)) from None
+
+
 def list_events(key, api=API, names=None):
     """Upcoming events as {id, away, home, commence} with the app's team abbreviations (this call is free).
     api and names (abbreviation -> Odds API team name) default to the NFL's."""
-    r = requests.get(f"{api}/events", params={"apiKey": key}, timeout=30)
-    r.raise_for_status()
+    r = _get(f"{api}/events", {"apiKey": key})
     by_name = {v: k for k, v in (names or TEAM_NAMES).items()}
     return [dict(id=e["id"], away=by_name.get(e["away_team"]), home=by_name.get(e["home_team"]),
                  commence=e.get("commence_time")) for e in r.json()]
@@ -74,8 +101,7 @@ def list_events(key, api=API, names=None):
 
 def credits_remaining(key):
     """Credits left on this key, read from the usage headers of the sports list (a call that costs nothing)."""
-    r = requests.get(API.rsplit("/", 1)[0], params={"apiKey": key}, timeout=30)
-    r.raise_for_status()
+    r = _get(API.rsplit("/", 1)[0], {"apiKey": key})
     left = r.headers.get("x-requests-remaining")
     return int(float(left)) if left is not None else None
 
@@ -94,9 +120,8 @@ def fetch_game_odds(key, event_id, main_kinds, alt_kinds=(), regions="us", api=A
     markets = MARKETS if markets is None else markets
     alt_markets = ALT_MARKETS if alt_markets is None else alt_markets
     keys = [k for k, v in markets.items() if v in main_kinds] + [k for k, v in alt_markets.items() if v in alt_kinds]
-    r = requests.get(f"{api}/events/{event_id}/odds", timeout=30, params=dict(
+    r = _get(f"{api}/events/{event_id}/odds", dict(
         apiKey=key, regions=regions, markets=",".join(keys), oddsFormat="american", includeLinks="true"))
-    r.raise_for_status()
     rows = []
     for bk in r.json().get("bookmakers", []):
         for m in bk["markets"]:

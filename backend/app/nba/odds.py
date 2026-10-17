@@ -1,7 +1,6 @@
 """NBA lines from The Odds API (key: ODDS_API_KEY_NBA): moneylines for the whole slate in one call, and points,
 rebounds, assists and 3-pointers-made props one game at a time (one credit per market per game)."""
 import pandas as pd
-import requests
 
 from ..engine import odds as nfl_odds
 
@@ -36,9 +35,7 @@ def fetch_props(key, event_id, kinds, alt_kinds=()):
 
 def fetch_moneylines(key, regions="us"):
     """({event_id: long DataFrame of moneyline rows}, credits_remaining) for every upcoming game: one credit in all."""
-    r = requests.get(f"{API}/odds", timeout=30, params=dict(apiKey=key, regions=regions, markets="h2h",
-                                                            oddsFormat="american", includeLinks="true"))
-    r.raise_for_status()
+    r = nfl_odds._get(f"{API}/odds", dict(apiKey=key, regions=regions, markets="h2h", oddsFormat="american", includeLinks="true"))
     out = {}
     for e in r.json():
         rows = []
