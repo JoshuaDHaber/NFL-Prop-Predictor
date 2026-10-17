@@ -80,7 +80,7 @@ export default function NbaApp() {
   if (meta.isLoading) return <div className="wrap"><p className="mut">{waking ? "Waking the server…" : "Loading…"}</p></div>;
   if (meta.error || !meta.data) return (
     <div className="wrap">
-      <header><h1><span className="logo">🏀</span> <span>Best<span className="grad">Props</span></span></h1><div className="head-actions"><LeagueSwitch /></div></header>
+      <header><h1><span className="logo">🏀</span> <span>The Haber <span className="grad">Process</span></span></h1><div className="head-actions"><LeagueSwitch /></div></header>
       <p className="err">Can't reach the NBA API right now. Try again in a minute.</p>
     </div>
   );
@@ -114,7 +114,7 @@ export default function NbaApp() {
       <ThemeToggle />
       <header>
         <div>
-          <h1><span className="logo">🏀</span> <span>Best<span className="grad">Props</span></span></h1>
+          <h1><span className="logo">🏀</span> <span>The Haber <span className="grad">Process</span></span></h1>
           <div className="sub">
             {m.run ? `${seasonLabel} · ${m.run.slate.map(day).join(" & ")} · projections ${timeAgo(m.run.created_at)}` : "No projections yet"}
             {latestOdds && ` · odds ${timeAgo(latestOdds)}`}
