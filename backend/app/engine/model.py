@@ -481,8 +481,9 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
         for team, other, sp in ((gm.home_team, gm.away_team, gm.spread_line), (gm.away_team, gm.home_team, -gm.spread_line)):
             sp = 0.0 if pd.isna(sp) else float(sp)
             on_team = latest[latest.index.map(lambda i: roster.get(i) == team) & (latest.t >= (season - 1) * 100)]
-            # skip offseason arrivals with no games for the new team: their old role doesn't carry over
-            on_team = on_team[on_team.team == team]
+            # skip offseason arrivals with no games for the new team: their old role doesn't carry over.
+            # Mid-season trades (last game this season, for another team) keep their current-season role.
+            on_team = on_team[(on_team.team == team) | (on_team.t >= season * 100)]
             members = []
             for pid, p in on_team.iterrows():
                 hist = by_player[pid]
