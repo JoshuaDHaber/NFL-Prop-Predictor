@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Filters, type Kind } from "./api";
+import Logo from "./components/Logo";
 import BetSlip from "./components/BetSlip";
 import Controls from "./components/Controls";
 import GameOverview from "./components/GameOverview";
@@ -43,7 +44,7 @@ const storedGameBook = () => { try { return localStorage.getItem(GAME_BOOK_KEY);
 export default function App() {
   const { league } = useLeague();
   if (IS_ADMIN_PAGE) return <Suspense fallback={null}><AdminPage /></Suspense>;
-  return league === "nba" ? <Suspense fallback={<div className="wrap"><p className="mut">Loading…</p></div>}><NbaApp /></Suspense> : <PublicApp />;
+  return league === "nba" ? <Suspense fallback={<div className="wrap"><p className="mut">Reaching equilibrium…</p></div>}><NbaApp /></Suspense> : <PublicApp />;
 }
 
 function PublicApp() {
@@ -97,12 +98,12 @@ function PublicApp() {
 
   if (meta.isLoading) return (
     <div className="wrap">
-      <p className="mut">{waking ? "Waking the server… free hosting stops idle apps, so the first visit can take up to a minute." : "Loading…"}</p>
+      <p className="mut">{waking ? "Heating the reactor… free hosting stops idle apps, so the first visit can take up to a minute." : "Reaching equilibrium…"}</p>
     </div>
   );
   if (meta.error || !meta.data) return (
     <div className="wrap">
-      <p className="err">{API_URL ? "Can't reach the API right now. Try again in a minute." : "Can't reach the API. Is the backend running on port 8000?"}</p>
+      <p className="err">{API_URL ? "The reaction stalled: can't reach the API right now. Try again in a minute." : "Can't reach the API. Is the backend running on port 8000?"}</p>
     </div>
   );
   const m = meta.data;
@@ -143,7 +144,7 @@ function PublicApp() {
       <ThemeToggle />
       <header>
         <div>
-          <h1><span className="logo">🏈</span> <span>The Haber <span className="grad">Process</span></span></h1>
+          <h1><Logo /> <span>The Haber <span className="grad">Process</span></span></h1>
           <div className="sub">
             {m.run ? `${m.run.season} Week ${m.run.week} · projections ${timeAgo(m.run.created_at)}` : "No projections yet"}
             {latestOdds && ` · odds ${timeAgo(latestOdds)}`}
@@ -156,7 +157,7 @@ function PublicApp() {
         </div>
       </header>
 
-      {waking && <div className="banner">Waking the server… some data may take a moment to load.</div>}
+      {waking && <div className="banner">Heating the reactor… some data may take a moment to load.</div>}
       {IS_STATIC && (
         <div className="banner">
           <b>Static demo.</b> This is a frozen snapshot{m.snapshot_at ? ` from ${new Date(m.snapshot_at + "Z").toLocaleString()}` : ""}.
@@ -188,7 +189,7 @@ function PublicApp() {
       {tab !== "games" && tab !== "model" && tab !== "parlays" && tab !== "admin" && tab !== "injuries" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
       {(tab === "picks" || tab === "projections") && selectedGame && <GameWeather game={selectedGame} fit={m.weather} />}
 
-      {tab === "picks" && (picks.isLoading ? <p className="mut">Pricing plays…</p> :
+      {tab === "picks" && (picks.isLoading ? <p className="mut">Balancing the equation…</p> :
         <PicksTable picks={picks.data ?? []} weather={weatherByGame} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
       {tab === "parlays" && (board.loading ? <p className="mut">Building parlays…</p> :
         <ParlayTiles books={m.books} book={board.book} onBook={board.setBook} games={m.games} selectedGames={chosenGames} onGames={setParlayGames} parlays={board.parlays} tdParlays={board.tdParlays}
@@ -205,6 +206,7 @@ function PublicApp() {
         Yards (and receptions) = volume × efficiency, recency-weighted and shrunk to position means, adjusted for opponent, game
         script and, at outdoor stadiums, kickoff wind and cold. Win probabilities come from the backtest's own error distribution, blended with the
         market's no-vig price. Team win chances come from point-margin ratings and lean heavily on the moneyline market. Large edges usually mean the model is missing context. Not betting advice.
+        <span className="signoff">Bread from air, picks from stats. Built by JD Haber.</span>
       </footer>
 
       {selected && (

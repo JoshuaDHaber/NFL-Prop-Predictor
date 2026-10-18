@@ -97,7 +97,7 @@ export default function GameOverview({ game, books, book, onBook, marketWeight, 
       <section id="go-props" className="go-sec">
         <h2 className="parlay-h">Best props <small>positive EV for this game{book !== "all" ? ` at ${book}` : ""}</small></h2>
         <KindSeg value={propKind} onChange={(k) => { setPropKind(k); setAllProps(false); }} />
-        {picks.isLoading ? <p className="mut">Pricing plays…</p> : <>
+        {picks.isLoading ? <p className="mut">Balancing the equation…</p> : <>
           <PicksTable picks={shownPicks} weather={{ [id]: game.weather }} empty="No positive-EV props for this game yet. Books post props mid-week; the scheduled syncs pick them up." onSelect={(p) => onSelect(p.player_id, p.kind)} />
           {(picks.data?.length ?? 0) > PROPS_SHOWN && (
             <button className="link go-more" onClick={() => setAllProps(!allProps)}>{allProps ? "Show fewer" : `Show all ${picks.data!.length} props`}</button>

@@ -5,6 +5,7 @@ import { setToken, useToken } from "../auth";
 import { BASE } from "../env";
 import { timeAgo } from "../format";
 import { elapsedSeconds, localWhen, progressLine, untilText } from "../sync";
+import Logo from "./Logo";
 import ThemeToggle from "./ThemeToggle";
 
 const ODDS_TEXT: Record<string, string> = { none: "Model only", missing: "Model + missing odds", thin: "Model + thin top-up", all: "Model + all odds" };
@@ -59,7 +60,7 @@ export default function AdminPage({ embedded = false }: { embedded?: boolean }) 
   const header = embedded ? null : (
     <header>
       <div>
-        <h1><span className="logo">🏈</span> Sync <span className="grad">admin</span></h1>
+        <h1><Logo /> Sync <span className="grad">admin</span></h1>
         <div className="sub"><a href={BASE}>← Back to the site</a></div>
       </div>
       {signOut}

@@ -74,7 +74,7 @@ export default function NbaGameOverview({ game, books, book, onBook, marketWeigh
       <section id="go-props" className="go-sec">
         <h2 className="parlay-h">Best props <small>positive EV for this game{book !== "all" ? ` at ${book}` : ""}</small></h2>
         <KindSeg value={propKind} onChange={(k) => { setPropKind(k); setAllProps(false); }} />
-        {picks.isLoading ? <p className="mut">Pricing plays…</p> : <>
+        {picks.isLoading ? <p className="mut">Balancing the equation…</p> : <>
           <PicksTable picks={shownPicks} empty="No positive-EV props for this game yet. Books post NBA props the day of the game; the 10 AM, 2 PM and 6 PM ET syncs pick them up."
             onSelect={(p) => onSelect(p.player_id, p.kind)} />
           {(picks.data?.length ?? 0) > PROPS_SHOWN && (

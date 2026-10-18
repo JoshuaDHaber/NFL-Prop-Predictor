@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Filters, type Game, type InjuryReport, type Kind } from "./api";
+import Logo from "./components/Logo";
 import BetSlip from "./components/BetSlip";
 import Controls from "./components/Controls";
 import Games from "./components/Games";
@@ -77,11 +78,11 @@ export default function NbaApp() {
   const injuries = useQuery({ queryKey: ["injuries"], queryFn: api.injuries, enabled: tab === "injuries" || onSlate, refetchInterval: 15 * 60_000 });
   const projections = useQuery({ queryKey: ["projections", debounced], queryFn: () => api.projections(debounced), enabled: tab === "projections", placeholderData: (p) => p });
 
-  if (meta.isLoading) return <div className="wrap"><p className="mut">{waking ? "Waking the server…" : "Loading…"}</p></div>;
+  if (meta.isLoading) return <div className="wrap"><p className="mut">{waking ? "Heating the reactor…" : "Reaching equilibrium…"}</p></div>;
   if (meta.error || !meta.data) return (
     <div className="wrap">
-      <header><h1><span className="logo">🏀</span> <span>The Haber <span className="grad">Process</span></span></h1><div className="head-actions"><LeagueSwitch /></div></header>
-      <p className="err">Can't reach the NBA API right now. Try again in a minute.</p>
+      <header><h1><Logo /> <span>The Haber <span className="grad">Process</span></span></h1><div className="head-actions"><LeagueSwitch /></div></header>
+      <p className="err">The reaction stalled: can't reach the NBA API right now. Try again in a minute.</p>
     </div>
   );
   const m = meta.data;
@@ -114,7 +115,7 @@ export default function NbaApp() {
       <ThemeToggle />
       <header>
         <div>
-          <h1><span className="logo">🏀</span> <span>The Haber <span className="grad">Process</span></span></h1>
+          <h1><Logo /> <span>The Haber <span className="grad">Process</span></span></h1>
           <div className="sub">
             {m.run ? `${seasonLabel} · ${m.run.slate.map(day).join(" & ")} · projections ${timeAgo(m.run.created_at)}` : "No projections yet"}
             {latestOdds && ` · odds ${timeAgo(latestOdds)}`}
@@ -144,7 +145,7 @@ export default function NbaApp() {
         <TopTiles tiles={tiles} />
         {tab === "games" && <Games games={m.games} picks={slatePicks.data ?? []} moneylines={moneylines.data ?? []} injuries={injuries.data} onOpen={openGame} />}
         {(tab === "picks" || tab === "projections") && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
-        {tab === "picks" && (picks.isLoading ? <p className="mut">Pricing plays…</p> :
+        {tab === "picks" && (picks.isLoading ? <p className="mut">Balancing the equation…</p> :
           <PicksTable picks={picks.data ?? []} onSelect={(p) => select(p.player_id, p.kind)} />)}
         {tab === "parlays" && (board.loading ? <p className="mut">Building parlays…</p> :
           <ParlayTiles books={m.books} book={board.book} onBook={board.setBook} games={m.games} selectedGames={chosenGames} onGames={setParlayGames} parlays={board.parlays}
@@ -159,6 +160,7 @@ export default function NbaApp() {
         Points, rebounds, assists and threes = projected minutes × a per-minute rate, recency-weighted and shrunk toward the position's average, adjusted for
         the opponent. Win probabilities come from the backtest's own errors (threes: a Poisson count), blended with the market's no-vig price. Team win chances come from
         point-margin ratings and lean heavily on the moneyline market. Teammates' injuries don't move a player's projection yet. Not betting advice.
+        <span className="signoff">Bread from air, picks from stats. Built by JD Haber.</span>
       </footer>
 
       {selected && (
