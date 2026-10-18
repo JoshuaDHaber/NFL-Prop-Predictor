@@ -177,6 +177,28 @@ def load_espn_injuries(max_age_hours=0.25):
     return pd.DataFrame(rows, columns=ESPN_COLUMNS), fetched
 
 
+OFFENSE = ("QB", "RB", "FB", "WR", "TE")
+
+
+def load_active_players(season):
+    return _active_players(season, int(time.time() // 3600))
+
+
+@functools.lru_cache(maxsize=2)
+def _active_players(season, _hour):
+    """Every active offensive skill player (QB, RB, FB, WR, TE) on a roster in each team's latest week, for player
+    search: gsis_id, name, pos, team, headshot. Empty when the roster can't be loaded."""
+    cols = ["team", "week", "status", "position", "full_name", "gsis_id", "headshot_url"]
+    try:
+        r = _get_csv(f"{BASE}/rosters/roster_{season}.csv", f"roster_{season}.csv", max_age_hours=3, usecols=cols)
+    except Exception:
+        return pd.DataFrame(columns=["player_id", "name", "pos", "team", "headshot"])
+    r = r[(r.week == r.groupby("team").week.transform("max")) & (r.status == "ACT") & r.position.isin(OFFENSE)].dropna(subset=["gsis_id"])
+    r = r.drop_duplicates("gsis_id", keep="last")
+    return pd.DataFrame(dict(player_id=r.gsis_id, name=r.full_name.fillna(""), pos=r.position, team=r.team,
+                             headshot=r.headshot_url.where(r.headshot_url.notna(), None))).reset_index(drop=True)
+
+
 def load_headshots(season):
     return _headshots(season, int(time.time() // 3600))
 

@@ -99,6 +99,8 @@ export interface Pick {
   /** Same-position rotation receivers in their first game out (receiving yards). Context only, not a flag. */
   teammate_out?: string;
 }
+/** A player search hit: any active offensive player; projected is false for players on bye or without a projection. */
+export interface PlayerHit { player_id: string; name: string; pos: string; team: string; headshot?: string | null; projected: boolean }
 export interface GameLogEntry { label: string; opp: string; yards: number; volume: number }
 export interface PlayerDetail {
   player_id: string; name: string; pos: string; team: string; headshot?: string | null;
@@ -187,6 +189,9 @@ const liveApi = {
     get<Pick[]>(lg("picks"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, side: f.side, game_id: f.game, book: f.book, q: f.q, min_ev: f.minEv, market_weight: f.marketWeight,
       include_flagged: f.flagged, limit }),
   projections: (f: Filters) => get<Projection[]>(lg("projections"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, game_id: f.game, q: f.q }),
+  /** Every market for every projected player, anytime TD included (the player compare tab). */
+  allProjections: () => get<Projection[]>("projections"),
+  searchPlayers: (q: string) => get<PlayerHit[]>("player-search", { q }),
   player: (id: string, marketWeight: number) => get<PlayerDetail>(lg(`players/${id}`), { market_weight: marketWeight }),
   moneylines: (book: string, marketWeight: number) => get<MoneylineGame[]>(lg("moneylines"), { book, market_weight: marketWeight }),
   injuries: () => get<InjuryReport>(lg("injuries")),
@@ -246,6 +251,15 @@ const staticApi: typeof liveApi = {
     const q = f.q.toLowerCase();
     return (await file<Projection[]>("projections.json")).filter((p) => (f.kind === "all" ? p.kind !== "td" : p.kind === f.kind)
       && (f.game === "all" || p.game_id === f.game) && (!q || p.name.toLowerCase().includes(q)));
+  },
+  allProjections: () => file<Projection[]>("projections.json"),
+  // the snapshot has no roster, so search covers the week's projected players
+  searchPlayers: async (q) => {
+    const needle = q.trim().toLowerCase(), seen = new Map<string, PlayerHit>();
+    if (!needle) return [];
+    for (const p of await file<Projection[]>("projections.json"))
+      if (!seen.has(p.player_id) && p.name.toLowerCase().includes(needle)) seen.set(p.player_id, { player_id: p.player_id, name: p.name, pos: p.pos, team: p.team, projected: true });
+    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name)).slice(0, 12);
   },
   player: (id) => file<PlayerDetail>(`players/${id}.json`),
   moneylines: (book) => file<MoneylineGame[]>(`moneylines/${book === "all" ? "all" : slug(book)}.json`).catch(() => []),

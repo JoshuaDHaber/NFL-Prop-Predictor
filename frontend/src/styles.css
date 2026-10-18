@@ -411,3 +411,30 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
 .league-switch button { font-size: 14px; padding: 6px 14px; }
 .inj-note { display: block; font-size: 12px; margin-top: 1px; }
 .nba-note { font-size: 13px; }
+
+/* ---------- player compare ---------- */
+.compare { display: flex; flex-direction: column; gap: 12px; }
+.cmp-search { position: relative; max-width: 520px; width: 100%; }
+.cmp-search input { width: 100%; box-sizing: border-box; padding: 11px 14px; font-size: 15px; }
+.cmp-hits { position: absolute; z-index: 7; top: calc(100% + 6px); left: 0; right: 0; margin: 0; padding: 4px; list-style: none; max-height: 360px; overflow-y: auto;
+  box-shadow: 0 14px 34px -12px rgba(15,23,42,.35); }
+.cmp-hits li { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.cmp-hits li.on { background: var(--chip); }
+.cmp-hits li.cmp-none { cursor: default; }
+.cmp-tag { margin-left: auto; font-size: 11px; white-space: nowrap; }
+.t-cmp { width: 100%; min-width: calc(130px + var(--n) * 170px); border-collapse: collapse; table-layout: fixed; }
+.t-cmp th, .t-cmp td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: top; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.t-cmp tbody tr:last-child > * { border-bottom: 0; }
+.t-cmp .cmp-mkt { width: 130px; position: sticky; left: 0; z-index: 1; background: var(--card); font-size: 12px; text-transform: none; letter-spacing: 0; font-weight: 700; }
+.t-cmp thead .cmp-mkt { text-transform: uppercase; letter-spacing: .04em; font-size: 11px; vertical-align: bottom; }
+.cmp-player { position: relative; text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 400; }
+.cmp-player > b, .cmp-player > span, .cmp-player > small { display: block; margin-top: 4px; } .cmp-player > b { font-size: 15px; margin-top: 8px; }
+.cmp-x { position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--mut); cursor: pointer; font-size: 15px; line-height: 1; padding: 0; }
+.cmp-x:hover { color: var(--bad); border-color: var(--bad); }
+.cmp-cell { cursor: pointer; transition: background .12s; } .cmp-cell:hover { background: var(--chip); }
+.cmp-cell > small { display: block; margin: 2px 0 6px; font-size: 11px; }
+.cmp-val b { font-size: 20px; font-weight: 800; letter-spacing: -.02em; }
+.cmp-cell.lead { background: color-mix(in srgb, var(--good) 10%, transparent); } .cmp-cell.lead .cmp-val b { color: var(--good); }
+.cmp-none { padding: 14px; }
+.cmp-foot { font-size: 12px; margin: 0; }
+@media (max-width: 700px) { .t-cmp { min-width: calc(84px + var(--n) * 132px); } .t-cmp .cmp-mkt { width: 84px; } .cmp-player > b { font-size: 14px; } .t-cmp th, .t-cmp td { padding: 10px 8px; } .cmp-val b { font-size: 17px; } }

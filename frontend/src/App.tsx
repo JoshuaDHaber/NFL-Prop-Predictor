@@ -11,6 +11,7 @@ import Injuries from "./components/Injuries";
 import ModelCheck from "./components/ModelCheck";
 import ParlayTiles from "./components/ParlayTiles";
 import PicksTable from "./components/PicksTable";
+import PlayerCompare from "./components/PlayerCompare";
 import ProjectionsTable from "./components/ProjectionsTable";
 import { useWaking } from "./auth";
 import { API_URL, BASE, IS_STATIC } from "./env";
@@ -31,8 +32,8 @@ const NbaApp = lazy(() => importOrReload(() => import("./NbaApp")));
 /** The owner's sync page lives at <base>/admin; everything else is the public app. */
 const IS_ADMIN_PAGE = !IS_STATIC && window.location.pathname.slice(BASE.length - 1).replace(/\/+$/, "") === "/admin";
 
-type Tab = "games" | "picks" | "parlays" | "injuries" | "projections" | "model" | "admin";
-const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["injuries", "Injuries"], ["projections", "Projections"], ["model", "Model check"],
+type Tab = "games" | "picks" | "parlays" | "injuries" | "projections" | "compare" | "model" | "admin";
+const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["injuries", "Injuries"], ["projections", "Projections"], ["compare", "Compare"], ["model", "Model check"],
   ...(IS_STATIC ? [] : [["admin", "Admin"] as [Tab, string]])];
 /** A game's overview page lives at #game=<game_id>, so the browser's back button returns to the slate and the page can be linked. */
 const gameFromHash = () => new URLSearchParams(window.location.hash.slice(1)).get("game");
@@ -113,7 +114,7 @@ function PublicApp() {
       value: <>{playLabel(p.kind, p.side, p.line)} <em>{signedPct(p.ev)} EV</em></>, caption: `${americanOdds(p.odds)} at ${p.book}`,
       onClick: () => setSelected({ id: p.player_id, kind: p.kind }),
     }))
-    : tab === "games" || tab === "parlays" || tab === "admin" || tab === "injuries" ? []
+    : tab === "games" || tab === "parlays" || tab === "admin" || tab === "injuries" || tab === "compare" ? []
     : tab === "projections"
       ? (filters.kind === "all" ? (["pass", "rush", "rec", "recs"] as Kind[]).map((k) => (projections.data ?? []).filter((p) => p.kind === k).sort((a, b) => b.mu - a.mu)[0])
         : [...(projections.data ?? [])].sort((a, b) => b.mu - a.mu).slice(0, 3)).filter(Boolean).map((p) => ({
@@ -186,7 +187,7 @@ function PublicApp() {
       <TopTiles tiles={tiles} />
 
       {tab === "games" && <Games games={m.games} picks={slatePicks.data ?? []} moneylines={moneylines.data ?? []} injuries={injuries.data} onOpen={openGame} />}
-      {tab !== "games" && tab !== "model" && tab !== "parlays" && tab !== "admin" && tab !== "injuries" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
+      {tab !== "games" && tab !== "model" && tab !== "parlays" && tab !== "admin" && tab !== "injuries" && tab !== "compare" && <Controls filters={filters} onChange={setFilters} games={m.games} books={m.books} showPickControls={tab === "picks"} />}
       {(tab === "picks" || tab === "projections") && selectedGame && <GameWeather game={selectedGame} fit={m.weather} />}
 
       {tab === "picks" && (picks.isLoading ? <p className="mut">Balancing the equation…</p> :
@@ -198,6 +199,7 @@ function PublicApp() {
         <Injuries report={injuries.data!} games={m.games} onSelect={(id, kind) => setSelected({ id, kind })} />)}
       {tab === "projections" && (projections.isLoading ? <p className="mut">Loading…</p> :
         <ProjectionsTable rows={projections.data ?? []} weather={weatherByGame} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
+      {tab === "compare" && <PlayerCompare weather={weatherByGame} onSelect={(id, kind) => setSelected({ id, kind })} />}
       {tab === "model" && <ModelCheck meta={m} />}
       {tab === "admin" && <Suspense fallback={<p className="mut">Loading…</p>}><AdminPage embedded /></Suspense>}
       </>}

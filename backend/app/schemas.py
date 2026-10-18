@@ -160,6 +160,16 @@ class GameLogEntry(BaseModel):
     volume: float
 
 
+class PlayerHit(BaseModel):
+    """A player search result: any active offensive player, flagged with whether he has a projection this week."""
+    player_id: str
+    name: str
+    pos: str
+    team: str
+    headshot: Optional[str] = None
+    projected: bool
+
+
 class PlayerDetail(BaseModel):
     player_id: str
     name: str

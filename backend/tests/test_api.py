@@ -401,3 +401,16 @@ def test_injury_report_covers_teams_on_the_slate(client, monkeypatch):
     assert rep["news_fetched_at"] == "2026-10-18T12:00:00" and rep["teams"]["AAA"][0]["comment"] == "Limited in practice Friday."
     assert rep["teams"]["AAA"][0]["kind"] == "rush"            # projected: the UI can open his drawer
     assert rep["teams"]["BBB"][0]["side"] == "def" and rep["teams"]["BBB"][0]["kind"] is None
+
+
+def test_player_search_covers_projected_and_rostered_players(client, monkeypatch):
+    import pandas as pd
+    roster = pd.DataFrame(dict(player_id=["p0", "r1", "r2"], name=["Alpha Back", "Alpine Receiver", "Zed Tight"],
+                               pos=["RB", "WR", "TE"], team=["AAA", "CCC", "DDD"], headshot=[None, "http://x/r1.png", None]))
+    monkeypatch.setattr(main.data, "load_active_players", lambda season: roster)
+    monkeypatch.setattr(main.data, "load_headshots", lambda season: {"p0": "http://x/p0.png"})
+    hits = client.get("/api/player-search", params={"q": "alp"}).json()
+    assert [(h["name"], h["projected"]) for h in hits] == [("Alpha Back", True), ("Alpine Receiver", False)]
+    assert hits[0]["headshot"] == "http://x/p0.png" and hits[1]["team"] == "CCC"
+    assert [h["name"] for h in client.get("/api/player-search", params={"q": "back"}).json()] == ["Alpha Back", "Beta Back"]
+    assert client.get("/api/player-search", params={"q": " "}).json() == []

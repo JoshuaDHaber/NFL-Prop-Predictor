@@ -29,7 +29,7 @@ from .engine import moneyline as mlm
 from .engine.ladder import build_ladder
 from .engine.picks import build_picks
 from .nba import routes as nba_routes
-from .schemas import (AdminState, AltFetchResult, AutoSync, CreditStatus, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, InjuryReport, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, ProjectionOut,
+from .schemas import (AdminState, AltFetchResult, AutoSync, CreditStatus, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, InjuryReport, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut,
                       RefreshRequest, RunInfo)
 
 @asynccontextmanager
@@ -334,6 +334,27 @@ def _injury_report(season: int, week: int, _slot: int) -> tuple[dict, Optional[s
     rep = injm.build(data.load_injuries(season), data.load_reserve(season), week,
                      espn=espn, espn_ids=data.load_espn_ids(season) if espn is not None else None)
     return rep, news_fetched
+
+
+@app.get("/api/player-search", response_model=list[PlayerHit])
+def player_search(q: str = Query("", max_length=60), limit: int = Query(12, ge=1, le=50), db: Session = Depends(get_db)):
+    """Active offensive players whose name matches q: this week's projected players plus everyone else on a roster
+    (on bye, or not projected), names starting with q first, projected players before the rest."""
+    run = latest_run(db)
+    q = q.strip().lower()
+    if not run or not q:
+        return []
+    shots = data.load_headshots(run.season)
+    hits = {pid: dict(player_id=pid, name=n, pos=pos, team=t, headshot=shots.get(pid), projected=True)
+            for pid, n, pos, t in db.execute(select(Projection.player_id, Projection.name, Projection.pos, Projection.team)
+                                             .where(Projection.run_id == run.id).distinct())}
+    for r in data.load_active_players(run.season).to_dict("records"):
+        hits.setdefault(r["player_id"], dict(r, projected=False))
+    words = lambda name: name.lower().replace(".", "").split()  # noqa: E731
+    match = [h for h in hits.values() if q in h["name"].lower() or q.replace(".", "") in h["name"].lower().replace(".", "")]
+    rank = lambda h: (not (h["name"].lower().startswith(q) or any(w.startswith(q) for w in words(h["name"]))),  # noqa: E731
+                      not h["projected"], h["name"])
+    return sorted(match, key=rank)[:limit]
 
 
 @app.get("/api/players/{player_id}", response_model=PlayerDetail)
