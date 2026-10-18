@@ -119,6 +119,7 @@ class ProjectionOut(BaseModel):
     last5: list[float]
     wx: Optional[float] = None  # weather multiplier already in mu (1 or None: no effect)
     teammate_out: Optional[str] = ""  # same-position rotation receivers in their first game out
+    thin: Optional[bool] = False      # thin history (a rookie, or back from IR): shown, never priced
 
 
 class PickOut(BaseModel):

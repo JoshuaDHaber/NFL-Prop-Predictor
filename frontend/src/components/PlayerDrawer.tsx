@@ -44,7 +44,7 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
               <Avatar name={data.name} src={data.headshot} size={84} />
               <div>
                 <h2>{data.name}</h2>
-                <div className="mut"><span className="pos-pill">{data.pos}</span> {data.team} {matchup(proj.opp, proj.home)}</div>
+                <div className="mut"><span className="pos-pill">{data.pos}</span> {data.team} {matchup(proj.opp, proj.home)}{proj.thin && <> <span className="thin-pill">Thin history</span></>}</div>
               </div>
             </div>
             {wxText && (
@@ -98,8 +98,15 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <LineLadder kind={kind} mu={proj.mu} book={book} onBookChange={onBookChange} ctx={{ playerId: data.player_id, name: data.name, team: data.team,
-              opp: proj.opp, home: proj.home, gameId: proj.game_id }} />
+            {proj.thin ? (
+              <p className="thin-note mut">
+                <span className="thin-pill">Thin history</span> {data.name} has only a game or two of history (a rookie, or back from IR),
+                so this projection is a rough guess. It isn't priced against sportsbook lines and stays out of Best props and parlays.
+              </p>
+            ) : (
+              <LineLadder kind={kind} mu={proj.mu} book={book} onBookChange={onBookChange} ctx={{ playerId: data.player_id, name: data.name, team: data.team,
+                opp: proj.opp, home: proj.home, gameId: proj.game_id }} />
+            )}
           </>
         )}
       </aside>

@@ -149,6 +149,8 @@ button.tile { cursor: pointer; } button.tile:hover, button.tile:focus-visible { 
 .player-head { display: flex; align-items: center; gap: 16px; margin: 6px 0 10px; padding-right: 28px; }
 .player-head h2 { font-size: 24px; letter-spacing: -.02em; }
 .pos-pill { background: var(--chip); color: var(--acc); font-weight: 700; font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+.thin-pill { border: 1px dashed var(--mut); color: var(--mut); font-weight: 600; font-size: 10px; padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
+.thin-note { margin: 16px 0 4px; line-height: 1.5; }
 @media (max-width: 600px) { .tabs button { padding: 8px 12px; } .tiles { grid-template-columns: 1fr; } }
 
 /* ---------- filters ---------- */

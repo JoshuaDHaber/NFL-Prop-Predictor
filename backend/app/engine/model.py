@@ -45,6 +45,11 @@ CFG = {
 POSITIONS = {"rush": ("QB", "RB", "WR", "TE", "FB"), "rec": ("RB", "WR", "TE", "FB"), "pass": ("QB",), "recs": ("RB", "WR", "TE", "FB"),
              "ptd": ("QB",)}
 SCRIPT = {"rush": SCRIPT_RUSH, "rec": SCRIPT_REC, "pass": SCRIPT_PASS, "recs": SCRIPT_REC, "ptd": SCRIPT_PASS}
+# "thin history": a non-QB with fewer than this many games in the loaded seasons (a rookie, or back from IR after a game or
+# two). Markets the model would otherwise drop for him are still projected, flagged thin, for display only: the backtest's
+# error tables were measured on players who clear the volume minimum, so thin rows are never priced (picks.build_picks).
+THIN_GAMES = 3
+THIN_KINDS = {"RB": ("rush", "rec", "recs"), "FB": ("rush", "rec", "recs"), "WR": ("rec", "recs"), "TE": ("rec", "recs")}
 LNG_LAMBDA = np.linspace(0.0, 16.0, 161)   # expected catches at which long_table tabulates the expected longest
 
 
@@ -484,13 +489,15 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
             # skip offseason arrivals with no games for the new team: their old role doesn't carry over.
             # Mid-season trades (last game this season, for another team) keep their current-season role.
             on_team = on_team[(on_team.team == team) | (on_team.t >= season * 100)]
-            members = []
+            members, thin = [], []
             for pid, p in on_team.iterrows():
                 hist = by_player[pid]
-                if len(hist) < 2:
-                    continue
                 hist = hist.iloc[:]  # a view of the player's rows; attrs are set per use
                 hist.attrs["opp"] = other
+                if len(hist) < THIN_GAMES and p.position in THIN_KINDS:
+                    thin.append((pid, p, hist))
+                if len(hist) < 2:
+                    continue
                 members.append(dict(pid=pid, p=p, hist=hist, pos=p.position, comp=components(hist, p.position, priors, opp, sp, wx)))
             qbs = {c["pid"] for c in members if c["pos"] == "QB" and c["pid"] not in absent_ids}
             past = np.sort(df[(df.team == team) & (df.t < week_t)].t.unique())
@@ -521,7 +528,7 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
                         rows.append(dict(player_id=pid, name=p.player_display_name, pos=p.position, team=team,
                                          opp=other, home=team == gm.home_team, kind="td", mu=res[0], vol=res[2], eff=res[1],
                                          sd=0.0, spread=sp, gameday=gm.gameday, gametime=gm.gametime, game_id=gm.game_id,
-                                         last5=tdm.td_count(hist).tail(5).tolist(), wx=1.0))
+                                         last5=tdm.td_count(hist).tail(5).tolist(), wx=1.0, thin=False))
                 out_here = "" if pid in absent_ids else ", ".join(tagged.get(rd.group("rec", p.position), []))
                 for kind, (mu, vol, eff) in all_kinds(hist, p.position, priors, opp, sp, comp, implied_map.get((season, week, team))).items():
                     rows.append(dict(player_id=pid, name=p.player_display_name, pos=p.position, team=team,
@@ -529,5 +536,19 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
                                      sd=sd_at(mu, var_params[kind]), spread=sp,
                                      gameday=gm.gameday, gametime=gm.gametime, game_id=gm.game_id,
                                      last5=actual_hist(hist, kind).tail(5).tolist(), wx=wx_ratio(kind, comp, wx),
-                                     teammate_out=out_here if kind in rd.TAG_KINDS else ""))
+                                     teammate_out=out_here if kind in rd.TAG_KINDS else "", thin=False))
+            # thin-history players: the markets the volume minimum dropped, projected as-is and flagged (not in redistribution)
+            have = {(r["player_id"], r["kind"]) for r in rows}
+            for pid, p, hist in thin:
+                comp = components(hist, p.position, priors, opp, sp, wx)
+                for kind in THIN_KINDS[p.position]:
+                    if kind not in comp or (pid, kind) in have:
+                        continue
+                    mu, vol, eff = comp[kind]
+                    rows.append(dict(player_id=pid, name=p.player_display_name, pos=p.position, team=team,
+                                     opp=other, home=team == gm.home_team, kind=kind, mu=mu, vol=vol, eff=eff,
+                                     sd=sd_at(mu, var_params[kind]), spread=sp,
+                                     gameday=gm.gameday, gametime=gm.gametime, game_id=gm.game_id,
+                                     last5=actual_hist(hist, kind).tail(5).tolist(), wx=wx_ratio(kind, comp, wx),
+                                     teammate_out="", thin=True))
     return pd.DataFrame(rows)

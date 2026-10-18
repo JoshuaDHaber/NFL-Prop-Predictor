@@ -86,6 +86,8 @@ export interface Projection {
   mu: number; sd: number; vol: number; eff: number; spread: number; status: string;
   game_id: string; gameday: string; gametime: string; last5: number[];
   wx?: number | null;   // weather multiplier already in mu (1 or null: none)
+  /** Thin history (a rookie, or back from IR): shown for reference, never priced. Older snapshots lack it. */
+  thin?: boolean | null;
 }
 export interface Pick {
   player_id: string; name: string; pos: string; team: string; opp: string; home: boolean; kind: Kind;

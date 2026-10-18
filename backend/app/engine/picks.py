@@ -31,6 +31,9 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
         return pd.DataFrame(columns=PICK_COLUMNS)
     lines = lines.copy()
     lines["key"] = lines.player.map(odds.norm)
+    if "thin" in proj:
+        # thin-history projections are display only: the backtest's error tables don't cover them (model.THIN_GAMES)
+        proj = proj[~proj.thin.fillna(False).astype(bool)]
     proj = proj.copy()
     proj["key"] = proj["name"].map(odds.norm)
     if "game_id" in lines:
