@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type GameWeather, type Kind, type PlayerHit, type Projection } from "../api";
-import { KIND_LABEL, effText, fmtProj, fmtSd, matchup, volLabel } from "../format";
+import { KIND_LABEL, NBA_KINDS, effText, fmtProj, fmtSd, kickoff, matchup, volLabel } from "../format";
+import { getLeague } from "../league";
 import { useDebounced } from "../useDebounced";
 import Avatar from "./Avatar";
 import Spark from "./Spark";
@@ -9,29 +10,34 @@ import WeatherChip from "./WeatherChip";
 
 /** Up to this many players side by side. */
 export const MAX_COMPARE = 4;
-const ORDER: Kind[] = ["pass", "ptd", "rush", "rec", "recs", "lng", "rr", "td"];
-/** The chosen players, remembered in this browser. */
-const STORE_KEY = "comparePlayers";
-const stored = (): PlayerHit[] => {
-  try { const v = JSON.parse(localStorage.getItem(STORE_KEY) ?? "[]"); return Array.isArray(v) ? v.slice(0, MAX_COMPARE) : []; } catch { return []; }
+const ORDER: Kind[] = ["pass", "ptd", "rush", "rec", "recs", "lng", "rr", "td", ...NBA_KINDS];
+/** The chosen players, remembered in this browser per league. */
+const storeKey = (nba: boolean) => (nba ? "comparePlayersNba" : "comparePlayers");
+const stored = (nba: boolean): PlayerHit[] => {
+  try { const v = JSON.parse(localStorage.getItem(storeKey(nba)) ?? "[]"); return Array.isArray(v) ? v.slice(0, MAX_COMPARE) : []; } catch { return []; }
 };
+/** Earliest game first: an NBA player can play twice on the slate, and the compare shows his next game. */
+const byStart = (a: Projection, b: Projection) => `${a.gameday} ${a.gametime}`.localeCompare(`${b.gameday} ${b.gametime}`);
 
 export default function PlayerCompare({ onSelect, weather = {} }: { onSelect: (id: string, kind: Kind) => void; weather?: Record<string, GameWeather | null | undefined> }) {
-  const [players, setPlayersState] = useState<PlayerHit[]>(stored);
-  const setPlayers = (p: PlayerHit[]) => { setPlayersState(p); try { localStorage.setItem(STORE_KEY, JSON.stringify(p)); } catch { /* private mode: not remembered */ } };
+  const nba = getLeague() === "nba";
+  const noGame = nba ? "Not playing on the slate" : "No projection this week";
+  const [players, setPlayersState] = useState<PlayerHit[]>(() => stored(nba));
+  const setPlayers = (p: PlayerHit[]) => { setPlayersState(p); try { localStorage.setItem(storeKey(nba), JSON.stringify(p)); } catch { /* private mode: not remembered */ } };
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const query = useDebounced(q.trim(), 200);
   const box = useRef<HTMLDivElement>(null);
 
-  const hits = useQuery({ queryKey: ["player-search", query], queryFn: () => api.searchPlayers(query), enabled: query.length >= 2, placeholderData: (p) => p });
-  const projections = useQuery({ queryKey: ["all-projections"], queryFn: api.allProjections });
+  const hits = useQuery({ queryKey: ["player-search", nba, query], queryFn: () => api.searchPlayers(query), enabled: query.length >= 2, placeholderData: (p) => p });
+  const projections = useQuery({ queryKey: ["all-projections", nba], queryFn: api.allProjections });
   const byPlayer = useMemo(() => {
     const m = new Map<string, Map<Kind, Projection>>();
-    for (const p of projections.data ?? []) {
+    for (const p of [...(projections.data ?? [])].sort(byStart)) {
       if (!m.has(p.player_id)) m.set(p.player_id, new Map());
-      m.get(p.player_id)!.set(p.kind, p);
+      const kinds = m.get(p.player_id)!;
+      if (!kinds.has(p.kind) && [...kinds.values()].every((o) => o.game_id === p.game_id)) kinds.set(p.kind, p);
     }
     return m;
   }, [projections.data]);
@@ -79,7 +85,7 @@ export default function PlayerCompare({ onSelect, weather = {} }: { onSelect: (i
                   onMouseEnter={() => setActive(i)} onMouseDown={(e) => { e.preventDefault(); add(h); }}>
                   <Avatar name={h.name} src={h.headshot} size={30} />
                   <span><b>{h.name}</b> <span className="pos-pill">{h.pos}</span> <span className="mut">{h.team}</span></span>
-                  {!h.projected && <small className="mut cmp-tag">No projection this week</small>}
+                  {!h.projected && <small className="mut cmp-tag">{noGame}</small>}
                 </li>
               ))}
           </ul>
@@ -102,7 +108,7 @@ export default function PlayerCompare({ onSelect, weather = {} }: { onSelect: (i
                       <Avatar name={h.name} src={h.headshot} size={48} />
                       <b>{h.name}</b>
                       <span><span className="pos-pill">{h.pos}</span> {p?.team ?? h.team}</span>
-                      <small className="mut">{p ? <>{matchup(p.opp, p.home)}<WeatherChip weather={weather[p.game_id]} wx={p.wx} /></> : projections.isLoading ? "…" : "No projection this week"}</small>
+                      <small className="mut">{p ? <>{matchup(p.opp, p.home)}{nba ? ` · ${kickoff(p.gameday, p.gametime)}` : <WeatherChip weather={weather[p.game_id]} wx={p.wx} />}</> : projections.isLoading ? "…" : noGame}</small>
                       {p?.status && <small className="q">{p.status}</small>}
                     </th>
                   );
@@ -135,7 +141,7 @@ export default function PlayerCompare({ onSelect, weather = {} }: { onSelect: (i
                 );
               })}
               {!kinds.length && !projections.isLoading && (
-                <tr><td colSpan={players.length + 1} className="mut cmp-none">None of these players has a projection this week (on bye, injured or not projected).</td></tr>
+                <tr><td colSpan={players.length + 1} className="mut cmp-none">{nba ? "None of these players is projected on the slate (not playing, ruled out or too few minutes)." : "None of these players has a projection this week (on bye, injured or not projected)."}</td></tr>
               )}
             </tbody>
           </table>

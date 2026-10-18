@@ -99,7 +99,7 @@ export interface Pick {
   /** Same-position rotation receivers in their first game out (receiving yards). Context only, not a flag. */
   teammate_out?: string;
 }
-/** A player search hit: any active offensive player; projected is false for players on bye or without a projection. */
+/** A player search hit: an active player; projected is false for players on bye, off the NBA slate, or without a projection. */
 export interface PlayerHit { player_id: string; name: string; pos: string; team: string; headshot?: string | null; projected: boolean }
 export interface GameLogEntry { label: string; opp: string; yards: number; volume: number }
 export interface PlayerDetail {
@@ -190,8 +190,8 @@ const liveApi = {
       include_flagged: f.flagged, limit }),
   projections: (f: Filters) => get<Projection[]>(lg("projections"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, game_id: f.game, q: f.q }),
   /** Every market for every projected player, anytime TD included (the player compare tab). */
-  allProjections: () => get<Projection[]>("projections"),
-  searchPlayers: (q: string) => get<PlayerHit[]>("player-search", { q }),
+  allProjections: () => get<Projection[]>(lg("projections")),
+  searchPlayers: (q: string) => get<PlayerHit[]>(lg("player-search"), { q }),
   player: (id: string, marketWeight: number) => get<PlayerDetail>(lg(`players/${id}`), { market_weight: marketWeight }),
   moneylines: (book: string, marketWeight: number) => get<MoneylineGame[]>(lg("moneylines"), { book, market_weight: marketWeight }),
   injuries: () => get<InjuryReport>(lg("injuries")),

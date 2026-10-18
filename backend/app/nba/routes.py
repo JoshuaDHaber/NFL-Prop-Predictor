@@ -16,8 +16,9 @@ from ..engine import moneyline as mlm
 from ..engine import odds
 from ..engine.ladder import build_ladder
 from ..engine.picks import build_picks
+from ..engine.search import rank_hits
 from ..schemas import (AutoSync, BacktestStat, Game, GameLogEntry, InjuredPlayer, InjuryReport, LadderOut, MoneylineGame,
-                       NbaMeta, NbaRunInfo, OddsInfo, PickOut, PlayerDetail, ProjectionOut)
+                       NbaMeta, NbaRunInfo, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut)
 from . import espn, model
 from . import odds as nba_odds
 
@@ -182,6 +183,33 @@ def _injuries(_slot: int):
     return espn.injuries()
 
 
+HEADSHOT = "https://a.espncdn.com/i/headshots/nba/players/full/{}.png"
+
+
+@lru_cache(maxsize=1)
+def _rosters(_slot: int) -> pd.DataFrame:
+    """Every rostered player, re-read every 3 hours (ESPN's roster pages are cached on disk as long)."""
+    try:
+        return espn.rosters()
+    except Exception:   # search still covers the slate's projected players
+        return pd.DataFrame(columns=["player_id", "name", "pos", "team", "headshot"])
+
+
+@router.get("/player-search", response_model=list[PlayerHit])
+def player_search(q: str = Query("", max_length=60), limit: int = Query(12, ge=1, le=50), db: Session = Depends(get_db)):
+    """Rostered players whose name matches q: the slate's projected players first, then everyone else (not playing on the slate)."""
+    if not q.strip():
+        return []
+    run = latest_run(db)
+    live = [g["game_id"] for g in _upcoming(run)] if run else []
+    hits = {pid: dict(player_id=pid, name=n, pos=pos, team=t, headshot=HEADSHOT.format(pid), projected=True)
+            for pid, n, pos, t in db.execute(select(NbaProjection.player_id, NbaProjection.name, NbaProjection.pos, NbaProjection.team)
+                                             .where(NbaProjection.run_id == run.id, NbaProjection.game_id.in_(live)).distinct())} if run else {}
+    for r in _rosters(int(time.time() // 10800)).to_dict("records"):
+        hits.setdefault(r["player_id"], dict(r, headshot=r["headshot"] or HEADSHOT.format(r["player_id"]), projected=False))
+    return rank_hits(list(hits.values()), q, limit)
+
+
 @router.get("/players/{player_id}", response_model=PlayerDetail)
 def player(player_id: str, market_weight: float = Query(0.35, ge=0, le=1), db: Session = Depends(get_db)):
     run = latest_run(db)
@@ -192,7 +220,7 @@ def player(player_id: str, market_weight: float = Query(0.35, ge=0, le=1), db: S
     df = all_picks(db, run, market_weight)
     pp = df[df.player_id == player_id] if not df.empty else df
     return PlayerDetail(player_id=player_id, name=p.name, pos=p.pos, team=p.team,
-                        headshot=f"https://a.espncdn.com/i/headshots/nba/players/full/{player_id}.png",
+                        headshot=HEADSHOT.format(player_id),
                         projections=[ProjectionOut.model_validate(r, from_attributes=True) for r in rows],
                         picks=_records(pp), logs=_game_logs(player_id, run.season))
 

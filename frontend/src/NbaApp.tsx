@@ -10,6 +10,7 @@ import LeagueSwitch from "./components/LeagueSwitch";
 import NbaGameOverview from "./components/NbaGameOverview";
 import ParlayTiles from "./components/ParlayTiles";
 import PicksTable from "./components/PicksTable";
+import PlayerCompare from "./components/PlayerCompare";
 import ProjectionsTable from "./components/ProjectionsTable";
 import ThemeToggle from "./components/ThemeToggle";
 import TopTiles, { type Tile } from "./components/TopTiles";
@@ -22,8 +23,8 @@ import { useParlayBoard } from "./useParlayBoard";
 
 const PlayerDrawer = lazy(() => importOrReload(() => import("./components/PlayerDrawer")));
 
-type Tab = "games" | "picks" | "parlays" | "injuries" | "projections";
-const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["injuries", "Injuries"], ["projections", "Projections"]];
+type Tab = "games" | "picks" | "parlays" | "injuries" | "projections" | "compare";
+const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["injuries", "Injuries"], ["projections", "Projections"], ["compare", "Compare"]];
 const gameFromHash = () => new URLSearchParams(window.location.hash.slice(1)).get("game");
 const GAME_BOOK_KEY = "gameBook";
 const PREFERRED_GAME_BOOK = "FanDuel";
@@ -154,6 +155,7 @@ export default function NbaApp() {
           <NbaInjuries report={injuries.data} games={m.games} onSelect={select} />)}
         {tab === "projections" && (projections.isLoading ? <p className="mut">Loading…</p> :
           <ProjectionsTable nba rows={projections.data ?? []} onSelect={(p) => select(p.player_id, p.kind)} />)}
+        {tab === "compare" && <PlayerCompare onSelect={select} />}
       </>}
 
       <footer>
