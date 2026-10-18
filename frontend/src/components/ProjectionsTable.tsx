@@ -6,6 +6,8 @@ import SortBar from "./SortBar";
 import Spark from "./Spark";
 import WeatherChip from "./WeatherChip";
 
+export const THIN_TITLE = "Only a game or two of history (a rookie, or back from IR): a rough guess, shown for reference and never priced";
+
 export default function ProjectionsTable({ rows, onSelect, weather = {}, nba = false }: { rows: Projection[]; onSelect: (p: Projection) => void; weather?: Record<string, GameWeather | null | undefined>; nba?: boolean }) {
   const { sorted, toggle, arrow } = useSort(rows, "mu");
   const th = (key: string, label: string, title?: string) => (
@@ -31,7 +33,7 @@ export default function ProjectionsTable({ rows, onSelect, weather = {}, nba = f
               <td>
                 <div className="pcell">
                   <Avatar name={p.name} size={34} />
-                  <div><b>{p.name}</b> <span className="pos-pill">{p.pos}</span> <span className="mut">{p.team}</span>{p.status && <span className="q"> {p.status}</span>}</div>
+                  <div><b>{p.name}</b> <span className="pos-pill">{p.pos}</span> <span className="mut">{p.team}</span>{p.status && <span className="q"> {p.status}</span>}{p.thin && <> <span className="thin-pill" title={THIN_TITLE}>Thin history</span></>}</div>
                 </div>
               </td>
               <td>{KIND_LABEL[p.kind]}</td>

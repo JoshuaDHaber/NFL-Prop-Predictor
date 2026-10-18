@@ -153,7 +153,7 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
                        kind=r.kind, mu=float(r.mu), sd=float(r.sd), vol=float(r.vol), eff=float(r.eff),
                        spread=float(r.spread), status=r.status, game_id=r.game_id, gameday=str(r.gameday),
                        gametime="" if pd.isna(r.gametime) else str(r.gametime), last5=[float(x) for x in r.last5],
-                       wx=float(r.wx), teammate_out=getattr(r, "teammate_out", "") or "")
+                       wx=float(r.wx), teammate_out=getattr(r, "teammate_out", "") or "", thin=bool(pd.notna(getattr(r, "thin", False)) and getattr(r, "thin", False)))
             for r in proj.itertuples()]
         s.add(run)
         s.commit()

@@ -122,3 +122,9 @@ def test_a_teammate_out_tags_both_sides_without_flagging_either():
     gap = build_picks(proj(name="Wide Out", pos="WR", kind="rec", mu=10.0, sd=20.0, teammate_out="X"),
                       lines([("Wide Out", "rec", 40.5, -110, -110, "A")]))
     assert (gap.flag == "large gap").all()                                # the stronger reason wins
+
+
+def test_thin_history_projections_are_never_priced():
+    ln = lines([("Test Back", "rush", 60.5, -110, -110, "A")])
+    assert build_picks(proj(mu=90, thin=True), ln).empty
+    assert not build_picks(proj(mu=90, thin=False), ln).empty

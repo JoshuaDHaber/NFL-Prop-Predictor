@@ -402,7 +402,8 @@ def build_ladder_out(db: Session, p: Projection, odds_range: int = 0) -> LadderO
     quotes = pd.concat([f for f in (main, alt_df) if not f.empty] or [main], ignore_index=True)
     fetched = max((r.fetched_at for r in alts), default=None)
     return LadderOut(kind=kind, mu=p.mu, sd=p.sd, game_id=p.game_id, alt_fetched_at=fetched.isoformat() if fetched else None,
-                     quotes=build_ladder(p.mu, p.sd, quotes, odds_range, kind, _dists(db.get(Run, p.run_id)).get(kind)))
+                     # thin-history projections aren't priced (model.THIN_GAMES), so they get no ladder
+                     quotes=[] if p.thin else build_ladder(p.mu, p.sd, quotes, odds_range, kind, _dists(db.get(Run, p.run_id)).get(kind)))
 
 
 @app.post("/api/players/{player_id}/alt-lines", response_model=AltFetchResult)

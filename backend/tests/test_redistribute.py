@@ -334,3 +334,19 @@ def test_a_backup_receiver_out_tags_nobody():
     df = wr_league(wr2_weeks=range(1, 9))
     t = tags(df, absent_ids={"wr3"})                                      # 2 targets a game: below the rotation line
     assert t[("wr1", "rec")] == ""
+
+
+def test_thin_history_receivers_are_projected_flagged_and_leave_teammates_alone():
+    """A rookie with one game (one target) is under the volume minimum: he is still projected, flagged thin."""
+    base = league(rb1_weeks=range(1, 9))
+    df = model.prep(pd.concat([base, pd.DataFrame([row("rook", "WR", 1, targets=1)], columns=COLS)], ignore_index=True))
+    s, pri = sched(), model.league_priors(df)
+    dist = {k: dict(mu=[1.0, 200.0], sd=[10.0, 10.0], z=[float(z) for z in np.linspace(-2, 2, 41)]) for k in ("rush", "rec", "pass", "rr", "recs")}
+    roster = {pid: "AAA" for pid in ("rb1", "rb2", "qb", "wr", "rook")}
+    p = model.upcoming_projections(df, s, pri, dist, 202609, roster)
+    rook = p[p.player_id == "rook"]
+    assert set(rook.kind) == {"rec", "recs"} and rook.thin.all() and (rook.mu > 0).all()
+    assert not p[p.player_id != "rook"].thin.any()
+    without = model.upcoming_projections(base, s, pri, dist, 202609, roster)
+    key = ["player_id", "kind"]
+    pd.testing.assert_series_equal(p[p.player_id != "rook"].set_index(key).mu.sort_index(), without.set_index(key).mu.sort_index())
