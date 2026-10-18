@@ -394,6 +394,11 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
 .go-sec > .parlay-h { margin-bottom: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 6px; }
 .go-more { align-self: flex-start; font-size: 13px; font-weight: 600; }
 .go-reserve { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--mut); }
+.go-search { max-width: none; }
+.go-hit-kinds { margin-left: auto; display: flex; gap: 4px; flex-shrink: 0; }
+.go-hit-kinds button { border: 1px solid var(--line); background: var(--card); color: var(--mut); border-radius: 999px; padding: 2px 8px; font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
+.go-hit-kinds button:hover { border-color: var(--acc); color: var(--acc); }
+@media (max-width: 600px) { .go-search input { font-size: 16px; } .go-hit-kinds { display: none; } }
 .go-book { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .go-book select { font-weight: 600; }
 @media (max-width: 600px) { .go-book { margin-left: 0; width: 100%; } .go-book select { flex: 1; font-size: 16px; } }

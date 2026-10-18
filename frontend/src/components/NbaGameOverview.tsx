@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { api, type Game, type Kind, type NbaKind } from "../api";
 import { KIND_SHORT, NBA_KINDS } from "../format";
 import { useParlayBoard } from "../useParlayBoard";
+import GamePlayerSearch from "./GamePlayerSearch";
 import { GameInjuries } from "./Injuries";
 import { MoneylineCard } from "./Moneylines";
 import ParlayTiles from "./ParlayTiles";
@@ -45,6 +46,8 @@ export default function NbaGameOverview({ game, books, book, onBook, marketWeigh
   const injuries = useQuery({ queryKey: ["injuries"], queryFn: api.injuries, refetchInterval: 15 * 60_000 });
   const picks = useQuery({ queryKey: ["game-picks", id, propKind, book, marketWeight], queryFn: () => api.picks({ ...base, kind: propKind }, 300), placeholderData: (p) => p });
   const projections = useQuery({ queryKey: ["game-projections", id, projKind], queryFn: () => api.projections({ ...base, kind: projKind }), placeholderData: (p) => p });
+  // every stat for the game, for the player search (same cache entry as the projections table on "All")
+  const roster = useQuery({ queryKey: ["game-projections", id, "all"], queryFn: () => api.projections({ ...base, kind: "all" }) });
 
   const chosen = useMemo(() => [id], [id]);
   // parlays need one book; with "all books" they fall back to the board's own default
@@ -68,6 +71,8 @@ export default function NbaGameOverview({ game, books, book, onBook, marketWeigh
           {SECTIONS.map(([el, label]) => <button key={el} onClick={() => jump(el)}>{label}</button>)}
         </nav>
       </div>
+
+      <GamePlayerSearch rows={roster.data ?? []} onSelect={onSelect} />
 
       {ml ? <MoneylineCard g={ml} /> : moneylines.isLoading ? null : <div className="card empty">No win chances for this game yet.</div>}
 

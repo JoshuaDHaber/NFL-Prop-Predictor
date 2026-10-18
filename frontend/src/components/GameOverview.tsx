@@ -4,6 +4,7 @@ import { api, type Game, type Kind, type WeatherFit } from "../api";
 import { KIND_SHORT, MARKET_TABS, SUB_LABEL, groupOf } from "../format";
 import { PARLAY_FILTERS, useParlayBoard } from "../useParlayBoard";
 import GameWeather from "./GameWeather";
+import GamePlayerSearch from "./GamePlayerSearch";
 import { GameInjuries } from "./Injuries";
 import { MoneylineCard } from "./Moneylines";
 import ParlayTiles from "./ParlayTiles";
@@ -65,6 +66,8 @@ export default function GameOverview({ game, books, book, onBook, marketWeight, 
     queryFn: () => api.projections({ ...PARLAY_FILTERS, kind: projKind, game: id }),
     placeholderData: (p) => p,
   });
+  // every market for the game, for the player search (same cache entry as the projections table on "All")
+  const roster = useQuery({ queryKey: ["game-projections", id, "all"], queryFn: () => api.projections({ ...PARLAY_FILTERS, kind: "all", game: id }) });
   const chosen = useMemo(() => [id], [id]);
   // parlays need one book; with "all books" they fall back to the board's own default
   const board = useParlayBoard(books, chosen, true, book === "all" ? undefined : book);
@@ -88,6 +91,8 @@ export default function GameOverview({ game, books, book, onBook, marketWeight, 
           {SECTIONS.map(([el, label]) => <button key={el} onClick={() => jump(el)}>{label}</button>)}
         </nav>
       </div>
+
+      <GamePlayerSearch rows={roster.data ?? []} onSelect={onSelect} />
 
       <div className="go-top">
         <GameWeather game={game} fit={fit} />
