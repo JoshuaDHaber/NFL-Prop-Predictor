@@ -43,3 +43,34 @@ def test_falls_back_to_the_last_report_until_this_weeks_is_out_and_filters_teams
     rep = injm.build(REPORT[REPORT.week == 5], RESERVE, 6, teams={"AAA"})
     assert rep["report_week"] == 5 and set(rep["teams"]) == {"AAA"}
     assert injm.build(pd.DataFrame(), pd.DataFrame(), 6) == dict(report_week=None, teams={})
+
+
+ESPN = pd.DataFrame([
+    ("e-q1", "Q Receiver", "AAA", "WR", "Questionable", "Ankle", "Limited in practice again Friday.", "2026-10-18", "2026-10-17T01:00Z"),
+    ("e-l1", "Sore Back", "AAA", "RB", "Out", "Back", "Ruled out Saturday.", "2026-10-25", "2026-10-18T01:00Z"),
+    ("e-ir1", "Long Term", "AAA", "OL", "Injured Reserve", "Knee", "inactive", "2027-09-01", None),
+    ("e-new", "New Name", "BBB", "S", "Out", "Hamstring", "Won't play Sunday.", None, None),
+    ("e-act", "Just News", "BBB", "RB", "Active", "", "Elevated from the practice squad.", None, None),
+    (None, "Doubtful End", "BBB", "DE", "Active", "", "Expected to sit out Sunday.", None, None),
+], columns=["espn_id", "name", "team", "pos", "status", "injury", "comment", "return_date", "updated"])
+IDS = {"e-q1": "q1", "e-l1": "l1", "e-ir1": "ir1"}
+
+
+def test_espn_adds_news_and_fills_statuses_nflverse_lacks():
+    rep = injm.build(REPORT, RESERVE, 6, espn=ESPN, espn_ids=IDS)
+    aaa = {p["player_id"]: p for p in rep["teams"]["AAA"]}
+    assert (aaa["q1"]["status"], aaa["q1"]["comment"], aaa["q1"]["return_date"]) == ("Questionable", "Limited in practice again Friday.", "2026-10-18")
+    assert aaa["l1"]["status"] == "Out" and aaa["l1"]["practice"] == "Limited"   # practice-only listing gets ESPN's status
+    assert aaa["ir1"]["status"] == "IR" and aaa["ir1"]["injury"] == "Knee"
+    assert aaa["ir1"]["comment"] == ""                                              # a one-word note repeats the badge
+    bbb = {p["name"]: p for p in rep["teams"]["BBB"]}
+    assert bbb["New Name"]["status"] == "Out" and bbb["New Name"]["player_id"] == "espn:e-new"
+    assert "Just News" not in bbb                                                   # news alone doesn't list a player
+    assert bbb["Doubtful End"]["status"] == "Doubtful" and bbb["Doubtful End"]["comment"] == "Expected to sit out Sunday."  # matched by name
+    assert [p["name"] for p in rep["teams"]["AAA"]][:2] == ["Out Corner", "Sore Back"]   # re-sorted with the new status
+
+
+def test_espn_status_replaces_last_weeks_report():
+    rep = injm.build(REPORT[REPORT.week == 5], RESERVE, 6, espn=ESPN.assign(name="Last Week", espn_id=None).head(1))
+    p = next(p for p in rep["teams"]["AAA"] if p["player_id"] == "old")
+    assert (p["status"], p["practice"], p["comment"]) == ("Questionable", "", "Limited in practice again Friday.")

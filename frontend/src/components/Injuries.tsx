@@ -28,10 +28,12 @@ function badge(p: InjuredPlayer): { text: string; cls: string; title: string } {
   return { text: p.practice === "DNP" ? "DNP" : "Limited", cls: "banged", title: `No game status yet; ${p.practice === "DNP" ? "did not practice" : "limited in practice"}` };
 }
 
-/** "Nov 1", or "Oct 1, 2027" when it isn't this year (a season-ending injury). */
-function returnText(d: string): string {
-  const at = new Date(`${d}T12:00:00`);
-  return at.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(at.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}) });
+/** "Nov 1", or "Oct 1, 2027" when it isn't this year (a season-ending injury); null when the date isn't after today
+ * (ESPN dates a questionable player's return to game day, which says nothing). */
+function returnText(d: string): string | null {
+  const at = new Date(`${d}T12:00:00`), today = new Date();
+  if (at.toDateString() === today.toDateString() || at < today) return null;
+  return at.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(at.getFullYear() !== today.getFullYear() ? { year: "numeric" } : {}) });
 }
 
 function summary(players: InjuredPlayer[]): string {
@@ -46,6 +48,7 @@ function summary(players: InjuredPlayer[]): string {
 function Row({ p, onSelect }: { p: InjuredPlayer; onSelect: Props["onSelect"] }) {
   const b = badge(p);
   const practice = p.status && !RESERVE.has(p.status) && p.practice ? p.practice : "";
+  const back = p.return_date && !["Day-To-Day", "Questionable", "Probable"].includes(p.status) ? returnText(p.return_date) : null;
   return (
     <li className="inj-row">
       <span className={`inj-badge ${b.cls}`} title={b.title}>{b.text}</span>
@@ -53,8 +56,8 @@ function Row({ p, onSelect }: { p: InjuredPlayer; onSelect: Props["onSelect"] })
       <span className="inj-name">
         {p.kind ? <button className="link strong" onClick={() => onSelect(p.player_id, p.kind as Kind)} title="Open his projections and props">{p.name}</button> : p.name}
         {(p.injury || practice) && <span className="mut"> {[p.rest ? "" : p.injury, practice && `${practice} in practice`].filter(Boolean).join(" · ")}</span>}
-        {p.return_date && p.status !== "Day-To-Day" && <span className="mut"> · back ~{returnText(p.return_date)}</span>}
-        {p.comment && <span className="inj-note mut">{p.comment}</span>}
+        {back && <span className="mut"> · back ~{back}</span>}
+        {p.comment && <span className="inj-note mut" title={p.updated ? `ESPN, ${timeAgo(p.updated.replace("Z", ""))}` : "ESPN"}>{p.comment}</span>}
       </span>
     </li>
   );
@@ -130,9 +133,10 @@ export default function Injuries({ report, games, onSelect }: Props) {
         </div>
         <p className="td-note">
           {report.report_week == null ? <>No injury report is available yet.</>
-            : stale ? <><b>Week {report.week}'s report isn't out yet</b> (teams start reporting Wednesday). Showing week {report.report_week}'s final statuses, which may have changed.</>
+            : stale ? <><b>Week {report.week}'s report isn't out yet</b> (teams start reporting Wednesday). Showing week {report.report_week}'s final statuses{report.news_fetched_at ? <>, updated with ESPN's latest where it has one.</> : <>, which may have changed.</>}</>
             : <><b>Week {report.week} injury report:</b> game statuses come out Friday (Saturday for Monday games); until then, practice participation is the tell.</>}
-          {report.fetched_at && <> Checked {timeAgo(report.fetched_at)} (nflverse).</>} Players with props link to their projections.
+          {report.fetched_at && <> Checked {timeAgo(report.fetched_at)} (nflverse).</>}
+          {report.news_fetched_at && <> News lines and estimated returns from ESPN, checked {timeAgo(report.news_fetched_at)}.</>} Players with props link to their projections.
         </p>
       </section>
       {!shown.length ? <div className="card empty">No games on the slate.</div> : (

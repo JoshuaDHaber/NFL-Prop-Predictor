@@ -121,11 +121,15 @@ export interface InjuredPlayer {
   status: string;     // Out | Doubtful | Questionable | "" (no game status) | IR | PUP | NFI | Reserve
   injury: string; practice: "DNP" | "Limited" | "Full" | ""; rest: boolean;
   kind: Kind | null;  // a market the app projects for him (opens his drawer)
-  comment?: string;            // NBA (ESPN): the latest news line
-  return_date?: string | null; // NBA: estimated return, YYYY-MM-DD
-  updated?: string | null;     // NBA: when the status changed (UTC ISO)
+  comment?: string;            // ESPN: the latest news line
+  return_date?: string | null; // ESPN: estimated return, YYYY-MM-DD
+  updated?: string | null;     // ESPN: when the status changed (UTC ISO)
 }
-export interface InjuryReport { season: number | null; week: number | null; report_week: number | null; fetched_at: string | null; teams: Record<string, InjuredPlayer[]> }
+export interface InjuryReport {
+  season: number | null; week: number | null; report_week: number | null; fetched_at: string | null;
+  news_fetched_at?: string | null;  // NFL: when ESPN's feed (news, return dates) was last read
+  teams: Record<string, InjuredPlayer[]>;
+}
 /** /api/nba/meta: the NBA slate (the next two game dates), its odds and the model's backtest. */
 export interface NbaMeta {
   league: "nba";

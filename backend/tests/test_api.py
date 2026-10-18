@@ -390,9 +390,14 @@ def test_injury_report_covers_teams_on_the_slate(client, monkeypatch):
                                        ("ZZZ", "x2", "Not Playing", "WR", "Out")]]
     monkeypatch.setattr(main.data, "load_injuries", lambda season: main.pd.DataFrame(rows))
     monkeypatch.setattr(main.data, "load_reserve", lambda season: main.pd.DataFrame())
+    espn = main.pd.DataFrame([("9", "Alpha Back", "AAA", "RB", "Questionable", "Knee", "Limited in practice Friday.", "2026-10-18", None)],
+                             columns=main.data.ESPN_COLUMNS)
+    monkeypatch.setattr(main.data, "load_espn_injuries", lambda: (espn, "2026-10-18T12:00:00"))
+    monkeypatch.setattr(main.data, "load_espn_ids", lambda season: {"9": "p0"})
     main._injury_report.cache_clear()
     rep = client.get("/api/injuries").json()
     main._injury_report.cache_clear()
     assert rep["week"] == 4 and rep["report_week"] == 4 and set(rep["teams"]) == {"AAA", "BBB"}
+    assert rep["news_fetched_at"] == "2026-10-18T12:00:00" and rep["teams"]["AAA"][0]["comment"] == "Limited in practice Friday."
     assert rep["teams"]["AAA"][0]["kind"] == "rush"            # projected: the UI can open his drawer
     assert rep["teams"]["BBB"][0]["side"] == "def" and rep["teams"]["BBB"][0]["kind"] is None

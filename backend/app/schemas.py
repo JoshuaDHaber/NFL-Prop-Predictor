@@ -258,9 +258,9 @@ class InjuredPlayer(BaseModel):
     practice: str           # DNP | Limited | Full | "" (not on the practice report)
     rest: bool              # a veteran's rest day, not an injury
     kind: Optional[str] = None  # a market the app projects for him (opens his player drawer)
-    comment: str = ""           # NBA (ESPN): the latest news line, e.g. "won't play Monday against the Thunder"
-    return_date: Optional[str] = None  # NBA (ESPN): estimated return, YYYY-MM-DD
-    updated: Optional[str] = None      # NBA (ESPN): when the status was last updated (UTC ISO)
+    comment: str = ""           # ESPN: the latest news line, e.g. "won't play Monday against the Thunder"
+    return_date: Optional[str] = None  # ESPN: estimated return, YYYY-MM-DD
+    updated: Optional[str] = None      # ESPN: when the status was last updated (UTC ISO)
 
 
 class InjuryReport(BaseModel):
@@ -268,6 +268,7 @@ class InjuryReport(BaseModel):
     week: Optional[int] = None
     report_week: Optional[int] = None   # the week the report is from (earlier than week until this week's is out)
     fetched_at: Optional[str] = None
+    news_fetched_at: Optional[str] = None   # NFL: when ESPN's feed (news lines, return dates) was last read
     teams: dict[str, list[InjuredPlayer]] = {}
 
 

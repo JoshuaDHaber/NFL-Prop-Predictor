@@ -316,16 +316,24 @@ def build_injuries(db: Session, run: Optional[Run]) -> InjuryReport:
     for pid, kind in db.execute(select(Projection.player_id, Projection.kind).where(Projection.run_id == run.id)):
         if pid not in props or order.get(kind, 9) < order.get(props[pid], 9):
             props[pid] = kind
-    rep = _injury_report(run.season, run.week, int(time.time() // 900))  # the injury file is re-fetched at most hourly
+    # nflverse's file is re-fetched at most hourly, ESPN's feed every 15 minutes
+    rep, news_fetched = _injury_report(run.season, run.week, int(time.time() // 900))
     path = os.path.join(data.CACHE, f"injuries_{run.season}.csv")
     fetched = datetime.utcfromtimestamp(os.path.getmtime(path)).isoformat() if os.path.exists(path) else None
     out = {t: [dict(p, kind=props.get(p["player_id"])) for p in ps] for t, ps in rep["teams"].items() if t in teams}
-    return InjuryReport(season=run.season, week=run.week, report_week=rep["report_week"], fetched_at=fetched, teams=out)
+    return InjuryReport(season=run.season, week=run.week, report_week=rep["report_week"], fetched_at=fetched,
+                        news_fetched_at=news_fetched, teams=out)
 
 
 @lru_cache(maxsize=2)
-def _injury_report(season: int, week: int, _slot: int) -> dict:
-    return injm.build(data.load_injuries(season), data.load_reserve(season), week)
+def _injury_report(season: int, week: int, _slot: int) -> tuple[dict, Optional[str]]:
+    try:
+        espn, news_fetched = data.load_espn_injuries()
+    except Exception:   # ESPN only adds detail: the nflverse report stands on its own
+        espn, news_fetched = None, None
+    rep = injm.build(data.load_injuries(season), data.load_reserve(season), week,
+                     espn=espn, espn_ids=data.load_espn_ids(season) if espn is not None else None)
+    return rep, news_fetched
 
 
 @app.get("/api/players/{player_id}", response_model=PlayerDetail)
