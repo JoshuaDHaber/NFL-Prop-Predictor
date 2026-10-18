@@ -161,7 +161,7 @@ class GameLogEntry(BaseModel):
 
 
 class PlayerHit(BaseModel):
-    """A player search result: any active offensive player, flagged with whether he has a projection this week."""
+    """A player search result: an active player (NFL: offensive skill positions), flagged with whether he is projected this week or slate."""
     player_id: str
     name: str
     pos: str

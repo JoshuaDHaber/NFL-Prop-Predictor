@@ -215,3 +215,13 @@ def test_threes_are_priced_as_poisson_counts():
     po, pu = prob_over_under_dist(2.2, 2, {"poisson": True})   # a whole-number line leaves room for a push at 2
     assert po + pu == pytest.approx(1 - poisson.pmf(2, 2.2))
     assert sd_at(4.0, {"poisson": True}) == 2.0
+
+
+def test_nba_player_search_covers_the_slate_and_rosters(nba_client, monkeypatch):
+    roster = pd.DataFrame(dict(player_id=["p1", "r2", "r3"], name=["Star Guard", "Starling Wing", "Other Big"],
+                               pos=["PG", "SF", "C"], team=["DET", "LAL", "MIA"], headshot=[None, None, "http://x/r3.png"]))
+    monkeypatch.setattr(nba_routes, "_rosters", lambda slot: roster)
+    hits = nba_client.get("/api/nba/player-search", params={"q": "star"}).json()
+    assert [(h["name"], h["projected"]) for h in hits] == [("Star Guard", True), ("Starling Wing", False)]
+    assert hits[1]["headshot"].endswith("/r2.png") and hits[1]["team"] == "LAL"
+    assert nba_client.get("/api/nba/player-search", params={"q": "big"}).json()[0]["headshot"] == "http://x/r3.png"
