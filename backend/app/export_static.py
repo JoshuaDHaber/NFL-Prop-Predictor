@@ -13,7 +13,7 @@ from pydantic import TypeAdapter
 from sqlalchemy import select
 
 from .db import Projection, SessionLocal
-from .main import all_picks, build_injuries, build_ladder_out, build_meta, build_moneylines, build_player_detail, latest_run
+from .main import all_picks, build_correlations, build_injuries, build_ladder_out, build_meta, build_moneylines, build_player_detail, latest_run
 from .schemas import MoneylineGame, PickOut
 
 DEFAULT_OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "frontend", "public", "demo")
@@ -59,6 +59,7 @@ def export(out: str) -> dict:
                             TypeAdapter(list[MoneylineGame]).dump_json(ml).decode())
 
         total += _write(os.path.join(out, "injuries.json"), build_injuries(db, run).model_dump_json())
+        total += _write(os.path.join(out, "correlations.json"), build_correlations(run).model_dump_json())
 
         players = {p.player_id for p in projs}
         for pid in sorted(players):

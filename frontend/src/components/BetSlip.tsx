@@ -1,10 +1,10 @@
-import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { BASE, IS_STATIC } from "../env";
 import { useBetSlip } from "../BetSlipContext";
 import { isYesNo, KIND_SHORT, americanOdds, pct, playLabel, signedPct } from "../format";
-import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, combinedLink, legLink, shareUrl, slipLinksText, linkStatus, openProgress, parlay, rebook, sameGame, slipText, toWin, type BookOption } from "../slip";
+import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, combinedLink, legLink, shareUrl, slipLinksText, linkStatus, openProgress, parlay, rebook, sameGame, slipHitChance, slipText, toAmerican, toWin, type BookOption } from "../slip";
 
 export default function BetSlip() {
   const { legs, remove, replace, clear, state, setState, open, setOpen } = useBetSlip();
@@ -35,6 +35,11 @@ export default function BetSlip() {
   // legs the chosen book can't take as-is, each with the nearest lines that book does offer
   const stranded = target ? legs.filter((l) => l.book !== target) : [];
   const stakeFor = (book: string) => stakes[book] ?? 10;
+  // same-game legs: positions (slip legs don't carry them) and the correlations, only once a book's legs share a game
+  const needCorr = open && legs.some((l, i) => legs.some((m, j) => j > i && m.gameId === l.gameId && m.book === l.book));
+  const nflProj = useQuery({ queryKey: ["nfl-projections"], queryFn: api.nflProjections, enabled: needCorr, staleTime: 10 * 60_000 });
+  const corrQuery = useQuery({ queryKey: ["correlations"], queryFn: api.correlations, enabled: needCorr, staleTime: 10 * 60_000 });
+  const positions = useMemo(() => Object.fromEntries((nflProj.data ?? []).map((p) => [p.player_id, p.pos])), [nflProj.data]);
 
   const copyText = async (text: string, tag: "link" | "text" | "share") => {
     try { await navigator.clipboard.writeText(text); setCopied(tag); setTimeout(() => setCopied(null), 1800); } catch { /* clipboard blocked */ }
@@ -235,8 +240,20 @@ export default function BetSlip() {
                       <span>{ls.length}-leg parlay <b>{americanOdds(p.american)}</b> → pays <b>${p.payout.toFixed(2)}</b> (profit ${p.profit.toFixed(2)})</span>
                     ) : <span className="mut">Single bet</span>}
                   </div>
+                  {ls.length > 1 && (() => {
+                    const sg = sameGame(ls);
+                    const hit = slipHitChance(ls, positions, sg ? corrQuery.data?.pairs : undefined);
+                    const ev = hit * p.decimal - 1;
+                    return (
+                      <p className="mut slip-chance">
+                        Model hit chance <b>{pct(hit, hit < 0.1 ? 1 : 0)}</b>
+                        {sg ? <> · fair odds <b>{americanOdds(toAmerican(1 / Math.max(hit, 1e-6)))}</b></>
+                          : <> · <span className={ev > 0 ? "pos" : ""}>{signedPct(ev)} EV</span></>}
+                      </p>
+                    );
+                  })()}
                   {ls.length > 1 && sameGame(ls) && (
-                    <p className="warn">Some legs are in the same game. Books usually price same-game parlays differently (correlation) or reject some combinations, so the payout above is only a guide.</p>
+                    <p className="warn">Some legs are in the same game. The hit chance counts how those legs move together (fitted on past games), but books price same-game parlays their own way (usually below the legs multiplied) or reject some combinations, so the payout above is only a guide: take it if the book's same-game price beats the fair odds.</p>
                   )}
                 </section>
               );

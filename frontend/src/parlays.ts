@@ -1,4 +1,5 @@
 import type { Kind, Ladder, Pick } from "./api";
+import { jointProb, legRho, parlayProb, type CorrTable } from "./copula";
 import { isYesNo } from "./format";
 import { getLeague } from "./league";
 import { legId, linkStatus, toAmerican, toDecimal, type Leg } from "./slip";
@@ -16,9 +17,9 @@ export interface Parlay {
   title: string;
   blurb: string;
   legs: ParlayLeg[];
-  /** True when two legs share a game. Their correlation isn't modelled, so the hit chance is only approximate. */
+  /** True when two legs share a game: their chance is correlated (see copula.ts), and the book prices them its own way. */
   sameGame: boolean;
-  /** Chance every leg hits, treating legs as independent (exact enough for different games, approximate within one). */
+  /** Chance every leg hits: independent across games, through the backtest's correlations within one (when given). */
   prob: number;
   decimal: number;
   american: number;
@@ -36,7 +37,7 @@ export function candidates(picks: Pick[]): Pick[] {
 }
 
 /** Take legs in order, at most one per player (a player's other lines and markets would be the same bet twice).
- *  Several legs may share a game; the parlay is flagged `sameGame` then, since their correlation isn't modelled. */
+ *  Several legs may share a game; the parlay is flagged `sameGame` then, since the book prices those its own way. */
 function onePerPlayer(sorted: Pick[], n: number): Pick[] {
   const players = new Set<string>();
   const legs: Pick[] = [];
@@ -49,10 +50,12 @@ function onePerPlayer(sorted: Pick[], n: number): Pick[] {
   return legs;
 }
 
-export function priceParlay(legs: Pick[]): Omit<Parlay, "key" | "title" | "blurb" | "legs"> {
+/** Price a parlay at its book. With `corr`, legs that share a game are priced with their correlation; without, as independent.
+ *  The payout is the legs' odds multiplied: what a book pays for legs in different games, and only a guide within one. */
+export function priceParlay(legs: Pick[], corr?: CorrTable): Omit<Parlay, "key" | "title" | "blurb" | "legs"> {
   if (new Set(legs.map((l) => l.book)).size > 1) throw new Error("A parlay's legs must all be at one sportsbook");
   const decimal = legs.reduce((d, l) => d * toDecimal(l.odds), 1);
-  const prob = legs.reduce((q, l) => q * l.prob, 1);
+  const prob = parlayProb(legs, corr);
   return { prob, decimal, american: toAmerican(decimal), ev: prob * decimal - 1, book: legs[0].book,
     sameGame: new Set(legs.map((l) => l.game_id)).size < legs.length };
 }
@@ -61,7 +64,7 @@ const byProb = (a: Pick, b: Pick) => b.prob - a.prob || b.ev - a.ev;
 const byEv = (a: Pick, b: Pick) => b.ev - a.ev || b.prob - a.prob;
 
 /** The recommended parlays. `picks` must all be quotes from one sportsbook. A tile is dropped when there aren't enough eligible legs or it repeats an earlier tile. */
-export function recommendParlays(picks: Pick[]): Parlay[] {
+export function recommendParlays(picks: Pick[], corr?: CorrTable): Parlay[] {
   const pool = candidates(picks);
   const specs: { key: string; title: string; blurb: string; n: number; legs: Pick[] }[] = [
     { key: "safest", title: "Safest 3-leg", blurb: "The three likeliest plays on the board.",
@@ -80,16 +83,16 @@ export function recommendParlays(picks: Pick[]): Parlay[] {
     const sig = s.legs.map(pickKey).sort().join("&");
     if (seen.has(sig)) continue;
     seen.add(sig);
-    out.push({ key: s.key, title: s.title, blurb: s.blurb, legs: s.legs, ...priceParlay(s.legs) });
+    out.push({ key: s.key, title: s.title, blurb: s.blurb, legs: s.legs, ...priceParlay(s.legs, corr) });
   }
   return out;
 }
 
 /** Recommended parlays at each sportsbook (`picksByBook`: that book's priced picks), keyed by book. Books with none are left out. */
-export function parlaysByBook(picksByBook: Record<string, Pick[]>): Record<string, Parlay[]> {
+export function parlaysByBook(picksByBook: Record<string, Pick[]>, corr?: CorrTable): Record<string, Parlay[]> {
   const out: Record<string, Parlay[]> = {};
   for (const [book, picks] of Object.entries(picksByBook)) {
-    const ps = recommendParlays(picks.filter((p) => p.book === book));
+    const ps = recommendParlays(picks.filter((p) => p.book === book), corr);
     if (ps.length) out[book] = ps;
   }
   return out;
@@ -182,15 +185,28 @@ export function ladderRungs(base: Pick, ladder: Ladder | undefined, book: string
 type Band = { key: string; title: string; lo: number; hi: number };
 type LadderEntry = { base: Pick; ladder: Ladder | undefined };
 
-/** For each band, the likeliest combination of 2-4 different players' rungs (one rung each) whose combined price lands in it. */
-function searchLadders(players: ParlayLeg[][], bands: Band[], valid: (legs: ParlayLeg[]) => boolean = () => true): (ParlayLeg[] | null)[] {
+/** For each band, the likeliest combination of 2-4 different players' rungs (one rung each) whose combined price lands in it.
+ *  With `corr`, "likeliest" counts same-game correlation: a player's rungs share a market and side, so the players'
+ *  correlations are looked up once and every candidate is priced from that matrix. */
+function searchLadders(players: ParlayLeg[][], bands: Band[], valid: (legs: ParlayLeg[]) => boolean = () => true, corr?: CorrTable): (ParlayLeg[] | null)[] {
   const best: (ParlayLeg[] | null)[] = bands.map(() => null);
   const bestProb = bands.map(() => 0);
   const top = Math.max(...bands.map((b) => b.hi));
+  const rho = corr ? players.map((a) => players.map((b) => (a === b ? 1 : legRho(a[0], b[0], corr)))) : null;
+  const correlated = !!rho && rho.some((row, i) => row.some((v, j) => i !== j && v !== 0));
+  const idx: number[] = [];
+  const chanceOf = (chosen: ParlayLeg[], product: number) => {
+    if (!correlated) return product;
+    const sub = idx.map((i) => idx.map((j) => rho![i][j]));
+    return sub.every((row, a) => row.every((v, b) => a === b || v === 0)) ? product : jointProb(chosen.map((l) => l.prob), chosen.map(() => 1), sub);
+  };
   const dfs = (from: number, chosen: ParlayLeg[], dec: number, prob: number) => {
     if (chosen.length >= 2) {
       const b = bands.findIndex((x) => dec >= x.lo && dec < x.hi);
-      if (b >= 0 && prob > bestProb[b] && valid(chosen)) { best[b] = [...chosen]; bestProb[b] = prob; }
+      if (b >= 0 && valid(chosen)) {
+        const p = chanceOf(chosen, prob);
+        if (p > bestProb[b]) { best[b] = [...chosen]; bestProb[b] = p; }
+      }
     }
     if (chosen.length === LADDER_MAX_LEGS) return;
     for (let i = from; i < players.length; i++) {
@@ -198,7 +214,9 @@ function searchLadders(players: ParlayLeg[][], bands: Band[], valid: (legs: Parl
         const next = dec * toDecimal(leg.odds);
         if (next >= top) continue; // prices only grow as legs are added
         chosen.push(leg);
+        idx.push(i);
         dfs(i + 1, chosen, next, prob * leg.prob);
+        idx.pop();
         chosen.pop();
       }
     }
@@ -213,9 +231,9 @@ const ladderBlurb = () => `Likely ${getLeague() === "nba" ? "points, rebounds, a
  * Ladder parlays at one book: 2-4 different players' overs whose combined price lands in each band, picking the likeliest combo per band.
  * Games may repeat (it's meant to work on a thin slate), so same-game legs are flagged on the result.
  */
-export function buildLadderParlays(entries: LadderEntry[], book: string): Parlay[] {
+export function buildLadderParlays(entries: LadderEntry[], book: string, corr?: CorrTable): Parlay[] {
   const players = entries.map((e) => ladderRungs(e.base, e.ladder, book)).filter((r) => r.length);
-  const best = searchLadders(players, LADDER_BANDS);
+  const best = searchLadders(players, LADDER_BANDS, undefined, corr);
   const seen = new Set<string>();
   const out: Parlay[] = [];
   LADDER_BANDS.forEach((band, i) => {
@@ -224,7 +242,7 @@ export function buildLadderParlays(entries: LadderEntry[], book: string): Parlay
     const sig = legs.map(pickKey).sort().join("&");
     if (seen.has(sig)) return;
     seen.add(sig);
-    out.push({ key: band.key, title: band.title, blurb: ladderBlurb(), legs, ...priceParlay(legs) });
+    out.push({ key: band.key, title: band.title, blurb: ladderBlurb(), legs, ...priceParlay(legs, corr) });
   });
   return out;
 }
@@ -237,7 +255,7 @@ export const gameLabel = (gameId: string) => { const [, , away, home] = gameId.s
  * Plain ladders go to whichever team the model likes; this shows the other team's props too. Skips games where a side has no usable rung,
  * and any tile that repeats one in `existing`.
  */
-export function buildBalancedLadders(entries: LadderEntry[], book: string, gameIds: string[], existing: Parlay[] = []): Parlay[] {
+export function buildBalancedLadders(entries: LadderEntry[], book: string, gameIds: string[], existing: Parlay[] = [], corr?: CorrTable): Parlay[] {
   const seen = new Set(existing.map((p) => p.legs.map(pickKey).sort().join("&")));
   const band: Band = { key: "", title: "", lo: LADDER_BANDS[0].lo, hi: LADDER_BANDS[LADDER_BANDS.length - 1].hi };
   const out: Parlay[] = [];
@@ -245,13 +263,13 @@ export function buildBalancedLadders(entries: LadderEntry[], book: string, gameI
     const players = entries.filter((e) => e.base.game_id === gameId).map((e) => ladderRungs(e.base, e.ladder, book)).filter((r) => r.length);
     const teams = [...new Set(players.map((r) => r[0].team))];
     if (teams.length < 2) continue;
-    const [legs] = searchLadders(players, [band], (chosen) => teams.every((t) => chosen.some((l) => l.team === t)));
+    const [legs] = searchLadders(players, [band], (chosen) => teams.every((t) => chosen.some((l) => l.team === t)), corr);
     if (!legs) continue;
     const sig = legs.map(pickKey).sort().join("&");
     if (seen.has(sig)) continue;
     seen.add(sig);
     out.push({ key: `both-${gameId}`, title: `${gameLabel(gameId)}, both teams`, blurb: "The likeliest ladder with a player from each side of the game.",
-      legs, ...priceParlay(legs) });
+      legs, ...priceParlay(legs, corr) });
   }
   return out;
 }
@@ -287,11 +305,11 @@ const bestBy = <T,>(xs: T[], key: (x: T) => string, score: (x: T) => number): T[
  *  - the likeliest scorer in each game parlayed across games: every game when none is chosen, else the chosen ones (two or more).
  * The cross-game tile keeps the TD_MAX_GAMES most likely scorers. Flagged plays (model and market far apart) are left out.
  */
-export function buildTdParlays(tdPicks: Pick[], book: string, gameIds: string[] = []): Parlay[] {
+export function buildTdParlays(tdPicks: Pick[], book: string, gameIds: string[] = [], corr?: CorrTable): Parlay[] {
   const pool = tdPicks.filter((p) => p.kind === "td" && p.side === "Over" && p.book === book && !p.flagged);
   const inScope = gameIds.length ? pool.filter((p) => gameIds.includes(p.game_id)) : pool;
   const out: Parlay[] = [];
-  const make = (key: string, title: string, blurb: string, legs: Pick[]) => out.push({ key, title, blurb, legs, ...priceParlay(legs) });
+  const make = (key: string, title: string, blurb: string, legs: Pick[]) => out.push({ key, title, blurb, legs, ...priceParlay(legs, corr) });
 
   for (const gameId of gameIds.slice(0, TD_MAX_GAME_TILES)) {
     const legs = bestBy(pool.filter((p) => p.game_id === gameId), (p) => p.team, (p) => p.prob).sort((a, b) => b.prob - a.prob);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Leg } from "./slip";
-import { decodeSlip, encodeSlip, isBookUrl, shareUrl, slipFromHash, slipLinksText, combinedLink, openProgress, linkStatus, alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipText, toAmerican, toDecimal, toWin } from "./slip";
+import { decodeSlip, encodeSlip, isBookUrl, shareUrl, slipFromHash, slipLinksText, combinedLink, openProgress, linkStatus, alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipHitChance, slipText, toAmerican, toDecimal, toWin } from "./slip";
 
 const leg = (o: Partial<Leg> = {}): Leg => ({
   id: "x", playerId: "p1", name: "Test Back", team: "AAA", opp: "BBB", home: true, kind: "rush", side: "Over", line: 60.5,
@@ -234,5 +234,19 @@ describe("passing TD and longest reception legs", () => {
     const legs = [leg({ kind: "ptd", side: "Over", line: 1.5, odds: -130 }), leg({ kind: "lng", side: "Under", line: 24.5, odds: -115, playerId: "p2" })];
     const back = decodeSlip(encodeSlip(legs, ""))!;
     expect(back.legs.map((l) => [l.kind, l.side, l.line])).toEqual([["ptd", "Over", 1.5], ["lng", "Under", 24.5]]);
+  });
+});
+
+describe("slip hit chance", () => {
+  const corr = { "team|pass:QB|rec:WR": 0.36 };
+  const qb = leg({ playerId: "qb", kind: "pass", prob: 0.6 });
+  const wr = leg({ playerId: "wr", kind: "rec", prob: 0.6 });
+  it("prices same-game legs with their correlation once it knows the players' positions", () => {
+    expect(slipHitChance([qb, wr], { qb: "QB", wr: "WR" }, corr)).toBeGreaterThan(0.4);
+  });
+  it("treats a leg whose position is unknown, or another game's, as independent", () => {
+    expect(slipHitChance([qb, wr], { qb: "QB" }, corr)).toBeCloseTo(0.36, 12);
+    expect(slipHitChance([qb, { ...wr, gameId: "g2" }], { qb: "QB", wr: "WR" }, corr)).toBeCloseTo(0.36, 12);
+    expect(slipHitChance([qb, wr], { qb: "QB", wr: "WR" })).toBeCloseTo(0.36, 12);
   });
 });

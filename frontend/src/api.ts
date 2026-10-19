@@ -187,6 +187,9 @@ async function get<T>(path: string, params: Record<string, string | number | boo
 export interface GradeLine { label: string; n: number; wins: number; losses: number; pushes: number; voids: number; units: number; roi: number | null; expected_wins: number }
 /** Model projection vs posted line, per market: average miss of each, and how often the model was closer. */
 export interface MarketCheck { kind: Kind; n: number; mae_model: number; mae_line: number; model_closer: number }
+/** Same-game correlations (pair key -> latent correlation), for pricing parlays; see parlays.ts and backend engine/correlation.py. */
+export interface Correlations { pairs: Record<string, number>; check: Record<string, { n: number; actual?: number; copula?: number; independent?: number }> }
+
 export interface GradeReport {
   season: number | null; graded: number; pending: number; weeks: number[]; dates?: string[];
   board: GradeLine[]; by_market: GradeLine[]; by_ev: GradeLine[]; by_week: GradeLine[]; model_vs_line: MarketCheck[];
@@ -203,11 +206,14 @@ const liveApi = {
   projections: (f: Filters) => get<Projection[]>(lg("projections"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, game_id: f.game, q: f.q }),
   /** Every market for every projected player, anytime TD included (the player compare tab). */
   allProjections: () => get<Projection[]>(lg("projections")),
+  /** The NFL's projections whatever league is on screen: the betslip reads players' positions from them. */
+  nflProjections: () => get<Projection[]>("projections"),
   searchPlayers: (q: string) => get<PlayerHit[]>(lg("player-search"), { q }),
   player: (id: string, marketWeight: number) => get<PlayerDetail>(lg(`players/${id}`), { market_weight: marketWeight }),
   moneylines: (book: string, marketWeight: number) => get<MoneylineGame[]>(lg("moneylines"), { book, market_weight: marketWeight }),
   injuries: () => get<InjuryReport>(lg("injuries")),
   grades: () => get<GradeReport>("grades"),
+  correlations: () => get<Correlations>("correlations"),
   nbaGrades: () => get<GradeReport>("nba/grades"),
   /** oddsRange hides prices outside -N..+N (American); 0 shows everything. */
   // by the market, not the league on screen: a betslip can hold legs from both
@@ -267,6 +273,7 @@ const staticApi: typeof liveApi = {
       && (f.game === "all" || p.game_id === f.game) && (!q || p.name.toLowerCase().includes(q)));
   },
   allProjections: () => file<Projection[]>("projections.json"),
+  nflProjections: () => file<Projection[]>("projections.json"),
   // the snapshot has no roster, so search covers the week's projected players
   searchPlayers: async (q) => {
     const needle = q.trim().toLowerCase(), seen = new Map<string, PlayerHit>();
@@ -283,6 +290,7 @@ const staticApi: typeof liveApi = {
     return { ...l, quotes: limitOdds(l.quotes, range, kind) };
   },
   grades: async () => unavailable(),
+  correlations: () => file<Correlations>("correlations.json").catch(() => ({ pairs: {}, check: {} })),
   nbaGrades: async () => unavailable(),
   fetchAlt: async () => unavailable(),
   admin: async () => unavailable(),

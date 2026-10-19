@@ -154,6 +154,16 @@ Each team gets a rating in points from a ridge regression of recent games' point
 
 It's honest about how weak that is: over the last two seasons it scores a Brier of about 0.222, against 0.249 for always giving the home team its usual win rate, but the closing moneyline scores about 0.209 on the same games, and no blend of the two beat the market alone. The ratings know nothing about injuries, quarterbacks or rest. So moneyline prices always lean at least 80% on the market's no-vig chance (the blend that came closest to the market's own score), and the Model check tab shows the comparison.
 
+### Same-game parlays
+
+Legs in one game aren't independent: a quarterback's passing yards rise and fall with his receivers' yards, and the two teams' lead backs pull apart (the team ahead runs, the one behind throws). Multiplying their chances underrated a quarterback-plus-receiver stack by about 30% and overrated a hedge (his Over, the receiver's Under) by about 25%.
+
+Parlays are priced with a Gaussian copula instead (`engine/correlation.py`, mirrored in `frontend/src/copula.ts`): each leg keeps its own calibrated chance, and legs in one game share a correlation that depends on who they are to each other (the same player, teammates or opponents) and their market and position, e.g. `team|pass:QB|rec:WR`. Each correlation is fitted on the walk-forward backtest's own misses (Spearman's rho of the standardized errors, or the tetrachoric correlation for touchdowns), shrunk toward 0 by its sample size, and refit with the rest of the calibration. The joint chance uses the Mendell-Elston approximation, deterministic and within about a tenth of a point of simulation. Legs in different games stay independent.
+
+On held-out weeks (the latest 35% of the backtest), correlated pairs hit together 22.2% of the time against 23.1% predicted (16.7% multiplied), and a quarterback with two of his receivers, all overs, 15.1% against 14.7% (10.0% multiplied). Pairs that pull apart are only partly corrected (11.1% actual, 12.5% predicted, 15.2% multiplied). The Model check tab shows the latest fit's numbers. First-TD legs are left out: two players can't both score first.
+
+Books price same-game parlays their own way (usually below the legs multiplied), and The Odds API doesn't carry those prices, so same-game tiles show the **fair odds** (1 / hit chance) to compare with the book's price rather than an EV.
+
 ### Probabilities and EV
 
 The chance of beating a line comes from the backtest's own errors, not an assumed curve. For each market the walk-forward backtest gives a robust spread of the errors (binned by projection size, so passing and rushing each get their own) and the empirical distribution of the standardized errors, which carries the real skew and the blow-up games. The probability of going over a line is read straight off that table, so it matches how often actual yardage beat the projection. Whole-number lines leave room for a push, and no probability is allowed to reach 0 or 100%. (An earlier version assumed a gamma curve, which was too skewed and made unders look better than they were; passing was hit hardest, with actuals beating the model's median 67% of the time instead of ~50%.) The model's win probability is then blended (35% by default, adjustable in the UI) with the market's no-vig probability. EV and quarter-Kelly come from that blend and the best available price.
@@ -311,4 +321,5 @@ frontend/src/      App, components (picks table, player drawer, line ladder, bet
 - Store pick history and track closing-line value as an out-of-sample test.
 - More markets (attempts, touchdowns).
 - A team model that knows about injuries and quarterbacks (for example, built up from the player projections), and moneylines in the betslip.
-- Multi-leg deep links per sportsbook (today each selection opens as its own link) and correlation-aware same-game parlay pricing.
+- Multi-leg deep links per sportsbook (today each selection opens as its own link).
+- Same-game hit chances in the betslip (its legs don't carry positions yet), and the book's own same-game price.

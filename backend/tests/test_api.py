@@ -426,3 +426,10 @@ def test_grades_report_is_empty_before_anything_is_graded(client):
 def test_leaving_out_anytime_td_leaves_out_first_td_too():
     assert main._excluded("td") == ("td", "ftd")     # the "all over/unders" views
     assert main._excluded("rush") == ("rush",)
+
+
+def test_correlations_are_empty_until_a_run_has_fitted_them():
+    from app.main import build_correlations
+    assert build_correlations(None).pairs == {}
+    run = Run(season=2026, week=6, variance={"_correlation": {"pairs": {"team|pass:QB|rec:WR": [0.36, 1306]}, "check": {}}})
+    assert build_correlations(run).pairs == {"team|pass:QB|rec:WR": 0.36}
