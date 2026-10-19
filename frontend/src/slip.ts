@@ -137,13 +137,16 @@ export function openProgress(legs: Leg[], book: string, state: string, opened: s
 }
 
 export interface CombinedLink { url: string; count: number; verified: boolean }
+/** Phones open book links in the book's app, which reads some multi-pick links differently from the desktop site. */
+export const isPhone = () => typeof navigator !== "undefined" && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent ?? "");
+
 export type CombinableLeg = { url: string } & Pick<Leg, "gameId" | "eventLink">;
 
 /**
  * One URL that adds several selections to a book's slip at once, built from the per-selection links the Odds API gives us.
  * Only books whose multi-selection format we know are supported; `verified: false` marks formats not yet confirmed against the live site.
  */
-export function combinedLink(book: string, legs: CombinableLeg[]): CombinedLink | null {
+export function combinedLink(book: string, legs: CombinableLeg[], phone = isPhone()): CombinedLink | null {
   if (legs.length < 2) return null;
   if (book === "FanDuel") {
     const pairs = legs.map(({ url }) => {
@@ -157,19 +160,16 @@ export function combinedLink(book: string, legs: CombinableLeg[]): CombinedLink 
     return { url: `https://sportsbook.fanduel.com/addToBetslip?${q}`, count: pairs.length, verified: false };
   }
   if (book === "DraftKings") {
-    // DraftKings' own share code joins ids with "+" (each URI-encoded); same-game legs only combine as an SGP on the event page.
+    // Matches the links Action Network's quickslips redirect to: outcome ids on a game page, joined with "," for phones and
+    // "+" for desktop. DraftKings groups same-game legs into an SGP itself, so mixed parlays use the same form.
     const ids = legs.map(({ url }) => {
       try { return new URL(url).searchParams.get("outcomes"); } catch { return null; }
     });
     if (ids.some((i) => !i)) return null;
-    const joined = ids.map((i) => encodeURIComponent(i!)).join("+");
-    const games = new Set(legs.map((l) => l.gameId));
-    if (games.size === legs.length)
-      return { url: `https://sportsbook.draftkings.com/featured?outcomes=${joined}`, count: ids.length, verified: false };
-    const eventId = /\/event\/(\d+)/.exec(legs[0].eventLink ?? "")?.[1];
-    if (games.size === 1 && eventId)
-      return { url: `https://sportsbook.draftkings.com/event/${eventId}?sgpmode=true&sgpselections=${joined}`, count: ids.length, verified: false };
-    return null;  // a same-game group inside a wider parlay (SGPx) has no URL form
+    const joined = ids.map((i) => encodeURIComponent(i!)).join(phone ? "," : "+");
+    const eventId = legs.map((l) => /\/event\/(\d+)/.exec(l.eventLink ?? "")?.[1]).find(Boolean);
+    const page = eventId ? `event/${eventId}` : "featured";
+    return { url: `https://sportsbook.draftkings.com/${page}?outcomes=${joined}`, count: ids.length, verified: false };
   }
   return null;
 }
@@ -179,11 +179,11 @@ export function combinedLink(book: string, legs: CombinableLeg[]): CombinedLink 
  * One book with one link copies the bare URL (easy to paste into a message); several books are labelled.
  * A book with no combined format falls back to each leg's own link, one per line.
  */
-export function slipLinksText(legs: Leg[], state: string): string {
+export function slipLinksText(legs: Leg[], state: string, phone = isPhone()): string {
   const blocks = groupByBook(legs).map(([book, ls]) => {
     const direct = ls.filter((l) => linkStatus(l, state) === "direct").map((l) => ({ ...l, url: legLink(l, state)! }));
     const urls = direct.map((l) => l.url);
-    const combined = combinedLink(book, direct);
+    const combined = combinedLink(book, direct, phone);
     const out = combined ? [combined.url] : urls;
     return { book, urls: out, skipped: ls.length - urls.length };
   }).filter((b) => b.urls.length > 0);

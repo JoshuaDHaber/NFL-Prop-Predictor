@@ -139,22 +139,22 @@ describe("combined links", () => {
   });
   const dkA = "https://sportsbook.draftkings.com/?outcomes=0QA1%232_13L1Q1Q20";
   const dkB = "https://sportsbook.draftkings.com/?outcomes=0QA3%234_13L1Q2Q20";
-  it("joins DraftKings outcome ids from different games with '+'", () => {
-    const c = combinedLink("DraftKings", [{ url: dkA, gameId: "g1", eventLink: null }, { url: dkB, gameId: "g2", eventLink: null }]);
-    expect(c?.url).toBe("https://sportsbook.draftkings.com/featured?outcomes=0QA1%232_13L1Q1Q20+0QA3%234_13L1Q2Q20");
-    expect(c?.count).toBe(2);
+  const ev = "https://sportsbook.draftkings.com/event/34118064";
+  it("puts DraftKings outcome ids on the game page, '+'-joined on desktop and ','-joined on phones", () => {
+    const legs = [{ url: dkA, gameId: "g1", eventLink: ev }, { url: dkB, gameId: "g1", eventLink: ev }];
+    expect(combinedLink("DraftKings", legs, false)?.url).toBe("https://sportsbook.draftkings.com/event/34118064?outcomes=0QA1%232_13L1Q1Q20+0QA3%234_13L1Q2Q20");
+    expect(combinedLink("DraftKings", legs, true)?.url).toBe("https://sportsbook.draftkings.com/event/34118064?outcomes=0QA1%232_13L1Q1Q20,0QA3%234_13L1Q2Q20");
+    expect(combinedLink("DraftKings", legs, true)?.count).toBe(2);
   });
-  it("opens same-game DraftKings legs as an SGP on the event page", () => {
-    const ev = "https://sportsbook.draftkings.com/event/34118279";
-    const c = combinedLink("DraftKings", [{ url: dkA, gameId: "g1", eventLink: ev }, { url: dkB, gameId: "g1", eventLink: ev }]);
-    expect(c?.url).toBe("https://sportsbook.draftkings.com/event/34118279?sgpmode=true&sgpselections=0QA1%232_13L1Q1Q20+0QA3%234_13L1Q2Q20");
+  it("falls back to the featured page when no DraftKings game page is known", () => {
+    const c = combinedLink("DraftKings", [{ url: dkA, gameId: "g1", eventLink: null }, { url: dkB, gameId: "g2", eventLink: null }], false);
+    expect(c?.url).toBe("https://sportsbook.draftkings.com/featured?outcomes=0QA1%232_13L1Q1Q20+0QA3%234_13L1Q2Q20");
   });
   it("declines when it can't combine safely", () => {
     expect(combinedLink("FanDuel", cl(["https://x/addToBetslip?marketId=1&selectionId=2"]))).toBeNull(); // single leg
     expect(combinedLink("BetMGM", cl(["https://a", "https://b"]))).toBeNull(); // format unknown
     expect(combinedLink("FanDuel", cl(["https://x/y", "https://x/z"]))).toBeNull(); // missing ids
-    expect(combinedLink("DraftKings", [{ url: dkA, gameId: "g1", eventLink: null }, { url: dkB, gameId: "g1", eventLink: null }])).toBeNull(); // SGP, no event id
-    expect(combinedLink("DraftKings", [dkA, dkB, dkA].map((url, i) => ({ url, gameId: i < 2 ? "g1" : "g2", eventLink: null })))).toBeNull(); // SGP inside a parlay
+    expect(combinedLink("DraftKings", cl(["https://sportsbook.draftkings.com/event/1", dkB]))).toBeNull(); // missing outcome id
   });
 });
 
@@ -162,7 +162,7 @@ describe("copy slip links", () => {
   const dk = (id: string, o: string) => leg({ id, book: "DraftKings", gameId: id, link: `https://sportsbook.draftkings.com/?outcomes=${o}` });
   const fd = (id: string, m: string, s: string) => leg({ id, book: "FanDuel", link: `https://sportsbook.fanduel.com/addToBetslip?marketId=${m}&selectionId=${s}` });
   it("copies the bare combined URL for a single book", () => {
-    expect(slipLinksText([dk("a", "A1"), dk("b", "B2")], "")).toBe("https://sportsbook.draftkings.com/featured?outcomes=A1+B2");
+    expect(slipLinksText([dk("a", "A1"), dk("b", "B2")], "", false)).toBe("https://sportsbook.draftkings.com/featured?outcomes=A1+B2");
   });
   it("copies the single link for a one-leg slip", () => {
     expect(slipLinksText([dk("a", "A1")], "")).toBe("https://sportsbook.draftkings.com/?outcomes=A1");
