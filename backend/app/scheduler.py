@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
-from . import config, pipeline
+from . import config, grading, pipeline
 from .db import NbaRun, Run, SessionLocal, SyncRun
 from .engine import odds as odds_api
 from .nba import pipeline as nba_pipeline
@@ -47,7 +47,8 @@ SLOTS = [
     Slot("thu-injuries", "Thursday injuries", (3,), 16, 0, "none", why="Model run after the practice reports. No credits"),
     Slot("sat-injuries", "Saturday statuses", (5,), 10, 0, "none", why="Model run after Friday's game statuses. No credits"),
     Slot("sun-pregame", "Sunday pregame", (6,), 11, 0, "none", why="Model run with the latest statuses. No credits"),
-    Slot("sun-topup", "Sunday top-up", (6,), 11, 30, "thin", why="Last top-up of thin games before the early kickoffs"),
+    Slot("sun-lines", "Sunday lines", (6,), 11, 30, "today",
+         why="Fresh main lines for every game still to kick off today (9 credits per game), plus anything missing"),
     # NBA (its own key, ODDS_API_KEY_NBA): games every day, props posted the day of
     Slot("nba-morning", "NBA morning", EVERY_DAY, 10, 0, "missing", league="nba",
          why="NBA model run after last night's box scores, moneylines (1 credit), props already posted for today (4 per game, plus up to 4 for alternate lines the first time)"),
@@ -146,6 +147,8 @@ def run(odds_mode: str, full: bool = False, slot: str = "manual", trigger: str =
             parts.append(_odds_summary(res))
             if res.get("skipped_for_credits") or res.get("failed"):
                 status = "partial"
+        if not nba:
+            _snapshot(log)
     except Exception as e:  # surfaced to the UI and the run log
         status, error = "error", odds_api.redact(f"{type(e).__name__}: {e}")
         log(traceback.format_exc(limit=3))
@@ -170,6 +173,17 @@ def run(odds_mode: str, full: bool = False, slot: str = "manual", trigger: str =
             _job.update(state="done", stage="Done", detail=None, progress=1.0)
         _job["finished_at"] = datetime.utcnow().isoformat()
         after_job()
+
+
+def _snapshot(log) -> None:
+    """Log the board for games still to kick off (app/grading.py). Never fails the sync."""
+    try:
+        with SessionLocal() as s:
+            n = grading.snapshot_board(s)
+        if n:
+            log(f"Logged {n} picks for grading")
+    except Exception as e:   # noqa: BLE001
+        log(f"  couldn't log picks for grading ({type(e).__name__}: {e})")
 
 
 def _odds_summary(res: dict) -> str:

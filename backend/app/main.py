@@ -21,8 +21,8 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import config, pipeline, scheduler
-from .db import AltLine, OddsLine, Projection, Run, SessionLocal, SyncRun, current_lines
+from . import config, grading, pipeline, scheduler
+from .db import AltLine, OddsLine, Projection, Run, SessionLocal, SyncRun, current_lines, proj_frame
 from .engine import data, model, odds
 from .engine import injuries as injm
 from .engine import moneyline as mlm
@@ -30,7 +30,7 @@ from .engine.ladder import build_ladder
 from .engine.picks import build_picks
 from .engine.search import rank_hits
 from .nba import routes as nba_routes
-from .schemas import (AdminState, AltFetchResult, AutoSync, CreditStatus, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, InjuryReport, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut,
+from .schemas import (AdminState, GradeReport, AltFetchResult, AutoSync, CreditStatus, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, InjuryReport, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut,
                       RefreshRequest, RunInfo)
 
 @asynccontextmanager
@@ -140,11 +140,6 @@ def latest_run(db: Session) -> Optional[Run]:
     return db.scalars(select(Run).order_by(Run.id.desc()).limit(1)).first()
 
 
-def proj_frame(db: Session, run_id: int) -> pd.DataFrame:
-    rows = db.scalars(select(Projection).where(Projection.run_id == run_id)).all()
-    return pd.DataFrame([{c.name: getattr(r, c.name) for c in Projection.__table__.columns} for r in rows])
-
-
 def game_label(gid: str) -> str:
     _, _, away, home = gid.split("_", 3)
     return f"{away} @ {home}"
@@ -153,9 +148,7 @@ def game_label(gid: str) -> str:
 _pick_cache: dict = {}
 
 
-def _dists(run: Run) -> dict:
-    """Per-kind error tables from the run's backtest (older runs stored only gamma parameters: those are skipped)."""
-    return {k: v for k, v in (run.variance or {}).items() if isinstance(v, dict) and not k.startswith("_")}
+_dists = grading.dists
 
 
 def all_picks(db: Session, run: Run, w: float, book: Optional[str] = None) -> pd.DataFrame:
@@ -286,6 +279,12 @@ def picks(kind: Optional[Kind] = None, exclude_kind: Optional[Kind] = None, side
     if q:
         df = df[df.name.str.contains(q, case=False, regex=False)]
     return records(df.head(limit))
+
+
+@app.get("/api/grades", response_model=GradeReport)
+def grades(season: Optional[int] = None, db: Session = Depends(get_db)):
+    """How the logged board did against the box scores, and whether the model or the line landed closer."""
+    return grading.report(db, season)
 
 
 @app.get("/api/moneylines", response_model=list[MoneylineGame])
@@ -471,7 +470,7 @@ def refresh(req: RefreshRequest, bg: BackgroundTasks):
 
 
 @app.get("/api/refresh/plan", response_model=SyncPlan)
-def refresh_plan(request: Request, odds: Literal["none", "missing", "thin", "all"] = "missing", full: bool = False):
+def refresh_plan(request: Request, odds: Literal["none", "missing", "thin", "today", "all"] = "missing", full: bool = False):
     """What a sync would do right now, and what it would cost: for the confirm step in the admin UI."""
     if not is_admin(request):
         raise HTTPException(403, "Admin only")

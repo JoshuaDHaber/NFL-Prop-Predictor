@@ -17,12 +17,12 @@ from sqlalchemy import insert, text
 from sqlalchemy.orm import Session
 
 from . import config
-from .db import AltLine, Base, OddsLine, Projection, Run, ensure_columns, make_engine
+from .db import AltLine, Base, OddsLine, PickLog, Projection, Run, ensure_columns, make_engine
 
 # parents first so foreign keys are satisfied; children are cleared first for the same reason.
 # odds_history is left out on purpose: a copy replaces the target's rows, and the history that builds up on the
 # server would be wiped by a push from a laptop that never saw those fetches.
-TABLES = [Run, Projection, OddsLine, AltLine]
+TABLES = [Run, Projection, OddsLine, AltLine, PickLog]
 
 
 def copy(source_url: str, target_url: str, log=print) -> dict:

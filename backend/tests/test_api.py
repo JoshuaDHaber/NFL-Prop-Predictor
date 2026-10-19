@@ -414,3 +414,10 @@ def test_player_search_covers_projected_and_rostered_players(client, monkeypatch
     assert hits[0]["headshot"] == "http://x/p0.png" and hits[1]["team"] == "CCC"
     assert [h["name"] for h in client.get("/api/player-search", params={"q": "back"}).json()] == ["Alpha Back", "Beta Back"]
     assert client.get("/api/player-search", params={"q": " "}).json() == []
+
+
+def test_grades_report_is_empty_before_anything_is_graded(client):
+    r = client.get("/api/grades")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["graded"] == 0 and body["model_vs_line"] == [] and body["board"][0]["n"] == 0

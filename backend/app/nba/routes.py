@@ -206,7 +206,8 @@ def player_search(q: str = Query("", max_length=60), limit: int = Query(12, ge=1
             for pid, n, pos, t in db.execute(select(NbaProjection.player_id, NbaProjection.name, NbaProjection.pos, NbaProjection.team)
                                              .where(NbaProjection.run_id == run.id, NbaProjection.game_id.in_(live)).distinct())} if run else {}
     for r in _rosters(int(time.time() // 10800)).to_dict("records"):
-        hits.setdefault(r["player_id"], dict(r, headshot=r["headshot"] or HEADSHOT.format(r["player_id"]), projected=False))
+        shot = r["headshot"] if isinstance(r["headshot"], str) and r["headshot"] else HEADSHOT.format(r["player_id"])  # NaN when ESPN has none
+        hits.setdefault(r["player_id"], dict(r, headshot=shot, projected=False))
     return rank_hits(list(hits.values()), q, limit)
 
 

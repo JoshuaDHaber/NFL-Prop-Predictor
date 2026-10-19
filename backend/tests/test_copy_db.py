@@ -28,7 +28,7 @@ def test_copy_moves_every_table_and_replaces_the_target(tmp_path):
         s.add(OddsLine(fetched_at=datetime(2020, 1, 1), player="Old", market="rush", line=9.5, book="Z"))
         s.commit()
     counts = copy(src, dst, log=lambda m: None)
-    assert counts == {"runs": 1, "projections": 1, "odds_lines": 1, "alt_lines": 1}
+    assert counts == {"runs": 1, "projections": 1, "odds_lines": 1, "alt_lines": 1, "pick_log": 0}
     with Session(make_engine(dst)) as s:
         assert s.query(OddsLine).one().player == "A" and s.query(OddsLine).one().over_link == "https://x"
         assert s.query(Run).one().excluded == ["X"] and s.query(Projection).one().last5 == [1.0]

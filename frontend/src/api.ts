@@ -182,6 +182,15 @@ async function get<T>(path: string, params: Record<string, string | number | boo
   return res.json();
 }
 
+/** Record and units (1 unit a pick at the logged price) for one slice of the graded board. */
+export interface GradeLine { label: string; n: number; wins: number; losses: number; pushes: number; voids: number; units: number; roi: number | null; expected_wins: number }
+/** Model projection vs posted line, per market: average miss of each, and how often the model was closer. */
+export interface MarketCheck { kind: Kind; n: number; mae_model: number; mae_line: number; model_closer: number }
+export interface GradeReport {
+  season: number | null; graded: number; pending: number; weeks: number[];
+  board: GradeLine[]; by_market: GradeLine[]; by_ev: GradeLine[]; by_week: GradeLine[]; model_vs_line: MarketCheck[];
+}
+
 export interface Filters { kind: Kind | "all"; side: "all" | "Over" | "Under"; game: string; book: string; q: string; minEv: number; marketWeight: number; flagged: boolean }
 
 const liveApi = {
@@ -197,6 +206,7 @@ const liveApi = {
   player: (id: string, marketWeight: number) => get<PlayerDetail>(lg(`players/${id}`), { market_weight: marketWeight }),
   moneylines: (book: string, marketWeight: number) => get<MoneylineGame[]>(lg("moneylines"), { book, market_weight: marketWeight }),
   injuries: () => get<InjuryReport>(lg("injuries")),
+  grades: () => get<GradeReport>("grades"),
   /** oddsRange hides prices outside -N..+N (American); 0 shows everything. */
   // by the market, not the league on screen: a betslip can hold legs from both
   lines: (id: string, kind: Kind, oddsRange = 300) => get<Ladder>(`${NBA_KIND_SET.has(kind) ? "nba/" : ""}players/${id}/lines`, { kind, odds_range: oddsRange }),
@@ -270,6 +280,7 @@ const staticApi: typeof liveApi = {
     const l = await file<Ladder>(`ladders/${id}_${kind}.json`);
     return { ...l, quotes: limitOdds(l.quotes, range, kind) };
   },
+  grades: async () => unavailable(),
   fetchAlt: async () => unavailable(),
   admin: async () => unavailable(),
   adminRun: async () => unavailable(),

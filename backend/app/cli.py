@@ -6,7 +6,7 @@ from . import pipeline
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--odds", choices=["none", "missing", "thin", "all"], default="missing")
+    ap.add_argument("--odds", choices=["none", "missing", "thin", "today", "all"], default="missing")
     ap.add_argument("--exclude", nargs="*", default=[], metavar="NAME")
     ap.add_argument("--keep-dnp", action="store_true")
     ap.add_argument("--full", action="store_true", help="refit the calibration instead of reusing the saved one")

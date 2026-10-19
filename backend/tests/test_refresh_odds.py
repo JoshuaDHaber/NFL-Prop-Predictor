@@ -219,3 +219,28 @@ def test_every_fetch_is_kept_in_the_history_even_after_the_board_replaces_it(cle
         assert len({t for (t,) in s.query(OddsHistory.fetched_at).distinct()}) >= 2
         h = s.query(OddsHistory).filter(OddsHistory.alt.is_(True)).first()
         assert h.game_id == GAME and h.line == 80.5 and h.over_odds == 250
+
+
+def test_today_mode_re_pulls_main_lines_only_for_games_still_to_kick_off_today(clean_and_stub, monkeypatch):
+    from datetime import datetime
+    slate = pd.DataFrame([dict(game_id="2026_99_AAA_BBB", away_team="AAA", home_team="BBB", gameday="2026-10-18", gametime="13:00"),
+                          dict(game_id="2026_99_CCC_DDD", away_team="CCC", home_team="DDD", gameday="2026-10-18", gametime="16:25"),
+                          dict(game_id="2026_99_EEE_FFF", away_team="EEE", home_team="FFF", gameday="2026-10-19", gametime="20:15")])
+    monkeypatch.setattr(pipeline, "upcoming_games", lambda: slate)
+    monkeypatch.setattr(pipeline.odds, "list_events", lambda key: [dict(id=g.game_id, away=g.away_team, home=g.home_team) for g in slate.itertuples()])
+    monkeypatch.setattr(pipeline.odds, "fetch_game_odds", lambda *a, **k: (pd.DataFrame(), "400"))
+    with SessionLocal() as s:
+        s.add_all(OddsLine(fetched_at=datetime(2026, 10, 15), player="P", market=m, line=1.5, over_odds=-110, under_odds=-110,
+                           book="X", game_id=g) for g in slate.game_id for m in pipeline.ALL_MARKETS)
+        s.add_all(AltLine(fetched_at=datetime(2026, 10, 15), game_id=g, player="P", market=m, line=9.5, book="X")
+                  for g in slate.game_id for m in pipeline.ALT_KINDS)
+        s.commit()
+        at_1pm_kickoff = datetime(2026, 10, 18, 17, 0)   # 1:00 PM Eastern, in UTC: the early game has started
+        plan = pipeline.sync_plan(s, slate, "today", now=at_1pm_kickoff)
+        morning = pipeline.sync_plan(s, slate, "today", now=datetime(2026, 10, 18, 15, 30))   # 11:30 AM Eastern
+        assert pipeline.sync_plan(s, slate, "missing", now=at_1pm_kickoff)["games"] == []
+        s.query(AltLine).delete(); s.query(OddsLine).delete(); s.commit()   # later tests count stored games
+    assert [g["game_id"] for g in plan["games"]] == ["2026_99_CCC_DDD"]
+    [g] = plan["games"]
+    assert g["reason"] == "today" and g["alt_kinds"] == [] and g["credits"] == 9   # main markets only: alternates aren't re-bought
+    assert [g["game_id"] for g in morning["games"]] == ["2026_99_AAA_BBB", "2026_99_CCC_DDD"]   # Monday's game waits
