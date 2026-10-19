@@ -46,6 +46,19 @@ def reusable_calibration(season: int, now: datetime = None):
         return dict(variance=copy.deepcopy(v), backtest=copy.deepcopy(run.backtest), run_id=run.id)
 
 
+def week_status(cur_inj: pd.DataFrame) -> dict:
+    """gsis_id -> this week's game status, or "DNP" for a player who missed practice and has no status yet.
+
+    A DNP only counts until his team's final report is out (the first game statuses, usually Friday): on that report
+    a player with no status is cleared to play, however his practice week went (DK Metcalf, 2026 week 6)."""
+    # a veteran's rest day ("Not injury related - resting player") is a DNP that says nothing about Sunday
+    resting = cur_inj.practice_primary_injury.fillna("").str.contains("resting", case=False)
+    final = cur_inj.team.isin(cur_inj.loc[cur_inj.report_status.notna(), "team"])
+    dnp = (cur_inj.practice_status.fillna("").str.startswith("Did Not") & cur_inj.report_status.isna()
+           & ~resting & ~final)
+    return dict(zip(cur_inj.gsis_id, cur_inj.report_status.where(~dnp, "DNP")))
+
+
 def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log = print, full: bool = False) -> int:
     """Compute projections for the next unplayed week and store them. Returns the run id.
 
@@ -68,11 +81,7 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
     inj = data.load_injuries(season)
     status = {}
     if not inj.empty:
-        cur_inj = inj[inj.week == week]
-        # a veteran's rest day ("Not injury related - resting player") is a DNP that says nothing about Sunday
-        resting = cur_inj.practice_primary_injury.fillna("").str.contains("resting", case=False)
-        dnp = cur_inj.practice_status.fillna("").str.startswith("Did Not") & cur_inj.report_status.isna() & ~resting
-        status = dict(zip(cur_inj.gsis_id, cur_inj.report_status.where(~dnp, "DNP")))
+        status = week_status(inj[inj.week == week])
     drop = {"Out", "Doubtful"} | (set() if keep_dnp else {"DNP"})
     # past weeks' Out/Doubtful: a start made while the starter was out is a fill-in (model.upcoming_projections)
     # and Questionable then didn't play

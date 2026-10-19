@@ -207,7 +207,7 @@ def test_a_calibration_from_before_weather_is_refit(synthetic):
 def test_a_rest_day_dnp_keeps_the_player_but_an_injury_dnp_drops_him(synthetic, monkeypatch):
     """A veteran's 'Not injury related - resting player' DNP says nothing about Sunday (Higbee played after three of them)."""
     def report(pid, why):
-        return dict(gsis_id=pid, week=5, report_status=np.nan, practice_status="Did Not Participate In Practice",
+        return dict(gsis_id=pid, team=pid[:3], week=5, report_status=np.nan, practice_status="Did Not Participate In Practice",
                     practice_primary_injury=why)
     inj = pd.DataFrame([report("AAA_TE", "Not injury related - resting player"), report("BBB_TE", "Knee")])
     monkeypatch.setattr(pipeline.data, "load_injuries", lambda season: inj)

@@ -74,3 +74,20 @@ def test_espn_status_replaces_last_weeks_report():
     rep = injm.build(REPORT[REPORT.week == 5], RESERVE, 6, espn=ESPN.assign(name="Last Week", espn_id=None).head(1))
     p = next(p for p in rep["teams"]["AAA"] if p["player_id"] == "old")
     assert (p["status"], p["practice"], p["comment"]) == ("Questionable", "", "Limited in practice again Friday.")
+
+
+def test_a_practice_dnp_drops_a_player_only_until_his_teams_final_report_is_out():
+    from app.pipeline import week_status
+    rep = inj([
+        # AAA's final report is out (it has game statuses): no status means cleared, whatever his practice week
+        (6, "AAA", "o1", "Out Corner", "CB", "Out", "Hamstring", "Hamstring", DNP),
+        (6, "AAA", "m1", "Sick Receiver", "WR", None, None, "Illness", DNP),
+        # BBB has only practice reports so far: a DNP still drops him
+        (6, "BBB", "b1", "Sore Back", "RB", None, None, "Back", DNP),
+        (6, "BBB", "b2", "Limited End", "DE", None, None, "Knee", LTD),
+        (6, "BBB", "v1", "Vet Rest", "QB", None, None, "Not injury related - resting player", DNP),
+    ])
+    s = week_status(rep)
+    assert s["o1"] == "Out"
+    assert s["b1"] == "DNP"
+    assert pd.isna(s["m1"]) and pd.isna(s["b2"]) and pd.isna(s["v1"])
