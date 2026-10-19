@@ -43,6 +43,19 @@ def test_gamelog_parses_regular_season_games_with_home_and_eastern_date():
     assert (r["min"], r["pts"], r["reb"], r["ast"], r["threes"], r["home_score"]) == (34.0, 27.0, 7.0, 5.0, 3.0, 110.0)
 
 
+def test_gamelogs_leave_out_all_star_weekend(monkeypatch):
+    """ESPN files the All-Star game under the regular season; it isn't an NBA team's game."""
+    names = ["minutes", "threePointFieldGoalsMade-threePointFieldGoalsAttempted", "totalRebounds", "assists", "points"]
+    game = lambda team, opp, day: {"atVs": "vs", "gameDate": f"{day}T00:30:00.000+00:00", "team": {"abbreviation": team},  # noqa: E731
+                                   "opponent": {"abbreviation": opp}, "homeTeamScore": "110", "awayTeamScore": "104"}
+    js = {"names": names, "events": {"1": game("BOS", "NY", "2026-02-10"), "2": game("STARS", "STRIPES", "2026-02-16")},
+          "seasonTypes": [{"displayName": "2025-26 Regular Season", "categories": [{"type": "event", "events": [
+              {"eventId": "1", "stats": ["34", "3-7", "7", "5", "27"]}, {"eventId": "2", "stats": ["12", "4-6", "2", "1", "14"]}]}]}]}
+    monkeypatch.setattr(espn, "_download", lambda url: js)
+    logs = espn.gamelogs(["asg1"], [2026], 2027, log=lambda _: None)
+    assert list(logs.team) == ["BOS"]
+
+
 def _logs(n=40, start=date(2025, 11, 1)):
     """Two players on two teams: a 30-point guard and a 10-rebound center, one game every other day."""
     rows = []

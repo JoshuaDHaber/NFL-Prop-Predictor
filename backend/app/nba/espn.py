@@ -18,12 +18,14 @@ import pandas as pd
 import requests
 
 from .. import config
+from .odds import TEAM_NAMES
 
 SITE = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
 WEB = "https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba"
 ET = ZoneInfo("America/New_York")
 # ESPN season types that count: regular season, playoffs, play-in (preseason and the All-Star game don't)
 GAME_TYPES = {2, 3, 5}
+NBA_TEAMS = set(TEAM_NAMES)   # ESPN abbreviations of the 30 teams
 LOG_COLUMNS = ["player_id", "event_id", "season", "date", "team", "opp", "home", "min", "pts", "reb", "ast", "threes",
                "home_score", "away_score"]
 _session = requests.Session()
@@ -236,6 +238,9 @@ def gamelogs(player_ids, seasons, current: int, log=print) -> pd.DataFrame:
         rows = [r for rs in ex.map(one, jobs) for r in rs]
     log(f"  game logs: {len(rows):,} player-games for {len(player_ids)} players ({time.time() - t0:.0f}s)")
     df = pd.DataFrame(rows, columns=LOG_COLUMNS)
+    # ESPN files the All-Star weekend games (STARS, STRIPES, WORLD...) under the regular season; they'd count as minutes
+    # and look like a trade. Filtered here rather than in parse_gamelog, since finished seasons are already cached.
+    df = df[df.team.isin(NBA_TEAMS) & df.opp.isin(NBA_TEAMS)]
     return df.drop_duplicates(["player_id", "event_id"]).sort_values(["date", "event_id"]).reset_index(drop=True)
 
 
