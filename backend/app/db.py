@@ -247,6 +247,40 @@ class PickLog(Base):
 Index("ix_pick_log_key", PickLog.game_id, PickLog.player_id, PickLog.kind, PickLog.side, unique=True)
 
 
+class NbaPickLog(Base):
+    """PickLog for the NBA: every NBA sync re-snapshots the slate's games still to tip off, and each NBA model run
+    grades finished games from ESPN's game logs (app/nba/grading.py). No week: the report groups by calendar week."""
+    __tablename__ = "nba_pick_log"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    season: Mapped[int] = mapped_column(Integer)
+    game_id: Mapped[str] = mapped_column(String(32), index=True)
+    gameday: Mapped[str] = mapped_column(String(12), index=True)
+    gametime: Mapped[str] = mapped_column(String(8))
+    player_id: Mapped[str] = mapped_column(String(20))
+    name: Mapped[str] = mapped_column(String(80))
+    pos: Mapped[str] = mapped_column(String(4))
+    team: Mapped[str] = mapped_column(String(5))
+    kind: Mapped[str] = mapped_column(String(6))
+    side: Mapped[str] = mapped_column(String(5))
+    line: Mapped[float] = mapped_column(Float)
+    odds: Mapped[int] = mapped_column(Integer)
+    book: Mapped[str] = mapped_column(String(40))
+    mu: Mapped[float] = mapped_column(Float)
+    prob: Mapped[float] = mapped_column(Float)
+    p_model: Mapped[float] = mapped_column(Float)
+    p_mkt: Mapped[float] = mapped_column(Float)
+    ev: Mapped[float] = mapped_column(Float)
+    flagged: Mapped[bool] = mapped_column(Boolean, default=False)
+    run_id: Mapped[int] = mapped_column(Integer)
+    snapped_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    actual: Mapped[float] = mapped_column(Float, nullable=True)
+    result: Mapped[str] = mapped_column(String(5), nullable=True)   # win | loss | push | void (didn't play); None until graded
+    graded_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+
+
+Index("ix_nba_pick_log_key", NbaPickLog.game_id, NbaPickLog.player_id, NbaPickLog.kind, NbaPickLog.side, unique=True)
+
+
 def backfill_game_ids(eng) -> int:
     """Tag quotes stored before game_id existed with the game that was upcoming when they were fetched.
 

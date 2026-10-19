@@ -187,7 +187,7 @@ export interface GradeLine { label: string; n: number; wins: number; losses: num
 /** Model projection vs posted line, per market: average miss of each, and how often the model was closer. */
 export interface MarketCheck { kind: Kind; n: number; mae_model: number; mae_line: number; model_closer: number }
 export interface GradeReport {
-  season: number | null; graded: number; pending: number; weeks: number[];
+  season: number | null; graded: number; pending: number; weeks: number[]; dates?: string[];
   board: GradeLine[]; by_market: GradeLine[]; by_ev: GradeLine[]; by_week: GradeLine[]; model_vs_line: MarketCheck[];
 }
 
@@ -207,6 +207,7 @@ const liveApi = {
   moneylines: (book: string, marketWeight: number) => get<MoneylineGame[]>(lg("moneylines"), { book, market_weight: marketWeight }),
   injuries: () => get<InjuryReport>(lg("injuries")),
   grades: () => get<GradeReport>("grades"),
+  nbaGrades: () => get<GradeReport>("nba/grades"),
   /** oddsRange hides prices outside -N..+N (American); 0 shows everything. */
   // by the market, not the league on screen: a betslip can hold legs from both
   lines: (id: string, kind: Kind, oddsRange = 300) => get<Ladder>(`${NBA_KIND_SET.has(kind) ? "nba/" : ""}players/${id}/lines`, { kind, odds_range: oddsRange }),
@@ -281,6 +282,7 @@ const staticApi: typeof liveApi = {
     return { ...l, quotes: limitOdds(l.quotes, range, kind) };
   },
   grades: async () => unavailable(),
+  nbaGrades: async () => unavailable(),
   fetchAlt: async () => unavailable(),
   admin: async () => unavailable(),
   adminRun: async () => unavailable(),
