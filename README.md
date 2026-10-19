@@ -162,6 +162,8 @@ Parlays are priced with a Gaussian copula instead (`engine/correlation.py`, mirr
 
 On held-out weeks (the latest 35% of the backtest), correlated pairs hit together 22.2% of the time against 23.1% predicted (16.7% multiplied), and a quarterback with two of his receivers, all overs, 15.1% against 14.7% (10.0% multiplied). Pairs that pull apart are only partly corrected (11.1% actual, 12.5% predicted, 15.2% multiplied). The Model check tab shows the latest fit's numbers. First-TD legs are left out: two players can't both score first.
 
+The NBA fits the same table on its own backtest (positions grouped as G, F and C), refit with every NBA run. In a measurement over 22,500 player-games, almost all of the correlation sits within one player: points and threes +0.65 to +0.71 for guards and forwards (+0.41 for centers), points and rebounds +0.29 to +0.40, assists with points or rebounds +0.21 to +0.26. Different players are nearly independent (|rho| at most 0.09). Held out, correlated pairs hit together 23.4% of the time against 23.9% predicted (18.7% multiplied). So it matters mostly in the betslip, where one player's markets get stacked; the NBA parlay tiles use one leg per player and barely move.
+
 Books price same-game parlays their own way (usually below the legs multiplied), and The Odds API doesn't carry those prices, so same-game tiles show the **fair odds** (1 / hit chance) to compare with the book's price rather than an EV.
 
 ### Probabilities and EV

@@ -14,7 +14,13 @@ export type CorrTable = Record<string, number>;
 /** What the copula needs from a leg (a Pick has all of it). */
 export interface CopulaLeg { player_id: string; team: string; game_id: string; kind: Kind; pos: string; side: "Over" | "Under"; prob: number }
 
-export const legDesc = (kind: Kind, pos: string) => `${kind}:${pos === "FB" ? "RB" : pos}`;
+const NBA_KINDS = new Set<Kind>(["pts", "reb", "ast", "threes"]);
+/** G, F or C from an NBA position (PG, SF, G-F, F-C...): its first listed role, as backend nba/espn.position_group. */
+export const nbaPositionGroup = (pos: string) => {
+  const p = pos.toUpperCase();
+  return p.startsWith("C") ? "C" : p.startsWith("F") || p.startsWith("SF") || p.startsWith("PF") ? "F" : "G";
+};
+export const legDesc = (kind: Kind, pos: string) => `${kind}:${NBA_KINDS.has(kind) ? nbaPositionGroup(pos) : pos === "FB" ? "RB" : pos}`;
 export const pairKey = (rel: "same" | "team" | "opp", a: string, b: string) => (a <= b ? `${rel}|${a}|${b}` : `${rel}|${b}|${a}`);
 
 /** The table's correlation for two legs (before their sides are applied); 0 across games or for a pair it doesn't know. */

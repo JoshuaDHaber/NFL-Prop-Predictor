@@ -17,8 +17,8 @@ from ..engine import odds
 from ..engine.ladder import build_ladder
 from ..engine.picks import build_picks
 from ..engine.search import rank_hits
-from ..schemas import (AutoSync, BacktestStat, Game, GameLogEntry, GradeReport, InjuredPlayer, InjuryReport, LadderOut, MoneylineGame,
-                       NbaMeta, NbaRunInfo, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut)
+from ..schemas import (AutoSync, BacktestStat, Correlations, Game, GameLogEntry, GradeReport, InjuredPlayer, InjuryReport, LadderOut,
+                       MoneylineGame, NbaMeta, NbaRunInfo, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut)
 from . import espn, grading, model
 from . import odds as nba_odds
 
@@ -140,6 +140,17 @@ def picks(kind: Optional[NbaKind] = None, side: Optional[Literal["Over", "Under"
     if q:
         df = df[df.name.str.contains(q, case=False, regex=False)]
     return _records(df.head(limit))
+
+
+@router.get("/correlations", response_model=Correlations)
+def correlations(db: Session = Depends(get_db)):
+    """The latest NBA run's same-game correlations (same shape as /api/correlations), for pricing parlays."""
+    return build_correlations(latest_run(db))
+
+
+def build_correlations(run: Optional[NbaRun]) -> Correlations:
+    c = ((run.variance or {}).get("_correlation") if run else None) or {}
+    return Correlations(pairs={k: v[0] for k, v in (c.get("pairs") or {}).items()}, check=c.get("check") or {})
 
 
 @router.get("/grades", response_model=GradeReport)

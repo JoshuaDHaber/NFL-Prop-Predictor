@@ -208,12 +208,15 @@ const liveApi = {
   allProjections: () => get<Projection[]>(lg("projections")),
   /** The NFL's projections whatever league is on screen: the betslip reads players' positions from them. */
   nflProjections: () => get<Projection[]>("projections"),
+  /** The NBA's projections whatever league is on screen, for the same reason. */
+  nbaProjections: () => get<Projection[]>("nba/projections"),
   searchPlayers: (q: string) => get<PlayerHit[]>(lg("player-search"), { q }),
   player: (id: string, marketWeight: number) => get<PlayerDetail>(lg(`players/${id}`), { market_weight: marketWeight }),
   moneylines: (book: string, marketWeight: number) => get<MoneylineGame[]>(lg("moneylines"), { book, market_weight: marketWeight }),
   injuries: () => get<InjuryReport>(lg("injuries")),
   grades: () => get<GradeReport>("grades"),
   correlations: () => get<Correlations>("correlations"),
+  nbaCorrelations: () => get<Correlations>("nba/correlations"),
   nbaGrades: () => get<GradeReport>("nba/grades"),
   /** oddsRange hides prices outside -N..+N (American); 0 shows everything. */
   // by the market, not the league on screen: a betslip can hold legs from both
@@ -274,6 +277,7 @@ const staticApi: typeof liveApi = {
   },
   allProjections: () => file<Projection[]>("projections.json"),
   nflProjections: () => file<Projection[]>("projections.json"),
+  nbaProjections: async () => [],   // the snapshot is NFL-only
   // the snapshot has no roster, so search covers the week's projected players
   searchPlayers: async (q) => {
     const needle = q.trim().toLowerCase(), seen = new Map<string, PlayerHit>();
@@ -291,6 +295,7 @@ const staticApi: typeof liveApi = {
   },
   grades: async () => unavailable(),
   correlations: () => file<Correlations>("correlations.json").catch(() => ({ pairs: {}, check: {} })),
+  nbaCorrelations: async () => ({ pairs: {}, check: {} }),
   nbaGrades: async () => unavailable(),
   fetchAlt: async () => unavailable(),
   admin: async () => unavailable(),
