@@ -37,9 +37,14 @@ export default function BetSlip() {
   const stakeFor = (book: string) => stakes[book] ?? 10;
   // same-game legs: positions (slip legs don't carry them) and the correlations, only once a book's legs share a game
   const needCorr = open && legs.some((l, i) => legs.some((m, j) => j > i && m.gameId === l.gameId && m.book === l.book));
+  // both leagues' (a slip can hold either); their market names differ, so one table holds both without clashing
   const nflProj = useQuery({ queryKey: ["nfl-projections"], queryFn: api.nflProjections, enabled: needCorr, staleTime: 10 * 60_000 });
+  const nbaProj = useQuery({ queryKey: ["nba-projections"], queryFn: api.nbaProjections, enabled: needCorr, staleTime: 10 * 60_000 });
   const corrQuery = useQuery({ queryKey: ["correlations"], queryFn: api.correlations, enabled: needCorr, staleTime: 10 * 60_000 });
-  const positions = useMemo(() => Object.fromEntries((nflProj.data ?? []).map((p) => [p.player_id, p.pos])), [nflProj.data]);
+  const nbaCorrQuery = useQuery({ queryKey: ["nba-correlations"], queryFn: api.nbaCorrelations, enabled: needCorr, staleTime: 10 * 60_000 });
+  const positions = useMemo(() => Object.fromEntries([...(nflProj.data ?? []), ...(nbaProj.data ?? [])].map((p) => [p.player_id, p.pos])),
+    [nflProj.data, nbaProj.data]);
+  const corr = useMemo(() => ({ ...corrQuery.data?.pairs, ...nbaCorrQuery.data?.pairs }), [corrQuery.data, nbaCorrQuery.data]);
 
   const copyText = async (text: string, tag: "link" | "text" | "share") => {
     try { await navigator.clipboard.writeText(text); setCopied(tag); setTimeout(() => setCopied(null), 1800); } catch { /* clipboard blocked */ }
@@ -242,7 +247,7 @@ export default function BetSlip() {
                   </div>
                   {ls.length > 1 && (() => {
                     const sg = sameGame(ls);
-                    const hit = slipHitChance(ls, positions, sg ? corrQuery.data?.pairs : undefined);
+                    const hit = slipHitChance(ls, positions, sg ? corr : undefined);
                     const ev = hit * p.decimal - 1;
                     return (
                       <p className="mut slip-chance">

@@ -250,3 +250,27 @@ describe("slip hit chance", () => {
     expect(slipHitChance([qb, wr], { qb: "QB", wr: "WR" })).toBeCloseTo(0.36, 12);
   });
 });
+
+describe("NBA same-game slip", () => {
+  // one guard's points and threes, from the NBA table (keys use the position group, whatever ESPN's listed position)
+  const corr = { "same|pts:G|threes:G": 0.68, "same|pts:C|reb:C": 0.35 };
+  const pts = leg({ playerId: "g1", kind: "pts", line: 24.5, prob: 0.5 });
+  const threes = leg({ playerId: "g1", kind: "threes", line: 2.5, prob: 0.45 });
+  it("prices one player's points and threes above the legs multiplied", () => {
+    const hit = slipHitChance([pts, threes], { g1: "PG" }, corr);
+    expect(hit).toBeGreaterThan(0.5 * 0.45 + 0.08);
+    expect(hit).toBeLessThan(0.45);
+  });
+  it("takes the position group from listings like G-F or F-C", () => {
+    expect(slipHitChance([pts, threes], { g1: "SG" }, corr)).toBeCloseTo(slipHitChance([pts, threes], { g1: "G-F" }, corr), 12);
+    const c = { pts: leg({ playerId: "c1", kind: "pts" }), reb: leg({ playerId: "c1", kind: "reb" }) };
+    expect(slipHitChance([c.pts, c.reb], { c1: "C" }, corr)).toBeGreaterThan(0.25);
+    expect(slipHitChance([c.pts, c.reb], { c1: "F-C" }, corr)).toBeCloseTo(0.25, 12);
+  });
+  it("prices an NBA and an NFL same-game pair from one merged table", () => {
+    const merged = { ...corr, "team|pass:QB|rec:WR": 0.3 };
+    const qb = leg({ playerId: "qb", kind: "pass", gameId: "n1", prob: 0.5 }), wr = leg({ playerId: "wr", kind: "rec", gameId: "n1", prob: 0.5 });
+    const both = slipHitChance([pts, threes, qb, wr], { g1: "PG", qb: "QB", wr: "WR" }, merged);
+    expect(both).toBeCloseTo(slipHitChance([pts, threes], { g1: "PG" }, merged) * slipHitChance([qb, wr], { qb: "QB", wr: "WR" }, merged), 12);
+  });
+});

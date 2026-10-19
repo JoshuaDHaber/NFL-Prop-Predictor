@@ -192,12 +192,15 @@ export const api = {
   allProjections: () => get<Projection[]>(lg("projections")),
   /** The NFL's projections whatever league is on screen: the betslip reads players' positions from them. */
   nflProjections: () => get<Projection[]>("projections"),
+  /** The NBA's projections whatever league is on screen, for the same reason. */
+  nbaProjections: () => get<Projection[]>("nba/projections"),
   searchPlayers: (q: string) => get<PlayerHit[]>(lg("player-search"), { q }),
   player: (id: string, marketWeight: number) => get<PlayerDetail>(lg(`players/${id}`), { market_weight: marketWeight }),
   moneylines: (book: string, marketWeight: number) => get<MoneylineGame[]>(lg("moneylines"), { book, market_weight: marketWeight }),
   injuries: () => get<InjuryReport>(lg("injuries")),
   grades: () => get<GradeReport>("grades"),
   correlations: () => get<Correlations>("correlations"),
+  nbaCorrelations: () => get<Correlations>("nba/correlations"),
   nbaGrades: () => get<GradeReport>("nba/grades"),
   /** oddsRange hides prices outside -N..+N (American); 0 shows everything. */
   // by the market, not the league on screen: a betslip can hold legs from both
