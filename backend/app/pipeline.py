@@ -39,7 +39,8 @@ def reusable_calibration(season: int, now: datetime = None):
         cal, red = v.get("_calibration"), v.get("_redistribution") or {}
         if not cal or cal.get("season") != season or "rho" not in red or not isinstance(v.get("td"), list):
             return None
-        if not all(isinstance(v.get(k), dict) for k in ("rush", "rec", "pass", "rr", "recs", "ptd", "lng")):
+        if not all(isinstance(v.get(k), dict) for k in ("rush", "rec", "pass", "rr", "recs", "ptd", "lng", "rlng")) \
+                or not isinstance(v.get("ftd"), list):
             return None  # fitted before a market existed (e.g. receptions, passing TDs)
         if not isinstance((v.get("_weather") or {}).get("coef"), dict):
             return None  # fitted before weather was modeled
@@ -75,11 +76,12 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
 
     seasons = [season - 2, season - 1, season]
     stats = model.prep(data.load_stats(seasons, usecols=data.PIPELINE_COLUMNS))
-    catches = data.load_catches(seasons)   # play-by-play catches: the longest-reception market
-    stats = model.add_longest(stats, catches)
+    # play-by-play: catches and carries for the longest reception and rush, each game's first touchdown scorer
+    catches, rushes = data.load_catches(seasons), data.load_rushes(seasons)
+    stats = model.add_first_td(model.add_longest(stats, catches, rushes), data.load_first_tds(seasons))
     with SessionLocal() as s:   # last week's logged picks, now that their box scores are in
         grading.grade_logged(s, stats, sched, log)
-    priors = model.league_priors(stats, catches)
+    priors = model.league_priors(stats, catches, rushes)
     td_pri = tdm.td_priors(stats)
     # who is out this week (injury report + your --exclude list): their volume goes to teammates, and they are dropped below
     inj = data.load_injuries(season)
@@ -105,7 +107,7 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
         var_params, bt_sum = saved["variance"], saved["backtest"]
         cal = dict(var_params.get("_calibration"), reused_from_run=saved["run_id"])
         var_params["_calibration"] = cal
-        td_scale = var_params["td"][0]
+        td_scale, ftd_scale = var_params["td"][0], var_params["ftd"][0]
         rho = {k: float(v) for k, v in var_params["_redistribution"]["rho"].items()}
         wx_coef = var_params["_weather"]["coef"]
         log(f"Using the saved calibration from week {cal['week']} (run {saved['run_id']}): skipping the backtest")
@@ -116,15 +118,21 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
         base = model.walk_forward(stats, priors, played, start_t=start_t, td_priors=td_pri, records=records)  # also gathers data to fit rho
         rho_fit = rd.fit_rho([x for x in records if x[3] < week_t])
         rho = rd.applied(rho_fit)
-        wx_coef = wxm.fit(base[(base.t < week_t) & (base.kind != "td")])  # base has no weather adjustment yet
+        wx_coef = wxm.fit(base[(base.t < week_t) & ~base.kind.isin(tdm.YES_NO)])  # base has no weather adjustment yet
         bt = model.walk_forward(stats, priors, played, start_t=start_t, td_priors=td_pri, rho=rho, wx_coef=wx_coef)
         bt, base = bt[bt.t < week_t], base[base.t < week_t]
-        bt_td, bt = bt[bt.kind == "td"], bt[bt.kind != "td"]
+        bt_td, bt_ftd, bt = bt[bt.kind == "td"], bt[bt.kind == "ftd"], bt[~bt.kind.isin(tdm.YES_NO)]
         bt_sum, var_params = model.backtest_summary(bt), model.fit_dist(bt)
         lam = -np.log1p(-np.clip(bt_td.mu.to_numpy(), 0, 1 - 1e-9))
         td_scale = tdm.fit_scale(lam, bt_td.actual.to_numpy()) if len(bt_td) else 1.0
         bt_sum["td"] = tdm.summary(bt_td, td_scale)
         var_params["td"] = [td_scale, 0.0]  # anytime TD: (scale on expected TDs, unused); yardage kinds hold their error tables
+        # first TD: the rows' expected TDs are unscaled, like anytime TD's, so the anytime scale goes on first
+        ftd_p = bt_ftd.mu.to_numpy() * td_scale
+        ftd_scale = tdm.fit_ftd_scale(ftd_p, bt_ftd.actual.to_numpy())
+        bt_sum["ftd"] = tdm.brier_summary(np.clip(ftd_p * ftd_scale, 0, 0.95), bt_ftd.actual.to_numpy(float))
+        var_params["ftd"] = [ftd_scale, 0.0]
+        log(f"First TD: scale {ftd_scale:.2f}, Brier {bt_sum['ftd']['mae_model']:.4f} (base rate {bt_sum['ftd']['mae_naive']:.4f})")
         var_params["_redistribution"] = _redistribution_summary(base, bt, rho_fit, rho)
         var_params["_weather"] = wxm.summary(bt, wx_coef)
         var_params["_calibration"] = dict(at=datetime.utcnow().isoformat(), season=season, week=week)
@@ -140,7 +148,7 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
     proj = model.upcoming_projections(stats, sched, priors, var_params, week_t, data.load_roster(season),
                                       td_priors=td_pri, td_scale=td_scale, rho=rho, absent_ids=absent_ids,
                                       game_wx={g: w["factors"] for g, w in game_weather.items()}, ruled_out=ruled_out, sat_out=sat_out,
-                                      questionable={pid for pid, s_ in status.items() if s_ == "Questionable"})
+                                      questionable={pid for pid, s_ in status.items() if s_ == "Questionable"}, ftd_scale=ftd_scale)
 
     # team win chances: cheap (seconds), so fitted fresh every run, fast or full
     log("Team ratings and win probabilities...")
@@ -187,8 +195,8 @@ def _redistribution_summary(base: pd.DataFrame, bt: pd.DataFrame, rho_fit: dict,
     out = dict(rho_fit={k: float(v) for k, v in rho_fit.items()}, rho={k: float(v) for k, v in rho.items()},
                active_roles=list(rd.ACTIVE_ROLES), replace_roles=list(rd.REPLACE_ROLES), by_kind={})
     key = ["player_id", "t", "kind"]
-    b = base[base.kind != "td"].set_index(key)
-    n = bt[bt.kind != "td"].set_index(key)
+    b = base[~base.kind.isin(tdm.YES_NO)].set_index(key)
+    n = bt[~bt.kind.isin(tdm.YES_NO)].set_index(key)
     idx = b.index.intersection(n.index)
     for kind in rd.ROLES:
         sel = (idx.get_level_values("kind") == kind) & b.loc[idx, "affected"].to_numpy()

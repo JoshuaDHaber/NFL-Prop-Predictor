@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Kind, Projection } from "../api";
-import { KIND_SHORT } from "../format";
+import { isYesNo, KIND_SHORT } from "../format";
 import Avatar from "./Avatar";
 
 /** The market a player's drawer opens on: their headline one by NFL position, else the first they're projected in (Points for the NBA). */
 const PRIMARY: Record<string, Kind> = { QB: "pass", RB: "rush", WR: "rec", TE: "rec" };
-const MARKET_ORDER: Kind[] = ["pass", "rush", "rec", "rr", "recs", "lng", "ptd", "td", "pts", "reb", "ast", "threes"];
+const MARKET_ORDER: Kind[] = ["pass", "rush", "rec", "rr", "recs", "lng", "rlng", "ptd", "td", "ftd", "pts", "reb", "ast", "threes"];
 
 interface GamePlayer { player_id: string; name: string; pos: string; team: string; status: string; kinds: Kind[] }
 
@@ -64,7 +64,7 @@ export default function GamePlayerSearch({ rows, onSelect }: { rows: Projection[
                 <Avatar name={p.name} size={30} />
                 <span><b>{p.name}</b> <span className="pos-pill">{p.pos}</span> <span className="mut">{p.team}</span>{p.status && <small className="q"> {p.status}</small>}</span>
                 <span className="go-hit-kinds">
-                  {p.kinds.filter((k) => k !== "td").slice(0, 3).map((k) => (
+                  {p.kinds.filter((k) => !isYesNo(k)).slice(0, 3).map((k) => (
                     <button key={k} tabIndex={-1} onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); pick(p, k); }} title={`Open ${p.name}'s ${KIND_SHORT[k].toLowerCase()}`}>{KIND_SHORT[k]}</button>
                   ))}
                 </span>

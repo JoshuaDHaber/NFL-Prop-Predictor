@@ -46,7 +46,8 @@ def _get_csv(url, name, max_age_hours=6, usecols=None):
 PIPELINE_COLUMNS = ["player_id", "player_display_name", "position", "season", "week", "season_type", "team", "opponent_team",
                     "carries", "rushing_yards", "rushing_tds", "targets", "receptions", "receiving_yards", "receiving_tds",
                     "attempts", "passing_yards", "passing_tds"]
-PBP_COLUMNS = ["season", "week", "season_type", "receiver_player_id", "complete_pass", "receiving_yards"]
+PBP_COLUMNS = ["game_id", "play_id", "season", "week", "season_type", "receiver_player_id", "complete_pass", "receiving_yards",
+               "rusher_player_id", "rush_attempt", "rushing_yards", "two_point_attempt", "touchdown", "td_player_id"]
 
 
 def load_stats(seasons, usecols=None):
@@ -66,28 +67,65 @@ def load_stats(seasons, usecols=None):
     return df[df.position.isin(["QB", "RB", "WR", "TE", "FB"])].copy()
 
 
-def load_catches(seasons):
-    """Every regular-season catch (player_id, season, week, yards) from nflverse play-by-play: the weekly stats have no
-    longest reception. The ~20 MB play-by-play file is cut down to its catches once per download and that is cached too."""
+def _catches(p):
+    p = p[(p.complete_pass == 1) & p.receiver_player_id.notna()]
+    return pd.DataFrame({"player_id": p.receiver_player_id, "season": p.season, "week": p.week,
+                         "yards": p.receiving_yards.fillna(0).astype(float)})
+
+
+def _rushes(p):
+    """Every official carry (kneels too, as the box score counts them); two-point tries aren't carries."""
+    p = p[(p.rush_attempt == 1) & p.rusher_player_id.notna() & (p.two_point_attempt.fillna(0) != 1)]
+    return pd.DataFrame({"player_id": p.rusher_player_id, "season": p.season, "week": p.week,
+                         "yards": p.rushing_yards.fillna(0).astype(float)})
+
+
+def _first_tds(p):
+    """Each game's first touchdown: who scored it (any kind: a defensive or return TD counts, as the books settle it)."""
+    t = p[(p.touchdown == 1) & p.td_player_id.notna()].sort_values(["game_id", "play_id"]).groupby("game_id").head(1)
+    return pd.DataFrame({"player_id": t.td_player_id, "season": t.season, "week": t.week, "game_id": t.game_id})
+
+
+PBP_CUTS = {"catches": _catches, "rushes": _rushes, "first_tds": _first_tds}
+
+
+def _load_pbp(seasons, cut):
+    """One cut of regular-season play-by-play (see PBP_CUTS), per season. The ~20 MB play-by-play file is cut down
+    once per download and each cut is cached too."""
     frames = []
     current = max(seasons)
     for s in seasons:
         max_age = 6 if s == current else 24 * 365   # a finished season's plays don't change
-        raw, small = os.path.join(CACHE, f"pbp_{s}.csv.gz"), os.path.join(CACHE, f"catches_{s}.csv")
+        raw, small = os.path.join(CACHE, f"pbp_{s}.csv.gz"), os.path.join(CACHE, f"{cut}_{s}.csv")
         fresh = os.path.exists(raw) and time.time() - os.path.getmtime(raw) < max_age * 3600
         if fresh and os.path.exists(small) and os.path.getmtime(small) >= os.path.getmtime(raw):
             frames.append(pd.read_csv(small))
             continue
         try:
-            p = _get_csv(f"{BASE}/pbp/play_by_play_{s}.csv.gz", f"pbp_{s}.csv.gz", max_age_hours=max_age, usecols=PBP_COLUMNS)
+            p = _get_csv(f"{BASE}/pbp/play_by_play_{s}.csv.gz", f"pbp_{s}.csv.gz", max_age_hours=max_age,
+                         usecols=lambda c: c in PBP_COLUMNS)
         except requests.HTTPError:
             continue
-        p = p[(p.season_type == "REG") & (p.complete_pass == 1) & p.receiver_player_id.notna()]
-        c = pd.DataFrame({"player_id": p.receiver_player_id, "season": p.season, "week": p.week,
-                          "yards": p.receiving_yards.fillna(0).astype(float)})
+        c = PBP_CUTS[cut](p[p.season_type == "REG"])
         c.to_csv(small, index=False)
         frames.append(c)
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=["player_id", "season", "week", "yards"])
+    cols = ["player_id", "season", "week", "game_id"] if cut == "first_tds" else ["player_id", "season", "week", "yards"]
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=cols)
+
+
+def load_catches(seasons):
+    """Every regular-season catch (player_id, season, week, yards): the weekly stats have no longest reception."""
+    return _load_pbp(seasons, "catches")
+
+
+def load_rushes(seasons):
+    """Every regular-season carry (player_id, season, week, yards): the weekly stats have no longest rush."""
+    return _load_pbp(seasons, "rushes")
+
+
+def load_first_tds(seasons):
+    """Each regular-season game's first touchdown scorer (player_id, season, week, game_id)."""
+    return _load_pbp(seasons, "first_tds")
 
 
 def load_schedule():

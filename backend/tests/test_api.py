@@ -315,8 +315,8 @@ def test_the_sync_plan_says_what_would_run_and_what_it_costs(client, monkeypatch
     p = client.get("/api/refresh/plan").json()
     assert p["season"] == 2026 and p["week"] == 5 and p["total_games"] == 2
     assert [g["label"] for g in p["games"]] == ["AAA @ BBB", "CCC @ DDD"]
-    assert p["games"][0]["need_main"] == ["lng", "ml", "pass", "ptd", "rec", "recs", "rr", "rush", "td"] and p["games"][0]["need_alt"] is True
-    assert p["credits"] == 32 and p["will_run_projections"] is True
+    assert p["games"][0]["need_main"] == ["ftd", "lng", "ml", "pass", "ptd", "rec", "recs", "rlng", "rr", "rush", "td"] and p["games"][0]["need_alt"] is True
+    assert p["credits"] == 38 and p["will_run_projections"] is True
     none = client.get("/api/refresh/plan", params={"odds": "none"}).json()
     assert none["credits"] == 0 and none["games"] == [] and none["week"] == 5
 
@@ -421,3 +421,8 @@ def test_grades_report_is_empty_before_anything_is_graded(client):
     assert r.status_code == 200
     body = r.json()
     assert body["graded"] == 0 and body["model_vs_line"] == [] and body["board"][0]["n"] == 0
+
+
+def test_leaving_out_anytime_td_leaves_out_first_td_too():
+    assert main._excluded("td") == ("td", "ftd")     # the "all over/unders" views
+    assert main._excluded("rush") == ("rush",)

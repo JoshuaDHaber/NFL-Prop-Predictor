@@ -1,9 +1,9 @@
 import type { Filters, Game, Kind } from "../api";
 import { IS_STATIC } from "../env";
-import { KIND_SHORT, MARKET_TABS, NBA_KINDS, SUB_LABEL, groupOf, kickoff, pct, signedPct } from "../format";
+import { isYesNo, playLabel, KIND_SHORT, MARKET_TABS, NBA_KINDS, SUB_LABEL, groupOf, kickoff, pct, signedPct } from "../format";
 import { getLeague } from "../league";
 
-const ICON: Record<Kind | "all", string> = { all: "📊", rush: "🏃", rec: "🙌", recs: "🧤", pass: "🎯", rr: "⚡", td: "🏈", ptd: "🎯", lng: "🚀",
+const ICON: Record<Kind | "all", string> = { all: "📊", rush: "🏃", rec: "🙌", recs: "🧤", pass: "🎯", rr: "⚡", td: "🏈", ptd: "🎯", lng: "🚀", rlng: "💨", ftd: "🥇",
   pts: "🏀", reb: "🔁", ast: "🤝", threes: "🎯" };
 
 interface Props {
@@ -51,7 +51,7 @@ export default function Controls({ filters, onChange, games, books, showPickCont
           {(["all", "Over", "Under"] as const).map((s) => (
             <button key={s} role="tab" aria-selected={filters.side === s} className={filters.side === s ? "on" : ""}
               onClick={() => set({ side: s })}>
-              {s === "all" ? "Overs & unders" : filters.kind === "td" ? (s === "Over" ? "Anytime TD" : "No TD") : `${s}s`}
+              {s === "all" ? "Overs & unders" : isYesNo(filters.kind) ? playLabel(filters.kind, s, 0.5) : `${s}s`}
             </button>
           ))}
         </div>
@@ -99,6 +99,13 @@ export default function Controls({ filters, onChange, games, books, showPickCont
         <p className="td-note">
           <b>Anytime TD:</b> books post a single “Yes” price with a large margin, and this model doesn't see red-zone usage, so it
           always leans at least 60% on the market's chance. Treat these edges with caution; big ones usually mean the model is missing something.
+        </p>
+      )}
+      {filters.kind === "ftd" && (
+        <p className="td-note">
+          <b>First TD scorer:</b> each player's share of the game's expected touchdowns (defense and returns included), from the
+          anytime-TD model and the game total. Books price 30+ players for one outcome, so the margin is far bigger than anytime TD;
+          like anytime TD these lean at least 60% on the market. Who gets the ball first isn't modeled.
         </p>
       )}
     </section>

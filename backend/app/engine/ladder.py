@@ -3,13 +3,14 @@ import pandas as pd
 
 from . import odds
 from .model import prob_over_under, prob_over_under_dist
-from .td import TD_ASSUMED_HOLD, TD_MIN_MARKET_WEIGHT
+from .picks import HOLD
+from .td import TD_MIN_MARKET_WEIGHT, YES_NO
 
 
 def price_quote(mu: float, sd: float, line: float, side: str, american: float, kind: str = "", dist: dict = None):
     """(model win probability, EV per $1 staked) for one side of one quote. No market blending: alt lines
-    are usually one-sided so there is no no-vig price to blend with. For anytime TD, mu is already P(>=1 TD)."""
-    if kind == "td":
+    are usually one-sided so there is no no-vig price to blend with. For anytime and first TD, mu is already the chance."""
+    if kind in YES_NO:
         po, pu = mu, 1 - mu
     elif dist:
         po, pu = prob_over_under_dist(mu, line, dist)
@@ -24,17 +25,17 @@ def build_ladder(mu: float, sd: float, quotes: pd.DataFrame, max_abs_odds: float
     """quotes columns: line, book, alt, over_odds, under_odds, over_link, under_link, event_link.
 
     max_abs_odds > 0 hides prices outside -max..+max (American), e.g. 300 hides -400 locks and +900 longshots.
-    It doesn't apply to anytime TD, where +400 to +2000 are ordinary prices."""
+    It doesn't apply to anytime or first TD, where +400 to +2000 are ordinary prices."""
     out = []
     # anytime TD: lean on the market's chance (the lone Yes prices, margin stripped), as the Best props board does
     td_market = None
-    if kind == "td" and quotes.over_odds.notna().any():
-        td_market = float((odds.implied(quotes.over_odds.dropna()) / (1 + TD_ASSUMED_HOLD)).mean())
+    if kind in YES_NO and quotes.over_odds.notna().any():
+        td_market = float((odds.implied(quotes.over_odds.dropna()) / (1 + HOLD[kind])).mean())
     for q in quotes.itertuples():
         row = dict(line=float(q.line), book=q.book, alt=bool(q.alt), event_link=_none(q.event_link), over=None, under=None)
         for side in ("over", "under"):
             odd = getattr(q, f"{side}_odds")
-            if pd.notna(odd) and (kind == "td" or not max_abs_odds or -max_abs_odds <= odd <= max_abs_odds):
+            if pd.notna(odd) and (kind in YES_NO or not max_abs_odds or -max_abs_odds <= odd <= max_abs_odds):
                 p, ev = price_quote(mu, sd, q.line, side, odd, kind, dist)
                 if td_market is not None and side == "over":
                     p = (1 - TD_MIN_MARKET_WEIGHT) * mu + TD_MIN_MARKET_WEIGHT * td_market

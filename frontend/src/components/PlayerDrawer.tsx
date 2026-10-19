@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, type Kind } from "../api";
-import { KIND_LABEL, KIND_SHORT, effText, fmtProj, fmtSd, isCount, isNba, matchup, unit, volLabel, weatherText, wxEffect } from "../format";
+import { isYesNo, KIND_LABEL, KIND_SHORT, effText, fmtProj, fmtSd, isCount, isNba, matchup, unit, volLabel, weatherText, wxEffect } from "../format";
 import Avatar from "./Avatar";
 import LineLadder, { ODDS_RANGE } from "./LineLadder";
 
@@ -24,12 +24,12 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });   // already cached by the page
   const weather = meta.data?.games.find((g) => g.game_id === proj?.game_id)?.weather;
   const wxText = weatherText(weather);
-  const wxAdj = kind !== "td" ? wxEffect(proj?.wx) : null;
+  const wxAdj = !isYesNo(kind) ? wxEffect(proj?.wx) : null;
 
   const logs = data?.logs[kind] ?? [];
   // main-line markers on the chart come from the same ladder the table shows, so they follow the sportsbook filter
   const ladder = useQuery({ queryKey: ["ladder", playerId, kind, ODDS_RANGE], queryFn: () => api.lines(playerId, kind, ODDS_RANGE) });
-  const isTd = kind === "td";
+  const isTd = isYesNo(kind);
   const lines = isTd ? [] : [...new Set((ladder.data?.quotes ?? []).filter((q) => !q.alt && (book === "all" || q.book === book)).map((q) => q.line))];
 
   return (
@@ -51,7 +51,7 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
               <p className="wx-line mut">
                 {weather?.stadium ? `${weather.stadium} · ` : ""}{wxText}
                 {wxAdj ? <> · <b className={proj.wx! < 1 ? "under" : "over"}>{wxAdj} {KIND_SHORT[kind].toLowerCase()} for weather</b></>
-                  : !weather?.indoor && kind !== "td" ? " · no weather adjustment" : ""}
+                  : !weather?.indoor && !isTd ? " · no weather adjustment" : ""}
               </p>
             )}
             <div className="seg small" role="tablist">
@@ -64,7 +64,7 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
             <div className="facts">
               {isTd ? (
                 <>
-                  <div><span className="mut">Chance to score</span><b>{fmtProj(kind, proj.mu)}</b></div>
+                  <div><span className="mut">{kind === "ftd" ? "Chance to score first" : "Chance to score"}</span><b>{fmtProj(kind, proj.mu)}</b></div>
                   <div><span className="mut">Expected TDs</span><b>{proj.eff.toFixed(2)}</b></div>
                   <div><span className="mut">Touches</span><b>{proj.vol.toFixed(1)}</b></div>
                   <div><span className="mut">TD / touch</span><b>{(proj.eff / Math.max(proj.vol, 0.1)).toFixed(3)}</b></div>
@@ -78,19 +78,19 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
                 </>
               )}
             </div>
-            <h3>Last {logs.length} games · {isTd ? "touchdowns scored" : KIND_LABEL[kind]}</h3>
+            <h3>Last {logs.length} games · {kind === "ftd" ? "scored the first TD" : isTd ? "touchdowns scored" : KIND_LABEL[kind]}</h3>
             <div className="chart">
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={logs} margin={{ top: 8, right: 8, bottom: 0, left: -16 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
                   <XAxis dataKey="label" tick={{ fontSize: 10, fill: "var(--mut)" }} interval={0} angle={-35} textAnchor="end" height={50} />
                   <YAxis tick={{ fontSize: 11, fill: "var(--mut)" }} />
-                  <Tooltip formatter={(v: number) => (isNba(kind) ? [`${v}`, KIND_LABEL[kind]] : isTd ? [`${v}`, "TDs"] : kind === "ptd" ? [`${v}`, "Passing TDs"] : isCount(kind) ? [`${v}`, "Receptions"] : [`${v} yds`, kind === "lng" ? "Longest" : "Yards"])}
+                  <Tooltip formatter={(v: number) => (isNba(kind) ? [`${v}`, KIND_LABEL[kind]] : kind === "ftd" ? [v ? "Yes" : "No", "First TD"] : isTd ? [`${v}`, "TDs"] : kind === "ptd" ? [`${v}`, "Passing TDs"] : isCount(kind) ? [`${v}`, "Receptions"] : [`${v} yds`, kind === "lng" || kind === "rlng" ? "Longest" : "Yards"])}
                     labelFormatter={(l, items) => `${l} ${items[0]?.payload ? "vs " + items[0].payload.opp : ""}`}
                     contentStyle={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--ink)" }} />
                   <Bar dataKey="yards" fill="var(--acc)" radius={[3, 3, 0, 0]} />
-                  <ReferenceLine y={isTd ? proj.eff : proj.mu} stroke="var(--good)" strokeDasharray="5 3"
-                    label={{ value: isTd ? `expected ${proj.eff.toFixed(2)}` : `proj ${fmtProj(kind, proj.mu)}`, position: "insideTopRight", fill: "var(--good)", fontSize: 11 }} />
+                  <ReferenceLine y={kind === "td" ? proj.eff : proj.mu} stroke="var(--good)" strokeDasharray="5 3"
+                    label={{ value: kind === "ftd" ? `chance ${fmtProj(kind, proj.mu)}` : isTd ? `expected ${proj.eff.toFixed(2)}` : `proj ${fmtProj(kind, proj.mu)}`, position: "insideTopRight", fill: "var(--good)", fontSize: 11 }} />
                   {lines.map((l) => (
                     <ReferenceLine key={l} y={l} stroke="var(--bad)" strokeDasharray="2 3"
                       label={{ value: `line ${l}`, position: "insideBottomRight", fill: "var(--bad)", fontSize: 11 }} />

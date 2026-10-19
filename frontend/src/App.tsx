@@ -15,7 +15,7 @@ import PlayerCompare from "./components/PlayerCompare";
 import ProjectionsTable from "./components/ProjectionsTable";
 import { useWaking } from "./auth";
 import { API_URL, BASE, IS_STATIC } from "./env";
-import { KIND_LABEL, americanOdds, fmtProj, fmtSd, marketLabel, projCaption, matchup, playLabel, signedPct, timeAgo } from "./format";
+import { isYesNo, KIND_LABEL, americanOdds, fmtProj, fmtSd, marketLabel, projCaption, matchup, playLabel, signedPct, timeAgo } from "./format";
 import ThemeToggle from "./components/ThemeToggle";
 import LeagueSwitch from "./components/LeagueSwitch";
 import { useLeague } from "./LeagueContext";
@@ -119,7 +119,7 @@ function PublicApp() {
       ? (filters.kind === "all" ? (["pass", "rush", "rec", "recs"] as Kind[]).map((k) => (projections.data ?? []).filter((p) => p.kind === k).sort((a, b) => b.mu - a.mu)[0])
         : [...(projections.data ?? [])].sort((a, b) => b.mu - a.mu).slice(0, 3)).filter(Boolean).map((p) => ({
         key: `${p.player_id}-${p.kind}`, label: filters.kind === "all" ? `Top ${KIND_LABEL[p.kind]}` : KIND_LABEL[p.kind], name: p.name, meta: `${p.pos} ${p.team} ${matchup(p.opp, p.home)}`,
-        value: <>{fmtProj(p.kind, p.mu)} {p.kind !== "td" && <em>{fmtSd(p.kind, p.sd)}</em>}</>, caption: projCaption(p.kind),
+        value: <>{fmtProj(p.kind, p.mu)} {!isYesNo(p.kind) && <em>{fmtSd(p.kind, p.sd)}</em>}</>, caption: projCaption(p.kind),
         onClick: () => setSelected({ id: p.player_id, kind: p.kind }),
       }))
       // the moneyline beats a naive baseline but not the market, so it isn't held up as a "best" market

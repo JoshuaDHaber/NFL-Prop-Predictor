@@ -57,6 +57,23 @@ def catches(stats):
     return pd.DataFrame(out)
 
 
+def rushes(stats):
+    """One row per carry, like catches()."""
+    rng = np.random.default_rng(4)
+    out = [dict(player_id=r.player_id, season=r.season, week=r.week, yards=float(y))
+           for r in stats[stats.carries > 0].itertuples() for y in rng.exponential(r.rushing_yards / r.carries, r.carries)]
+    return pd.DataFrame(out)
+
+
+def first_tds(stats):
+    """Each game's first touchdown: one of its scorers, at random."""
+    rng = np.random.default_rng(5)
+    scored = stats[(stats.rushing_tds + stats.receiving_tds) > 0]
+    games = scored.assign(game=[tuple(sorted((a, b))) for a, b in zip(scored.team, scored.opponent_team)])
+    out = [g.iloc[rng.integers(len(g))] for _, g in games.groupby(["season", "week", "game"])]
+    return pd.DataFrame([dict(player_id=r.player_id, season=r.season, week=r.week, game_id="") for r in out])
+
+
 @pytest.fixture
 def synthetic(monkeypatch):
     stats, sched = league()
@@ -64,6 +81,8 @@ def synthetic(monkeypatch):
     monkeypatch.setattr(pipeline.data, "load_schedule", lambda: sched)
     monkeypatch.setattr(pipeline.data, "load_stats", lambda seasons, usecols=None: stats)
     monkeypatch.setattr(pipeline.data, "load_catches", lambda seasons: catches(stats))
+    monkeypatch.setattr(pipeline.data, "load_rushes", lambda seasons: rushes(stats))
+    monkeypatch.setattr(pipeline.data, "load_first_tds", lambda seasons: first_tds(stats))
     monkeypatch.setattr(pipeline.data, "load_injuries", lambda season: pd.DataFrame())
     monkeypatch.setattr(pipeline.data, "load_roster", lambda season: roster)
     with SessionLocal() as s:

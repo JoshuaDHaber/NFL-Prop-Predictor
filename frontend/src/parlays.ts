@@ -1,4 +1,5 @@
 import type { Kind, Ladder, Pick } from "./api";
+import { isYesNo } from "./format";
 import { getLeague } from "./league";
 import { legId, linkStatus, toAmerican, toDecimal, type Leg } from "./slip";
 
@@ -31,7 +32,7 @@ export const pickKey = (p: Pick) => `${p.player_id}|${p.kind}|${p.side}|${p.line
 
 /** High-probability, sanely priced plays that the model and market don't disagree wildly on. */
 export function candidates(picks: Pick[]): Pick[] {
-  return picks.filter((p) => !p.flagged && p.kind !== "td" && p.prob >= MIN_LEG_PROB && p.odds >= MIN_LEG_ODDS);
+  return picks.filter((p) => !p.flagged && !isYesNo(p.kind) && p.prob >= MIN_LEG_PROB && p.odds >= MIN_LEG_ODDS);
 }
 
 /** Take legs in order, at most one per player (a player's other lines and markets would be the same bet twice).

@@ -1,9 +1,10 @@
 import { getToken, setWaking } from "./auth";
 import { API_URL, BASE, IS_STATIC } from "./env";
+import { isYesNo } from "./format";
 import { getLeague } from "./league";
 
 /** NFL markets, then the NBA's points, rebounds, assists and 3-pointers made. */
-export type Kind = "rush" | "rec" | "pass" | "rr" | "td" | "recs" | "ptd" | "lng" | "pts" | "reb" | "ast" | "threes";
+export type Kind = "rush" | "rec" | "pass" | "rr" | "td" | "recs" | "ptd" | "lng" | "rlng" | "ftd" | "pts" | "reb" | "ast" | "threes";
 export type NbaKind = "pts" | "reb" | "ast" | "threes";
 const NBA_KIND_SET = new Set<Kind>(["pts", "reb", "ast", "threes"]);
 
@@ -242,7 +243,7 @@ const unavailable = () => { throw new Error("Not available in the demo snapshot"
 
 /** Mirrors the server's odds-range rule: hide a side priced beyond -N..+N, drop rows left with neither. */
 export function limitOdds(quotes: LadderRow[], range: number, kind?: Kind): LadderRow[] {
-  if (!range || kind === "td") return quotes; // anytime TD prices (+400, +1200) are ordinary, so the range never applies
+  if (!range || isYesNo(kind)) return quotes; // anytime TD prices (+400, +1200) are ordinary, so the range never applies
   const ok = (q: QuoteSide | null) => (q && q.odds >= -range && q.odds <= range ? q : null);
   return quotes.map((r) => ({ ...r, over: ok(r.over), under: ok(r.under) })).filter((r) => r.over || r.under);
 }
@@ -254,14 +255,14 @@ const staticApi: typeof liveApi = {
     const all = await file<Pick[]>(`picks/${f.book === "all" ? "all" : slug(f.book)}.json`);
     const q = f.q.toLowerCase();
     return all
-      .filter((p) => p.ev >= f.minEv && (f.flagged || !p.flagged) && (f.side === "all" || p.side === f.side) && (f.kind === "all" ? p.kind !== "td" : p.kind === f.kind)
+      .filter((p) => p.ev >= f.minEv && (f.flagged || !p.flagged) && (f.side === "all" || p.side === f.side) && (f.kind === "all" ? !isYesNo(p.kind) : p.kind === f.kind)
         && (f.game === "all" || p.game_id === f.game) && (!q || p.name.toLowerCase().includes(q)))
       .sort((a, b) => b.ev - a.ev)
       .slice(0, limit);
   },
   projections: async (f) => {
     const q = f.q.toLowerCase();
-    return (await file<Projection[]>("projections.json")).filter((p) => (f.kind === "all" ? p.kind !== "td" : p.kind === f.kind)
+    return (await file<Projection[]>("projections.json")).filter((p) => (f.kind === "all" ? !isYesNo(p.kind) : p.kind === f.kind)
       && (f.game === "all" || p.game_id === f.game) && (!q || p.name.toLowerCase().includes(q)));
   },
   allProjections: () => file<Projection[]>("projections.json"),

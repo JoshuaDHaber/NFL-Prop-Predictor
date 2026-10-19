@@ -142,3 +142,39 @@ def test_td_ladder_blends_toward_the_markets_chance_like_the_board_does():
     assert row["over"]["prob"] == pytest.approx(expected_p)
     assert row["over"]["ev"] == pytest.approx(expected_p * 1.0 - (1 - expected_p))  # +100 pays 1:1
     assert row["over"]["prob"] < 0.8  # the model's 80% is pulled toward the market's ~45%
+
+
+# ---------- first touchdown scorer ----------
+def test_first_td_is_a_players_share_of_the_games_expected_touchdowns():
+    game = td.game_tds(27.0, 20.0)
+    assert game == pytest.approx(td.TDS_PER_POINT * 47.0)
+    p = td.first_td(0.6, game)
+    assert p == pytest.approx(0.6 / game * (1 - np.exp(-game)))
+    assert td.first_td(1.2, game) == pytest.approx(2 * p)                 # linear in the player's expected TDs
+    assert td.first_td(0.6, td.game_tds(35.0, 30.0)) < p                  # a shootout has more players to beat
+    assert td.game_tds(None, np.nan) == pytest.approx(td.TDS_PER_POINT * 2 * td.LEAGUE_IMPLIED)   # no lines yet
+
+
+def test_first_td_chances_over_a_whole_game_add_up_to_the_chance_of_any_touchdown():
+    game = td.game_tds(24.0, 21.0)
+    shares = [td.first_td(game / 20, game) for _ in range(20)]       # twenty scorers who share the game's TDs
+    assert sum(shares) == pytest.approx(1 - np.exp(-game))
+
+
+def test_first_td_scale_matches_the_observed_rate():
+    p = np.full(1000, 0.05)
+    y = np.r_[np.ones(60), np.zeros(940)]
+    assert td.fit_ftd_scale(p, y) == pytest.approx(1.2)
+
+
+def test_first_td_picks_strip_the_bigger_first_td_margin():
+    p = proj(0.12).assign(kind="ftd")
+    lines = yes_lines({"A": 600}).assign(market="ftd")
+    pick = build_picks(p, lines, market_weight=1.0).iloc[0]
+    assert pick.side == "Over" and pick.p_model == pytest.approx(0.12)
+    assert pick.p_mkt == pytest.approx((1 / 7) / (1 + td.FTD_ASSUMED_HOLD))
+
+
+def test_the_odds_feed_stores_first_td_like_anytime_td():
+    assert odds.MARKETS["player_1st_td"] == "ftd" and odds.MARKETS["player_rush_longest"] == "rlng"
+    assert "player_1st_td_alternate" not in odds.ALT_MARKETS

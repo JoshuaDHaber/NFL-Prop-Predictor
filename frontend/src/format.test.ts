@@ -98,3 +98,16 @@ describe("receptions and moneyline labels", () => {
     expect(marketLabel("recs")).toBe("Receptions");
   });
 });
+
+describe("first TD scorer and longest rush formatting", () => {
+  it("shows first TD like anytime TD: a chance, First TD / Not first TD, edges in points", () => {
+    expect(fmtProj("ftd", 0.118)).toBe("12%");
+    expect(playLabel("ftd", "Over", 0.5)).toBe("First TD");
+    expect(playLabel("ftd", "Under", 0.5)).toBe("Not first TD");
+    expect(fmtEdge("ftd", 1.24)).toBe("+1.2 pts");
+  });
+  it("shows longest rush in yards", () => {
+    expect(fmtProj("rlng", 17.36)).toBe("17");
+    expect(playLabel("rlng", "Over", 15.5)).toBe("Over 15.5");
+  });
+});

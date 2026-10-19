@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { BASE, IS_STATIC } from "../env";
 import { useBetSlip } from "../BetSlipContext";
-import { KIND_SHORT, americanOdds, pct, playLabel, signedPct } from "../format";
+import { isYesNo, KIND_SHORT, americanOdds, pct, playLabel, signedPct } from "../format";
 import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, combinedLink, legLink, shareUrl, slipLinksText, linkStatus, openProgress, parlay, rebook, sameGame, slipText, toWin, type BookOption } from "../slip";
 
 export default function BetSlip() {
@@ -140,7 +140,7 @@ export default function BetSlip() {
                   const alts = alternativesAtBook(ladderFor(l), l, target);
                   return (
                     <div className="suggest-leg" key={l.id}>
-                      <div><b>{l.name}</b> <span className={l.side === "Over" ? "over" : "under"}>{playLabel(l.kind, l.side, l.line)}</span> {l.kind !== "td" && <span className="mut">{KIND_SHORT[l.kind]}</span>}</div>
+                      <div><b>{l.name}</b> <span className={l.side === "Over" ? "over" : "under"}>{playLabel(l.kind, l.side, l.line)}</span> {!isYesNo(l.kind) && <span className="mut">{KIND_SHORT[l.kind]}</span>}</div>
                       {alts.length ? (
                         <div className="chips">
                           {alts.map((o) => (
@@ -201,7 +201,7 @@ export default function BetSlip() {
                       <div className="slip-leg" key={l.id}>
                         <div>
                           <b>{l.name}</b> <span className="mut">{l.team}</span><br />
-                          <span className={l.side === "Over" ? "over" : "under"}>{playLabel(l.kind, l.side, l.line)}</span> {l.kind !== "td" && KIND_SHORT[l.kind]}
+                          <span className={l.side === "Over" ? "over" : "under"}>{playLabel(l.kind, l.side, l.line)}</span> {!isYesNo(l.kind) && KIND_SHORT[l.kind]}
                           {l.alt && <span className="alt">alt</span>}
                           <span className="mut"> {l.home ? "vs" : "@"} {l.opp}</span><br />
                           <label className="bookpick">
