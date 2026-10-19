@@ -4,7 +4,9 @@ import pandas as pd
 
 from . import odds
 from .model import prob_over_under, prob_over_under_dist
-from .td import TD_ASSUMED_HOLD, TD_MIN_MARKET_WEIGHT  # noqa: F401  (re-exported for callers and tests)
+from .td import FTD_ASSUMED_HOLD, TD_ASSUMED_HOLD, TD_MIN_MARKET_WEIGHT, YES_NO  # noqa: F401  (re-exported for callers and tests)
+
+HOLD = {"td": TD_ASSUMED_HOLD, "ftd": FTD_ASSUMED_HOLD}   # margin stripped from a lone Yes price
 
 
 
@@ -45,8 +47,9 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
 
     # market no-vig consensus per player/market
     lines["nv_o"] = odds.implied(lines.over_odds) / (odds.implied(lines.over_odds) + odds.implied(lines.under_odds))
-    td_only = (lines.market == "td") & lines.under_odds.isna()
-    lines.loc[td_only, "nv_o"] = odds.implied(lines.loc[td_only, "over_odds"]) / (1 + TD_ASSUMED_HOLD)
+    for kind, hold in HOLD.items():
+        yes_only = (lines.market == kind) & lines.under_odds.isna()
+        lines.loc[yes_only, "nv_o"] = odds.implied(lines.loc[yes_only, "over_odds"]) / (1 + hold)
     cons = lines.groupby(["key", "market"]).agg(line=("line", "median"), nv_o=("nv_o", "mean"), books=("book", "nunique"))
 
     out = []
@@ -62,9 +65,9 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
         var = p.sd ** 2
         wx = getattr(p, "wx", 1.0)
         wx = 1.0 if wx is None or pd.isna(wx) else float(wx)
-        is_td = r.market == "td"
+        is_td = r.market in YES_NO
         if is_td:
-            po, pu = p.mu, 1 - p.mu  # mu already is P(>=1 TD)
+            po, pu = p.mu, 1 - p.mu  # mu already is the chance (of any TD, or of the game's first)
         elif dists and r.market in dists:
             po, pu = prob_over_under_dist(p.mu, r.line, dists[r.market])
         else:

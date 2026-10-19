@@ -2,26 +2,31 @@ import type { GameWeather, Kind } from "./api";
 
 export const KIND_LABEL: Record<Kind, string> = {
   rush: "Rushing yds", rec: "Receiving yds", pass: "Passing yds", rr: "Rush+Rec yds", td: "Anytime TD", recs: "Receptions",
-  ptd: "Passing TDs", lng: "Longest reception", pts: "Points", reb: "Rebounds", ast: "Assists", threes: "3-pointers made",
+  ptd: "Passing TDs", lng: "Longest reception", rlng: "Longest rush", ftd: "First TD scorer", pts: "Points", reb: "Rebounds", ast: "Assists", threes: "3-pointers made",
 };
 export const KIND_SHORT: Record<Kind, string> = { rush: "Rushing", rec: "Receiving", pass: "Passing", rr: "Rush+Rec", td: "Anytime TD", recs: "Receptions",
-  ptd: "Passing TDs", lng: "Longest rec", pts: "Points", reb: "Rebounds", ast: "Assists", threes: "Threes" };
+  ptd: "Passing TDs", lng: "Longest rec", rlng: "Longest rush", ftd: "First TD", pts: "Points", reb: "Rebounds", ast: "Assists", threes: "Threes" };
 /** The NBA's markets: projected minutes x a per-minute rate. */
 export const NBA_KINDS = ["pts", "reb", "ast", "threes"] as const;
 export const isNba = (kind: Kind) => (NBA_KINDS as readonly Kind[]).includes(kind);
+/** Touchdown markets: a lone "Yes" price per player (stored as an over 0.5), and mu is the chance. */
+export const isYesNo = (kind?: Kind | "all") => kind === "td" || kind === "ftd";
 
 /** Grouped markets: one sub tab each, with a pill per market inside. */
 export interface MarketGroup { label: string; icon: string; kinds: Kind[] }
 export const PROJ_GROUPS: MarketGroup[] = [
+  { label: "Rushing", icon: "🏃", kinds: ["rush", "rlng"] },
   { label: "Receiving", icon: "🙌", kinds: ["rec", "recs", "lng"] },
   { label: "Passing", icon: "🎯", kinds: ["pass", "ptd"] },
+  { label: "Touchdowns", icon: "🏈", kinds: ["td", "ftd"] },
 ];
 /** The market picker's top row (props and projections alike): single markets, and the groups above. */
-export const MARKET_TABS: (Kind | "all" | MarketGroup)[] = ["all", "rush", PROJ_GROUPS[0], PROJ_GROUPS[1], "rr", "td"];
+export const MARKET_TABS: (Kind | "all" | MarketGroup)[] = ["all", ...PROJ_GROUPS.slice(0, 3), "rr", PROJ_GROUPS[3]];
 /** The group a market belongs to, if any. */
 export const groupOf = (kind: Kind | "all") => PROJ_GROUPS.find((g) => (g.kinds as string[]).includes(kind));
 /** A market's name inside its group's sub tab. */
-export const SUB_LABEL: Partial<Record<Kind, string>> = { rec: "Yards", recs: "Receptions", lng: "Longest", pass: "Yards", ptd: "TDs" };
+export const SUB_LABEL: Partial<Record<Kind, string>> = { rush: "Yards", rlng: "Longest", rec: "Yards", recs: "Receptions", lng: "Longest",
+  pass: "Yards", ptd: "TDs", td: "Anytime", ftd: "First TD" };
 /** Any market key the API reports (props, plus the team moneyline). */
 export const marketLabel = (k: string) => (k === "ml" ? "Moneyline" : KIND_LABEL[k as Kind] ?? k);
 
@@ -31,31 +36,32 @@ export const isCount = (kind: Kind) => kind === "recs";
 export const decimals = (kind: Kind) => (kind === "recs" || kind === "ptd" || isNba(kind) ? 1 : 0);
 export const unit = (kind: Kind) => (kind === "threes" ? "3PM" : isNba(kind) ? kind : isCount(kind) ? "rec" : kind === "ptd" ? "TD" : "yds");
 /** What a projection's volume is: carries / targets / attempts, for longest reception the expected catches, for the NBA minutes. */
-export const volLabel = (kind: Kind) => (isNba(kind) ? "Minutes" : isCount(kind) ? "Targets" : kind === "ptd" ? "Attempts" : kind === "lng" ? "Catches" : "Volume");
+export const volLabel = (kind: Kind) => (isNba(kind) ? "Minutes" : isCount(kind) ? "Targets" : kind === "ptd" ? "Attempts" : kind === "lng" ? "Catches" : kind === "rlng" ? "Carries" : "Volume");
 /** A projection's efficiency, labelled: catch rate, TD rate, yards per catch, yards per attempt, or (NBA) per 36 minutes. */
 export const effText = (kind: Kind, eff: number): [string, string] =>
   isNba(kind) ? ["Per 36 min", (eff * 36).toFixed(1)]
   : isCount(kind) ? ["Catch rate", `${(eff * 100).toFixed(0)}%`]
   : kind === "ptd" ? ["TD / att", `${(eff * 100).toFixed(1)}%`]
   : kind === "lng" ? ["Yds / catch", eff.toFixed(1)]
+  : kind === "rlng" ? ["Yds / carry", eff.toFixed(1)]
   : ["Yds / att", eff.toFixed(2)];
 /** The caption under a projection: what the number counts. */
 export const projCaption = (kind: Kind) =>
   isNba(kind) ? `projected ${KIND_LABEL[kind].toLowerCase()}`
-  : kind === "td" ? "chance to score" : isCount(kind) ? "projected receptions" : kind === "ptd" ? "projected passing TDs"
-  : kind === "lng" ? "projected longest catch" : "projected yards";
+  : kind === "td" ? "chance to score" : kind === "ftd" ? "chance to score first" : isCount(kind) ? "projected receptions" : kind === "ptd" ? "projected passing TDs"
+  : kind === "lng" ? "projected longest catch" : kind === "rlng" ? "projected longest rush" : "projected yards";
 
 /** A projection as shown to a reader: yards (catches for receptions), or for anytime TD the chance of scoring (mu is a probability there). */
-export const fmtProj = (kind: Kind, mu: number) => (kind === "td" ? `${(mu * 100).toFixed(0)}%` : mu.toFixed(decimals(kind)));
+export const fmtProj = (kind: Kind, mu: number) => (isYesNo(kind) ? `${(mu * 100).toFixed(0)}%` : mu.toFixed(decimals(kind)));
 /** The typical miss around a projection. */
 export const fmtSd = (kind: Kind, sd: number) => `±${sd.toFixed(decimals(kind))}`;
 
 /** What a play is called. Yardage is "Over 54.5"; anytime TD is stored as an over 0.5, shown as "Anytime TD" / "No TD". */
 export const playLabel = (kind: Kind, side: "Over" | "Under", line: number) =>
-  kind === "td" ? (side === "Over" ? "Anytime TD" : "No TD") : `${side} ${line}`;
+  kind === "td" ? (side === "Over" ? "Anytime TD" : "No TD") : kind === "ftd" ? (side === "Over" ? "First TD" : "Not first TD") : `${side} ${line}`;
 
 /** Edge between the projection and the line: yards (catches for receptions), percentage points for anytime TD. */
-export const fmtEdge = (kind: Kind, edge: number) => `${edge >= 0 ? "+" : ""}${edge.toFixed(1)}${kind === "td" ? " pts" : ""}`;
+export const fmtEdge = (kind: Kind, edge: number) => `${edge >= 0 ? "+" : ""}${edge.toFixed(1)}${isYesNo(kind) ? " pts" : ""}`;
 
 export const pct = (x: number, digits = 1) => `${(x * 100).toFixed(digits)}%`;
 export const signedPct = (x: number) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)}%`;

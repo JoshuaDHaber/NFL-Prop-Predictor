@@ -14,13 +14,14 @@ from sqlalchemy import select
 
 from .db import PickLog, Run, current_lines, proj_frame
 from .engine.picks import build_picks
+from .engine.td import YES_NO
 
 ET = ZoneInfo("America/New_York")
 MARKET_WEIGHT = 0.35   # the board's default "trust the market" setting
 BOARD_MIN_EV = 0.03    # the board's default Min EV: what a visitor sees without touching the sliders
 # market -> stats column (rr and td are sums, below)
 STAT = {"rush": "rushing_yards", "rec": "receiving_yards", "pass": "passing_yards", "recs": "receptions",
-        "ptd": "passing_tds", "lng": "receiving_long"}
+        "ptd": "passing_tds", "lng": "receiving_long", "rlng": "rushing_long", "ftd": "first_td"}
 
 
 def dists(run: Run) -> dict:
@@ -162,7 +163,7 @@ def report(session, season: Optional[int] = None) -> dict:
     # model vs line: one row per player and market (the Over and Under rows share a line and a projection)
     seen = {}
     for r in rows:
-        if r.kind != "td" and r.actual is not None:
+        if r.kind not in YES_NO and r.actual is not None:
             seen[(r.game_id, r.player_id, r.kind)] = r
     checks = []
     for k in sorted({r.kind for r in seen.values()}):
@@ -175,8 +176,8 @@ def report(session, season: Optional[int] = None) -> dict:
         weeks=sorted({r.week for r in rows}),
         board=[_line("Board (Min EV 3%, flags hidden)", board),
                _line("One pick per player", _one_per_player(board)),
-               _line("Overs", [r for r in board if r.side == "Over" and r.kind != "td"]),
-               _line("Unders", [r for r in board if r.side == "Under" and r.kind != "td"]),
+               _line("Overs", [r for r in board if r.side == "Over" and r.kind not in YES_NO]),
+               _line("Unders", [r for r in board if r.side == "Under" and r.kind not in YES_NO]),
                _line("Flagged (hidden)", [r for r in rows if r.flagged and r.ev >= BOARD_MIN_EV])],
         by_market=[_line(k, [r for r in board if r.kind == k]) for k in kinds],
         by_ev=[_line(label, [r for r in board if lo <= r.ev < hi]) for label, lo, hi in by_ev],

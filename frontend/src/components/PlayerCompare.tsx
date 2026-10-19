@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type GameWeather, type Kind, type PlayerHit, type Projection } from "../api";
-import { KIND_LABEL, NBA_KINDS, effText, fmtProj, fmtSd, kickoff, matchup, volLabel } from "../format";
+import { isYesNo, KIND_LABEL, NBA_KINDS, effText, fmtProj, fmtSd, kickoff, matchup, volLabel } from "../format";
 import { getLeague } from "../league";
 import { useDebounced } from "../useDebounced";
 import Avatar from "./Avatar";
@@ -10,7 +10,7 @@ import WeatherChip from "./WeatherChip";
 
 /** Up to this many players side by side. */
 export const MAX_COMPARE = 4;
-const ORDER: Kind[] = ["pass", "ptd", "rush", "rec", "recs", "lng", "rr", "td", ...NBA_KINDS];
+const ORDER: Kind[] = ["pass", "ptd", "rush", "rlng", "rec", "recs", "lng", "rr", "td", "ftd", ...NBA_KINDS];
 /** The chosen players, remembered in this browser per league. */
 const storeKey = (nba: boolean) => (nba ? "comparePlayersNba" : "comparePlayers");
 const stored = (nba: boolean): PlayerHit[] => {
@@ -129,11 +129,11 @@ export default function PlayerCompare({ onSelect, weather = {} }: { onSelect: (i
                         <td key={h.player_id} className={`cmp-cell clickable${best === h.player_id ? " lead" : ""}`} tabIndex={0}
                           onClick={() => onSelect(h.player_id, k)} onKeyDown={(e) => e.key === "Enter" && onSelect(h.player_id, k)}
                           title={`Open ${h.name}'s ${KIND_LABEL[k].toLowerCase()}`}>
-                          <div className="cmp-val"><b>{fmtProj(k, p.mu)}</b>{k !== "td" && <small className="mut"> {fmtSd(k, p.sd)}</small>}</div>
-                          {k === "td"
+                          <div className="cmp-val"><b>{fmtProj(k, p.mu)}</b>{!isYesNo(k) && <small className="mut"> {fmtSd(k, p.sd)}</small>}</div>
+                          {isYesNo(k)
                             ? <small className="mut">{p.eff.toFixed(2)} expected TDs</small>
                             : <small className="mut">{volLabel(k)} {p.vol.toFixed(1)} · {effLabel} {eff}</small>}
-                          {k !== "td" && <Spark values={p.last5} />}
+                          {!isYesNo(k) && <Spark values={p.last5} />}
                         </td>
                       );
                     })}

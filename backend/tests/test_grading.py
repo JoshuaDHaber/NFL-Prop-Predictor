@@ -98,3 +98,10 @@ def test_the_report_sums_the_board_and_compares_the_model_with_the_line(monkeypa
     checks = {c["kind"]: c for c in rep["model_vs_line"]}
     assert checks["rec"]["n"] == 1 and checks["rec"]["mae_model"] == 20 and checks["rec"]["mae_line"] == 9.5
     assert checks["rush"]["n"] == 2 and checks["rush"]["model_closer"] == 0.5   # b: model 0 off vs 4.5; c: 30 vs 9.5
+
+
+def test_longest_rush_and_first_td_grade_from_their_play_by_play_columns():
+    row = {"rushing_long": 23.0, "first_td": 1.0}
+    assert grading.actual_value("rlng", row) == 23.0 and grading.outcome("Over", 19.5, 23.0) == "win"
+    assert grading.actual_value("ftd", row) == 1.0 and grading.outcome("Over", 0.5, 1.0) == "win"
+    assert grading.outcome("Over", 0.5, grading.actual_value("ftd", {"first_td": 0.0})) == "loss"

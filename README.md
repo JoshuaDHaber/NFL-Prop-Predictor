@@ -2,7 +2,7 @@
 
 A full-stack web app that projects NFL player yardage, prices the projections against live sportsbook prop lines, and ranks the best bets of the week.
 
-**Markets:** rushing yards, receiving yards, passing yards, rush + receiving yards, receptions, anytime touchdown, and team moneyline (each team's chance to win).
+**Markets:** rushing yards, receiving yards, passing yards, rush + receiving yards, receptions, passing touchdowns, longest reception, longest rush, anytime touchdown, first touchdown scorer, and team moneyline (each team's chance to win).
 
 - **Front end:** React + TypeScript (Vite, TanStack Query, Recharts).
 - **Back end:** FastAPI + SQLAlchemy (SQLite locally, Postgres-ready).

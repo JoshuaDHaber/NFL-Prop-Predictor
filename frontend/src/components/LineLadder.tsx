@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { api, type Kind, type LadderRow, type QuoteSide } from "../api";
 import { useBetSlip } from "../BetSlipContext";
 import { IS_STATIC } from "../env";
-import { americanOdds, fmtProj, isNba, playLabel, signedPct, timeAgo, unit } from "../format";
+import { KIND_LABEL, isYesNo, americanOdds, fmtProj, isNba, playLabel, signedPct, timeAgo, unit } from "../format";
 import { legId, type Leg } from "../slip";
 
 export interface PlayerCtx { playerId: string; name: string; team: string; opp: string; home: boolean; gameId: string }
@@ -24,7 +24,7 @@ export const ODDS_RANGE = 300; // prices shown by default: -300 to +300
 interface LadderProps { ctx: PlayerCtx; kind: Kind; mu: number; book: string; onBookChange: (b: string) => void }
 
 export default function LineLadder({ ctx, kind, mu, book, onBookChange }: LadderProps) {
-  const isTd = kind === "td"; // anytime TD: one line (0.5), shown as Yes / No
+  const isTd = isYesNo(kind); // anytime and first TD: one line (0.5), shown as Yes / No
   const qc = useQueryClient();
   const slip = useBetSlip();
   const meta = qc.getQueryData<{ has_odds_key: boolean; can_write: boolean; supports_alt?: boolean }>(["meta"]);
@@ -100,7 +100,7 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
             </div>
           )}
           <div className="mut ladder-note">
-            {isTd ? `Model chance of a TD ${(mu * 100).toFixed(0)}%. Win probability and EV lean at least 60% on the market's chance, since the model is a weak signal here.` : `Win probability and EV here use the model alone (no market blend). Projection ${fmtProj(kind, mu)} ${unit(kind)}.`}
+            {isTd ? `Model chance ${kind === "ftd" ? "of the game's first TD" : "of a TD"} ${(mu * 100).toFixed(0)}%. Win probability and EV lean at least 60% on the market's chance, since the model is a weak signal here.` : `Win probability and EV here use the model alone (no market blend). Projection ${fmtProj(kind, mu)} ${unit(kind)}.`}
             {ladder.data.alt_fetched_at && ` Alternates fetched ${timeAgo(ladder.data.alt_fetched_at)}.`}
           </div>
           <div className="scroll ladder">
@@ -109,7 +109,7 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
               <tbody>
                 {shown.map((r) => (
                   <tr key={r.key} className={!isTd && Math.abs(r.line - mu) < (isNba(kind) ? 1.5 : 5) ? "near" : ""}>
-                    <td><b>{isTd ? "Anytime TD" : r.line}</b>{r.alt && <span className="alt">alt</span>}</td>
+                    <td><b>{isTd ? KIND_LABEL[kind] : r.line}</b>{r.alt && <span className="alt">alt</span>}</td>
                     {cell(r.over)}{cell(r.under)}
                   </tr>
                 ))}

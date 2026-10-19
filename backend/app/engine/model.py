@@ -1,10 +1,11 @@
-"""Projection model for rushing, receiving and passing yards, receptions, passing TDs and longest reception.
+"""Projection model for rushing, receiving and passing yards, receptions, passing TDs and longest reception and rush.
 
 yards = volume (carries | targets) x efficiency (yds/carry | yds/target)
 receptions = targets x catch rate (the same machinery, with receptions in place of yards)
 passing TDs = attempts x TD rate (the same again), scaled by the points the lines expect the team to score
 longest reception = the expected best of the projected catches, each drawn from the league's catch-yardage shape
-  (play-by-play, by position) stretched to the player's yards per catch (see long_table)
+  (play-by-play, by position) stretched to the player's yards per catch (see long_table); longest rush the same with
+  carries and yards per carry
   * volume: exponentially recency-weighted average, shrunk toward a low prior
   * efficiency: recency-weighted, heavily shrunk toward the position mean
   * opponent: shrunk yards-allowed-per-game factor vs. league average
@@ -51,6 +52,8 @@ SCRIPT = {"rush": SCRIPT_RUSH, "rec": SCRIPT_REC, "pass": SCRIPT_PASS, "recs": S
 THIN_GAMES = 3
 THIN_KINDS = {"RB": ("rush", "rec", "recs"), "FB": ("rush", "rec", "recs"), "WR": ("rec", "recs"), "TE": ("rec", "recs")}
 LNG_LAMBDA = np.linspace(0.0, 16.0, 161)   # expected catches at which long_table tabulates the expected longest
+RLNG_LAMBDA = np.linspace(0.0, 32.0, 161)  # expected carries, for the longest rush
+RLNG_MIN_CARRIES = 6.0   # a longest-rush projection needs a real rushing role (books post it for lead backs and running QBs)
 
 
 def prep(stats):
@@ -77,8 +80,9 @@ def starts_only(hist, pos):
     return out
 
 
-def league_priors(df, catches=None):
-    """Per (kind, position): league efficiency. With catches (data.load_catches), also ("lng", pos): long_table."""
+def league_priors(df, catches=None, rushes=None):
+    """Per (kind, position): league efficiency. With catches (data.load_catches), also ("lng", pos): long_table; with
+    rushes (data.load_rushes), ("rlng", pos) the same for carries."""
     pri = {}
     for kind, c in CFG.items():
         if c["yds"] not in df:   # e.g. a stats load without passing TDs
@@ -94,29 +98,47 @@ def league_priors(df, catches=None):
         for pos, g in c.groupby("position"):
             if pos in POSITIONS["rec"] and len(g) >= 200:
                 pri[("lng", pos)] = long_table(g.yards.to_numpy(float))
+    if rushes is not None and len(rushes):
+        pos_of = df.drop_duplicates("player_id", keep="last").set_index("player_id").position
+        c = rushes.assign(position=rushes.player_id.map(pos_of))
+        for pos, g in c.groupby("position"):
+            if pos in POSITIONS["rush"] and len(g) >= 200:
+                pri[("rlng", pos)] = long_table(g.yards.to_numpy(float), RLNG_LAMBDA)
     return pri
 
 
-def long_table(yards):
-    """Expected longest catch, in units of yards per catch, at each LNG_LAMBDA expected catches.
+def long_table(yards, grid=LNG_LAMBDA):
+    """Expected longest catch, in units of yards per catch, at each `grid` expected catches (or carries, for rushes).
 
     Catch yards are z x (yards per catch), z drawn from this position's league shape (mean 1). With a Poisson number of
     catches (mean lam) the longest L has P(L <= y) = exp(-lam * P(z > y / ypc)), and no catch counts as 0, so
-    E[L] / ypc = integral over z >= 0 of 1 - exp(-lam * P(z' > z))."""
+    E[L] / ypc = integral over z >= 0 of 1 - exp(-lam * P(z' > z)). Lost yardage counts as 0 here: a longest rush
+    below zero is rare enough not to matter."""
     y = np.clip(np.asarray(yards, float), 0, None)
     probs = np.linspace(0, 1, 401)
     z = np.quantile(y / y.mean(), probs)
     surv = np.concatenate([[1.0], 1 - (probs[:-1] + probs[1:]) / 2])   # P(z' > z) on [0, z0] and each quantile gap
     width = np.diff(np.concatenate([[0.0], z]))
-    return [float(x) for x in ((1 - np.exp(-np.outer(LNG_LAMBDA, surv))) * width).sum(axis=1)]
+    return [float(x) for x in ((1 - np.exp(-np.outer(grid, surv))) * width).sum(axis=1)]
 
 
-def add_longest(df, catches):
-    """Each player-game's longest catch as receiving_long (0 without a catch); for the backtest and game logs."""
-    lng = catches.groupby(["player_id", "season", "week"]).yards.max().rename("receiving_long")
-    out = df.drop(columns="receiving_long", errors="ignore").join(lng, on=["player_id", "season", "week"])
-    out["receiving_long"] = out.receiving_long.fillna(0.0)
+def add_longest(df, catches, rushes=None):
+    """Each player-game's longest catch as receiving_long (0 without a catch), and with rushes his longest carry as
+    rushing_long (0 without one); for the backtest, grading and game logs."""
+    out = df
+    for col, plays in (("receiving_long", catches), ("rushing_long", rushes)):
+        if plays is None:
+            continue
+        lng = plays.groupby(["player_id", "season", "week"]).yards.max().rename(col)
+        out = out.drop(columns=col, errors="ignore").join(lng, on=["player_id", "season", "week"])
+        out[col] = out[col].fillna(0.0)
     return out
+
+
+def add_first_td(df, first_tds):
+    """first_td: 1 when the player scored his game's first touchdown, else 0; for the backtest, grading and game logs."""
+    hit = set(zip(first_tds.player_id, first_tds.season, first_tds.week))
+    return df.assign(first_td=[float(k in hit) for k in zip(df.player_id, df.season, df.week)])
 
 
 def long_reception(comp, table):
@@ -130,6 +152,16 @@ def long_reception(comp, table):
     lam = c[0] * r[1] / c[1]
     ypc = r[0] / lam
     return float(ypc * np.interp(lam, LNG_LAMBDA, table)), float(lam), float(ypc)
+
+
+def long_rush(comp, table):
+    """(expected longest carry, expected carries, yards per carry), or None without a real rushing role. Carries and
+    yards per carry come from the rushing-yards projection, so redistribution, the opponent, script and weather carry over."""
+    r = comp.get("rush")
+    if table is None or not r or r[1] < RLNG_MIN_CARRIES or r[0] <= 0:
+        return None
+    lam, ypc = r[1], r[0] / r[1]
+    return float(ypc * np.interp(lam, RLNG_LAMBDA, table)), float(lam), float(ypc)
 
 
 def opp_table(df, upto_t):
@@ -217,13 +249,20 @@ def all_kinds(hist, pos, priors, opp, spread, comp=None, implied=None):
         res["ptd"] = (mu * f * tdm.scoring_factor(implied), vol * f, eff)
     if pos != "QB" and (lng := long_reception(comp, priors.get(("lng", pos)))):
         res["lng"] = lng
+    if rlng := long_rush(comp, priors.get(("rlng", pos))):
+        res["rlng"] = rlng
     return res
+
+
+LONG_COLS = {"lng": "receiving_long", "rlng": "rushing_long"}
 
 
 def actual_hist(df, kind):
     if kind == "rr":
         return df["rushing_yards"].fillna(0) + df["receiving_yards"].fillna(0)
-    return df["receiving_long"] if kind == "lng" else df[CFG[kind]["yds"]]
+    if kind in LONG_COLS:
+        return df[LONG_COLS[kind]]
+    return df[CFG[kind]["yds"]]
 
 
 def _lift_members(members, lost, rho, records=None, t=None, affected=None, only=None, lead_pid=None):
@@ -301,7 +340,8 @@ def _apply_redistribution(ctx, logs, priors, opp_cache, spread_map, rho, records
 def walk_forward(df, priors, sched, start_t, td_priors=None, rho=None, records=None, wx_coef=None):
     """Project every historical player-game from t >= start_t using only prior data.
 
-    With td_priors, anytime-TD rows are added too (kind "td": mu = unscaled P(>=1 TD), actual = 0/1).
+    With td_priors, anytime-TD rows are added too (kind "td": mu = unscaled P(>=1 TD), actual = 0/1), and with a
+    first_td column (add_first_td) first-TD rows (kind "ftd": mu = unscaled P(first TD of the game)).
     With rho (per-role redistribution shares), absent regulars' volume is handed to their teammates.
     With records (a list), the data to fit rho is collected instead/as well. Rows carry an `affected` flag:
     True when a teammate was absent in that game (computed only when rho or records is given).
@@ -343,10 +383,14 @@ def walk_forward(df, priors, sched, start_t, td_priors=None, rho=None, records=N
             rows.append((pid, c["name"], kind, c["t"], mu, float(actual_hist(one, kind).iloc[0]),
                          float(actual_hist(hist, kind).tail(5).mean()), aff, c["temp"], c["wind"], wx_ratio(kind, c["comp"], c["wx"])))
         if td_priors is not None:
-            res = tdm.project_td(hist, c["comp"], c["pos"], td_priors, implied_map.get((c["season"], c["week"], c["team"])))
+            res = tdm.project_td(hist, c["comp"], c["pos"], td_priors, implied)
             if res:
                 rows.append((pid, c["name"], "td", c["t"], res[0], float(tdm.td_count(one).iloc[0] >= 1),
                              float((tdm.td_count(hist).tail(8) >= 1).mean()), aff, c["temp"], c["wind"], 1.0))
+                if "first_td" in one:   # unscaled, like the anytime row: the pipeline fits both scales
+                    game_lam = tdm.game_tds(implied, implied_map.get((c["season"], c["week"], c["opp"])))
+                    rows.append((pid, c["name"], "ftd", c["t"], tdm.first_td(res[1], game_lam), float(one.first_td.iloc[0]),
+                                 float(hist.first_td.tail(8).mean()), aff, c["temp"], c["wind"], 1.0))
     return pd.DataFrame(rows, columns=["player_id", "name", "kind", "t", "mu", "actual", "naive5", "affected", "wx_temp", "wx_wind", "wx"])
 
 
@@ -456,7 +500,7 @@ def prob_over_under(mu, line, var):
 
 
 def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_priors=None, td_scale=1.0, rho=None, absent_ids=(),
-                         game_wx=None, ruled_out=frozenset(), questionable=(), sat_out=frozenset()):
+                         game_wx=None, ruled_out=frozenset(), questionable=(), sat_out=frozenset(), ftd_scale=None):
     """Project all active players for games not yet played in the target week.
 
     With rho, volume from absent regulars (ruled out/doubtful via absent_ids, or no longer on the active roster)
@@ -466,6 +510,8 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
     Out or Doubtful in past weeks, and sat_out: listed Questionable and didn't play): a backup's handful of snaps isn't
     a market, and projecting him split the team's passing between the two. While the starter is listed in
     `questionable`, his backups are kept (and his own past Questionable weeks don't count, as he's not back yet).
+
+    With ftd_scale (the backtest's first-TD scale), every anytime-TD row gets a first-TD row too.
 
     Receiving rows carry teammate_out: the same-position rotation receivers in their first game out
     (redistribute.teammates_out), whatever rho is."""
@@ -529,6 +575,10 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
                                          opp=other, home=team == gm.home_team, kind="td", mu=res[0], vol=res[2], eff=res[1],
                                          sd=0.0, spread=sp, gameday=gm.gameday, gametime=gm.gametime, game_id=gm.game_id,
                                          last5=tdm.td_count(hist).tail(5).tolist(), wx=1.0, thin=False))
+                        if ftd_scale is not None:   # kind "ftd": mu = P(first TD of the game), from the same expected TDs
+                            game_lam = tdm.game_tds(implied_map.get((season, week, team)), implied_map.get((season, week, other)))
+                            rows.append(dict(rows[-1], kind="ftd", mu=tdm.first_td(res[1], game_lam, ftd_scale),
+                                             last5=(hist.first_td.tail(5).tolist() if "first_td" in hist else [])))
                 out_here = "" if pid in absent_ids else ", ".join(tagged.get(rd.group("rec", p.position), []))
                 for kind, (mu, vol, eff) in all_kinds(hist, p.position, priors, opp, sp, comp, implied_map.get((season, week, team))).items():
                     rows.append(dict(player_id=pid, name=p.player_display_name, pos=p.position, team=team,

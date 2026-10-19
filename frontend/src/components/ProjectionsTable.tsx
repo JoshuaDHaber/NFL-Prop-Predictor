@@ -1,5 +1,5 @@
 import type { GameWeather, Projection } from "../api";
-import { KIND_LABEL, effText, fmtProj, fmtSd, matchup, signed } from "../format";
+import { isYesNo, KIND_LABEL, effText, fmtProj, fmtSd, matchup, signed } from "../format";
 import { useSort } from "../useSort";
 import Avatar from "./Avatar";
 import SortBar from "./SortBar";
@@ -37,11 +37,11 @@ export default function ProjectionsTable({ rows, onSelect, weather = {}, nba = f
                 </div>
               </td>
               <td>{KIND_LABEL[p.kind]}</td>
-              <td>{matchup(p.opp, p.home)}{p.kind !== "td" && <WeatherChip weather={weather[p.game_id]} wx={p.wx} />}</td>
+              <td>{matchup(p.opp, p.home)}{!isYesNo(p.kind) && <WeatherChip weather={weather[p.game_id]} wx={p.wx} />}</td>
               <td data-label="Proj"><b>{fmtProj(p.kind, p.mu)}</b></td>
-              <td data-label="SD">{p.kind === "td" ? "–" : fmtSd(p.kind, p.sd)}</td>
+              <td data-label="SD">{isYesNo(p.kind) ? "–" : fmtSd(p.kind, p.sd)}</td>
               <td data-label={nba ? "Minutes" : "Volume"}>{p.vol.toFixed(1)}</td>
-              <td data-label={nba ? "Per 36" : "Yds/att · E[TD]"}>{p.kind === "td" ? p.eff.toFixed(2) : effText(p.kind, p.eff)[1]}</td>
+              <td data-label={nba ? "Per 36" : "Yds/att · E[TD]"}>{isYesNo(p.kind) ? p.eff.toFixed(2) : effText(p.kind, p.eff)[1]}</td>
               <td data-label="Spread">{signed(p.spread)}</td>
               <td data-label="Last 5"><Spark values={p.last5} /></td>
             </tr>

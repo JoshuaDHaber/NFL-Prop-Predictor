@@ -9,14 +9,16 @@ import numpy as np
 import pandas as pd
 import requests
 
+from .td import YES_NO
+
 API = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl"
-# over/under markets that also have alternate lines (yardage, receptions, passing TDs, longest reception)
+# over/under markets that also have alternate lines (yardage, receptions, passing TDs, longest reception and rush)
 YARD_MARKETS = {"player_rush_yds": "rush", "player_reception_yds": "rec",
                 "player_pass_yds": "pass", "player_rush_reception_yds": "rr", "player_receptions": "recs",
-                "player_pass_tds": "ptd", "player_reception_longest": "lng"}
-# anytime TD has no line or alternates: books post a "Yes" price per player (some also "No")
+                "player_pass_tds": "ptd", "player_reception_longest": "lng", "player_rush_longest": "rlng"}
+# anytime and first TD have no line or alternates: books post a "Yes" price per player (some also "No")
 # team moneyline ("h2h"): one row per team, its price as the over and the opponent's as the under (see engine/moneyline.py)
-MARKETS = {**YARD_MARKETS, "player_anytime_td": "td", "h2h": "ml"}
+MARKETS = {**YARD_MARKETS, "player_anytime_td": "td", "player_1st_td": "ftd", "h2h": "ml"}
 ALT_MARKETS = {k + "_alternate": v for k, v in YARD_MARKETS.items()}
 TD_LINE = 0.5  # stored as an "Over 0.5": Yes is the over side, No (if posted) the under side
 
@@ -132,7 +134,7 @@ def fetch_game_odds(key, event_id, main_kinds, alt_kinds=(), regions="us", api=A
                 rows.extend(_moneyline_rows(m["outcomes"], bk))
                 continue
             for o in m["outcomes"]:
-                is_td = kind == "td"
+                is_td = kind in YES_NO
                 rows.append(dict(player=o["description"], market=kind, alt=m["key"].endswith("_alternate"),
                                  side={"yes": "over", "no": "under"}.get(o["name"].lower(), o["name"].lower()) if is_td else o["name"].lower(),
                                  line=TD_LINE if is_td else o["point"], odds=o["price"], book=bk["title"],

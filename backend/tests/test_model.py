@@ -118,3 +118,26 @@ def test_add_longest_takes_each_games_best_catch_and_zero_without_one():
     df = pd.DataFrame({"player_id": ["a", "a", "b"], "season": [2026] * 3, "week": [1, 2, 1]})
     catches = pd.DataFrame({"player_id": ["a", "a", "b"], "season": [2026] * 3, "week": [1, 1, 3], "yards": [12.0, 31.0, 9.0]})
     assert model.add_longest(df, catches).receiving_long.tolist() == [31.0, 0.0, 0.0]
+
+
+def test_longest_rush_follows_carries_and_yards_per_carry():
+    table = model.long_table(np.random.default_rng(0).exponential(4.4, 5000), model.RLNG_LAMBDA)
+    mu, lam, ypc = model.long_rush({"rush": (88.0, 20.0, 4.4)}, table)
+    assert lam == pytest.approx(20.0) and ypc == pytest.approx(4.4)
+    assert ypc < mu < 88.0
+    assert model.long_rush({"rush": (66.0, 15.0, 4.4)}, table)[0] < mu      # fewer carries, shorter longest
+    assert model.long_rush({"rush": (12.0, 3.0, 4.0)}, table) is None       # no real rushing role
+
+
+def test_add_longest_adds_each_games_best_carry_too():
+    df = pd.DataFrame({"player_id": ["a", "a"], "season": [2026] * 2, "week": [1, 2]})
+    catches = pd.DataFrame(columns=["player_id", "season", "week", "yards"])
+    rushes = pd.DataFrame({"player_id": ["a", "a"], "season": [2026] * 2, "week": [1, 1], "yards": [-2.0, 17.0]})
+    out = model.add_longest(df, catches, rushes)
+    assert out.rushing_long.tolist() == [17.0, 0.0] and out.receiving_long.tolist() == [0.0, 0.0]
+
+
+def test_add_first_td_marks_only_the_games_first_scorer():
+    df = pd.DataFrame({"player_id": ["a", "a", "b"], "season": [2026] * 3, "week": [1, 2, 1]})
+    first = pd.DataFrame({"player_id": ["a"], "season": [2026], "week": [1], "game_id": ["2026_01_X_Y"]})
+    assert model.add_first_td(df, first).first_td.tolist() == [1.0, 0.0, 0.0]
