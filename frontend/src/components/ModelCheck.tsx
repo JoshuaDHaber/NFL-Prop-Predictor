@@ -1,6 +1,7 @@
 import type { Meta } from "../api";
 import { decimals, marketLabel, unit, signed, timeAgo, weatherText, wxEffect } from "../format";
 import type { Kind } from "../api";
+import GradesCard from "./GradesCard";
 
 function RedistributionCard({ r }: { r: NonNullable<Meta["redistribution"]> }) {
   const rush = r.by_kind.rush;
@@ -134,6 +135,7 @@ export default function ModelCheck({ meta }: { meta: Meta }) {
           {meta.calibration.reused_from_run ? "; later syncs reuse it until it is recalibrated." : "."}
         </p>
       )}
+      <GradesCard />
       {meta.redistribution && <RedistributionCard r={meta.redistribution} />}
       {meta.weather && <WeatherCard fit={meta.weather} games={meta.games} />}
       <div className="card prose">
@@ -145,7 +147,7 @@ export default function ModelCheck({ meta }: { meta: Meta }) {
           the spread of outcomes behind every win probability.
         </p>
         <p>
-          The backtest tests accuracy, not profitability — there is no historical odds data in it. Treat large
+          The backtest tests accuracy, not profitability — there is no historical odds data in it (the graded picks above are). Treat large
           edges against sharp markets with suspicion; they usually mean the model is missing context.
         </p>
       </div>

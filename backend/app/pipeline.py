@@ -2,14 +2,15 @@
 import copy
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Callable, Optional
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
 import requests
 
-from . import config
+from . import config, grading
 from .db import AltLine, OddsHistory, OddsLine, Projection, Run, SessionLocal
 from .engine import data, model, odds
 from .engine import moneyline as mlm
@@ -18,6 +19,7 @@ from .engine import td as tdm
 from .engine import weather as wxm
 
 Log = Callable[[str], None]
+ET = ZoneInfo("America/New_York")
 ALL_MARKETS = set(odds.MARKETS.values())
 ALT_KINDS = set(odds.ALT_MARKETS.values())  # anytime TD has no alternate market
 
@@ -75,6 +77,8 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
     stats = model.prep(data.load_stats(seasons, usecols=data.PIPELINE_COLUMNS))
     catches = data.load_catches(seasons)   # play-by-play catches: the longest-reception market
     stats = model.add_longest(stats, catches)
+    with SessionLocal() as s:   # last week's logged picks, now that their box scores are in
+        grading.grade_logged(s, stats, sched, log)
     priors = model.league_priors(stats, catches)
     td_pri = tdm.td_priors(stats)
     # who is out this week (injury report + your --exclude list): their volume goes to teammates, and they are dropped below
@@ -245,6 +249,15 @@ def upcoming_games() -> pd.DataFrame:
     return todo[(todo.season == first.season) & (todo.week == first.week)]
 
 
+def _kicks_off_later_today(g, now_et: datetime) -> bool:
+    """The game is on now's Eastern date and hasn't kicked off (nflverse's gameday/gametime are Eastern)."""
+    day, at = str(getattr(g, "gameday", "") or ""), getattr(g, "gametime", None)
+    if day != now_et.date().isoformat() or not isinstance(at, str) or ":" not in at:
+        return False
+    hh, mm = (int(x) for x in at.split(":")[:2])
+    return (now_et.hour, now_et.minute) < (hh, mm)
+
+
 THIN_MIN_QUOTES = 100       # a game with fewer stored quotes than this had its lines fetched early (books post gradually)
 THIN_MIN_AGE_HOURS = 3      # ...and "thin" games are only topped up if their lines are at least this old
 
@@ -255,9 +268,13 @@ def sync_plan(session, games: pd.DataFrame, mode: str = "missing", now: datetime
     'missing': the main markets with no stored lines for a game, and the alternate markets it has none of.
     'thin':    'missing', plus a full re-fetch of games whose stored lines are few and old (lines post gradually
                through the week, so an early fetch leaves some games sparse).
+    'today':   'missing', plus a fresh pull of the main markets for games kicking off later today (Eastern), so a
+               game day's picks are priced against that morning's lines rather than Thursday's. Alternates aren't
+               re-bought.
     'all':     everything for every game."""
     from sqlalchemy import func
     now = now or datetime.utcnow()
+    now_et = now.replace(tzinfo=timezone.utc).astimezone(ET)
     have_main, stored, last = {}, {}, {}
     for gid, market in session.query(OddsLine.game_id, OddsLine.market).distinct():
         have_main.setdefault(gid, set()).add(market)
@@ -283,6 +300,8 @@ def sync_plan(session, games: pd.DataFrame, mode: str = "missing", now: datetime
             elif mode == "thin" and stored.get(gid, 0) < THIN_MIN_QUOTES and gid in last \
                     and (now - last[gid]).total_seconds() >= THIN_MIN_AGE_HOURS * 3600:
                 need_main, need_alt, reason = sorted(ALL_MARKETS), sorted(ALT_KINDS), "thin"
+            elif mode == "today" and _kicks_off_later_today(g, now_et):
+                need_main, reason = sorted(ALL_MARKETS), "today"
         if reason:
             out.append(dict(game_id=gid, away=g.away_team, home=g.home_team, label=f"{g.away_team} @ {g.home_team}",
                             gameday=str(getattr(g, "gameday", "")), need_main=need_main, need_alt=bool(need_alt),
@@ -299,7 +318,8 @@ def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[in
     """Fetch prop lines, main and alternate, for the upcoming week's games (one API call per game).
 
     'missing' fetches only what each game lacks (so a new week is fetched in full and a repeat costs nothing);
-    'thin' also tops up games whose stored lines are few and old; 'all' refetches everything for the week; 'none'
+    'thin' also tops up games whose stored lines are few and old; 'today' re-pulls the main lines of games kicking off
+    later today; 'all' refetches everything for the week; 'none'
     skips. Costs one credit per market per game. progress(done, total) is called after each game.
 
     With credit_floor set, the key's balance is checked first (free) and a game is only fetched if its cost leaves at

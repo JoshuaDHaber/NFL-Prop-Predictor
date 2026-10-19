@@ -210,6 +210,43 @@ class SyncRun(Base):
     error: Mapped[str] = mapped_column(String(1000), nullable=True)
 
 
+class PickLog(Base):
+    """The board as it stood before kickoff, one row per player/market/side, graded once the stats land.
+
+    Every NFL sync re-snapshots the games still to kick off, so each row ends as the last price seen before its game
+    (app/grading.py). Kept across runs and weeks: it's how the model is checked against real results and real lines."""
+    __tablename__ = "pick_log"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    season: Mapped[int] = mapped_column(Integer)
+    week: Mapped[int] = mapped_column(Integer, index=True)
+    game_id: Mapped[str] = mapped_column(String(24), index=True)
+    gameday: Mapped[str] = mapped_column(String(12))
+    gametime: Mapped[str] = mapped_column(String(8))
+    player_id: Mapped[str] = mapped_column(String(20))
+    name: Mapped[str] = mapped_column(String(80))
+    pos: Mapped[str] = mapped_column(String(4))
+    team: Mapped[str] = mapped_column(String(4))
+    kind: Mapped[str] = mapped_column(String(6))
+    side: Mapped[str] = mapped_column(String(5))
+    line: Mapped[float] = mapped_column(Float)
+    odds: Mapped[int] = mapped_column(Integer)
+    book: Mapped[str] = mapped_column(String(40))
+    mu: Mapped[float] = mapped_column(Float)
+    prob: Mapped[float] = mapped_column(Float)
+    p_model: Mapped[float] = mapped_column(Float)
+    p_mkt: Mapped[float] = mapped_column(Float)
+    ev: Mapped[float] = mapped_column(Float)
+    flagged: Mapped[bool] = mapped_column(Boolean, default=False)
+    run_id: Mapped[int] = mapped_column(Integer)
+    snapped_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    actual: Mapped[float] = mapped_column(Float, nullable=True)
+    result: Mapped[str] = mapped_column(String(5), nullable=True)   # win | loss | push | void (didn't play); None until graded
+    graded_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+
+
+Index("ix_pick_log_key", PickLog.game_id, PickLog.player_id, PickLog.kind, PickLog.side, unique=True)
+
+
 def backfill_game_ids(eng) -> int:
     """Tag quotes stored before game_id existed with the game that was upcoming when they were fetched.
 
@@ -293,6 +330,14 @@ def _free_volume():
 _free_volume()
 engine = make_engine()
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
+
+
+def proj_frame(session, run_id: int):
+    """A run's projections as a DataFrame (the shape engine.picks expects)."""
+    import pandas as pd
+    from sqlalchemy import select
+    rows = session.scalars(select(Projection).where(Projection.run_id == run_id)).all()
+    return pd.DataFrame([{c.name: getattr(r, c.name) for c in Projection.__table__.columns} for r in rows])
 
 
 def current_lines(session, table=None):

@@ -32,7 +32,7 @@ def test_daily_slot_runs_every_day_and_describes_itself():
     daily = scheduler.BY_ID["daily-topup"]
     assert scheduler.next_fire(daily, datetime(2026, 10, 13, 14)) == datetime(2026, 10, 14, 13)
     assert scheduler.describe(daily) == "Daily 9:00 AM ET"
-    assert scheduler.describe(scheduler.BY_ID["sun-topup"]) == "Sun 11:30 AM ET"
+    assert scheduler.describe(scheduler.BY_ID["sun-lines"]) == "Sun 11:30 AM ET"
 
 
 def test_a_run_is_logged_with_its_odds_result(monkeypatch):

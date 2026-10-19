@@ -154,6 +154,40 @@ class PickOut(BaseModel):
     teammate_out: str = ""     # same-position rotation receivers in their first game out (shown on Overs too)
 
 
+class GradeLine(BaseModel):
+    """Record and units (1 unit a pick at the logged price) for one slice of the graded board."""
+    label: str
+    n: int
+    wins: int
+    losses: int
+    pushes: int
+    voids: int                     # the player didn't play: books void these
+    units: float
+    roi: Optional[float] = None    # units per decided pick
+    expected_wins: float           # what the model's win chances added up to
+
+
+class MarketCheck(BaseModel):
+    """Model projection vs the posted line: which landed closer to the result, per market."""
+    kind: Kind
+    n: int
+    mae_model: float
+    mae_line: float
+    model_closer: float            # share of player-games where the projection was closer than the line
+
+
+class GradeReport(BaseModel):
+    season: Optional[int] = None
+    graded: int
+    pending: int                   # logged, waiting on the game or its stats
+    weeks: list[int]
+    board: list[GradeLine]
+    by_market: list[GradeLine]
+    by_ev: list[GradeLine]
+    by_week: list[GradeLine]
+    model_vs_line: list[MarketCheck]
+
+
 class GameLogEntry(BaseModel):
     label: str
     opp: str
@@ -183,7 +217,7 @@ class PlayerDetail(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    odds: Literal["none", "missing", "thin", "all"] = "missing"
+    odds: Literal["none", "missing", "thin", "today", "all"] = "missing"
     full: bool = False  # refit the model's calibration instead of reusing the saved one
 
 
@@ -227,7 +261,7 @@ class PlanGame(BaseModel):
     need_alt: bool
     alt_kinds: list[str] = []     # which alternate markets (a game may lack only newly added ones)
     credits: int
-    reason: str = "missing"       # missing | thin | all
+    reason: str = "missing"       # missing | thin | today | all
     stored_quotes: int = 0
 
 

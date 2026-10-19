@@ -50,6 +50,8 @@ th:first-child, td:first-child { text-align: left; } tr:last-child td { border-b
 tr.clickable { cursor: pointer; } tr.clickable:hover, tr.clickable:focus { background: var(--chip); outline: none; }
 .pick { font-weight: 600; } .over, .pos { color: var(--good); } .under { color: var(--bad); } .pos { font-weight: 600; }
 .q { color: #b45309; font-size: 12px; }
+.group-toggle { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; font-size: 13px; cursor: pointer; }
+.flag.related { background: var(--card); color: var(--mut); border: 1px solid var(--line); }
 .flag { background: var(--warn-bg); color: var(--warn); font-size: 11px; padding: 1px 6px; border-radius: 6px; margin-left: 6px; }
 .spark { display: inline-flex; align-items: flex-end; gap: 2px; height: 18px; vertical-align: middle; }
 .spark i { width: 5px; background: var(--acc); opacity: .7; border-radius: 1px; }
@@ -110,6 +112,7 @@ button.primary.outline { background: transparent; color: var(--acc); border: 1px
 .demo-tag { border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; color: var(--mut); font-size: 12px; }
 .banner a { color: inherit; text-decoration: underline; }
 .head-actions { display: flex; align-items: flex-start; gap: 14px; }
+table.calib td.good { color: var(--good); font-weight: 600; }
 table.calib { width: 100%; margin-top: 8px; font-size: 12px; } table.calib th, table.calib td { padding: 3px 6px; text-align: right; } table.calib th:first-child, table.calib td:first-child { text-align: left; }
 .td-note { margin: 0; padding: 8px 12px; border-radius: 8px; background: var(--chip); font-size: 12px; max-width: 80ch; }
 
