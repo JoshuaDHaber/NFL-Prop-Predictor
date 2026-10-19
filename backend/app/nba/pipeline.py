@@ -18,7 +18,7 @@ from ..engine import model as nfl_model
 from ..engine import moneyline as mlm
 from ..engine import odds as nfl_odds
 from ..pipeline import _s, archive_quotes, store_lines
-from . import espn, model
+from . import espn, grading, model
 from . import odds as nba_odds
 
 Log = Callable[[str], None]
@@ -48,6 +48,8 @@ def run_projections(log: Log = print, now: Optional[datetime] = None) -> Optiona
     ro = espn.rosters()
     logs = espn.gamelogs(list(ro.player_id), [season - 2, season - 1, season], season, log)
     logs = logs[logs.date < today.isoformat()]
+    with SessionLocal() as s:
+        grading.grade_logged(s, logs, today, log)
     pos = {p: espn.position_group(x) for p, x in zip(ro.player_id, ro.pos)}
 
     log("NBA: walk-forward backtest (error tables, accuracy)...")

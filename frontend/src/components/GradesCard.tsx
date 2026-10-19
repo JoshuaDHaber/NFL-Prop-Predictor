@@ -20,24 +20,32 @@ function Rows({ lines, label }: { lines: GradeLine[]; label: (l: GradeLine) => s
   );
 }
 
-/** How the board did once graded (app/grading.py): logged before each kickoff, scored from nflverse's box scores. */
-export default function GradesCard() {
-  const q = useQuery({ queryKey: ["grades"], queryFn: api.grades, retry: false });
+/** "Oct 20" from an Eastern date. */
+const day = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+/** How the board did once graded (app/grading.py, app/nba/grading.py): logged before each game, scored from the box scores
+ * (nflverse's for the NFL, ESPN's for the NBA). */
+export default function GradesCard({ nba = false }: { nba?: boolean }) {
+  const q = useQuery({ queryKey: [nba ? "nba-grades" : "grades"], queryFn: nba ? api.nbaGrades : api.grades, retry: false });
   if (q.isError || !q.data) return null;   // the static demo has no log
   const g = q.data;
+  const span = nba
+    ? `${g.season ? `${g.season - 1}-${String(g.season).slice(2)}` : ""}${g.dates?.length ? `, ${day(g.dates[0])}${g.dates[1] !== g.dates[0] ? ` – ${day(g.dates[1])}` : ""}` : ""}`
+    : `${g.season} week${g.weeks.length > 1 ? "s" : ""} ${g.weeks.join(", ")}`;
   const head = <thead><tr><th>Picks</th><th>W-L</th><th>Expected W</th><th>Units</th><th>ROI</th></tr></thead>;
   return (
     <div className="card prose">
       <h3>Graded picks</h3>
       {g.graded === 0 ? (
         <p className="mut">
-          Every sync logs the board for games still to kick off, and each model run grades the finished ones once nflverse's box scores
-          are in (usually the Tuesday after). Nothing graded yet{g.pending ? `: ${g.pending.toLocaleString()} picks are waiting on their games` : ""}.
+          {nba ? "Every sync logs the board for games still to tip off, and each model run grades the finished ones from ESPN's box scores (the morning after)."
+            : "Every sync logs the board for games still to kick off, and each model run grades the finished ones once nflverse's box scores are in (usually the Tuesday after)."}
+          {" "}Nothing graded yet{g.pending ? `: ${g.pending.toLocaleString()} picks are waiting on their games` : ""}.
         </p>
       ) : (
         <>
           <p>
-            The board as it stood before each kickoff ({g.season} week{g.weeks.length > 1 ? "s" : ""} {g.weeks.join(", ")}), one unit a pick at the logged price.
+            The board as it stood before each {nba ? "tip-off" : "kickoff"} ({span}), one unit a pick at the logged price.
             Expected W adds up the model's win chances: a board that keeps landing under it is overconfident.
             {g.pending > 0 && <span className="mut"> {g.pending.toLocaleString()} more are waiting on their games.</span>}
           </p>

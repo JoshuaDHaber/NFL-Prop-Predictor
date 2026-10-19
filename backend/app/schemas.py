@@ -188,6 +188,7 @@ class GradeReport(BaseModel):
     graded: int
     pending: int                   # logged, waiting on the game or its stats
     weeks: list[int]
+    dates: list[str] = []          # NBA: the first and last graded game dates (it has no weeks)
     board: list[GradeLine]
     by_market: list[GradeLine]
     by_ev: list[GradeLine]

@@ -191,7 +191,7 @@ export interface MarketCheck { kind: Kind; n: number; mae_model: number; mae_lin
 export interface Correlations { pairs: Record<string, number>; check: Record<string, { n: number; actual?: number; copula?: number; independent?: number }> }
 
 export interface GradeReport {
-  season: number | null; graded: number; pending: number; weeks: number[];
+  season: number | null; graded: number; pending: number; weeks: number[]; dates?: string[];
   board: GradeLine[]; by_market: GradeLine[]; by_ev: GradeLine[]; by_week: GradeLine[]; model_vs_line: MarketCheck[];
 }
 
@@ -214,6 +214,7 @@ const liveApi = {
   injuries: () => get<InjuryReport>(lg("injuries")),
   grades: () => get<GradeReport>("grades"),
   correlations: () => get<Correlations>("correlations"),
+  nbaGrades: () => get<GradeReport>("nba/grades"),
   /** oddsRange hides prices outside -N..+N (American); 0 shows everything. */
   // by the market, not the league on screen: a betslip can hold legs from both
   lines: (id: string, kind: Kind, oddsRange = 300) => get<Ladder>(`${NBA_KIND_SET.has(kind) ? "nba/" : ""}players/${id}/lines`, { kind, odds_range: oddsRange }),
@@ -290,6 +291,7 @@ const staticApi: typeof liveApi = {
   },
   grades: async () => unavailable(),
   correlations: () => file<Correlations>("correlations.json").catch(() => ({ pairs: {}, check: {} })),
+  nbaGrades: async () => unavailable(),
   fetchAlt: async () => unavailable(),
   admin: async () => unavailable(),
   adminRun: async () => unavailable(),
