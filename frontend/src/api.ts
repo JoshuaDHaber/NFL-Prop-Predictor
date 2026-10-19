@@ -206,6 +206,8 @@ const liveApi = {
   projections: (f: Filters) => get<Projection[]>(lg("projections"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, game_id: f.game, q: f.q }),
   /** Every market for every projected player, anytime TD included (the player compare tab). */
   allProjections: () => get<Projection[]>(lg("projections")),
+  /** The NFL's projections whatever league is on screen: the betslip reads players' positions from them. */
+  nflProjections: () => get<Projection[]>("projections"),
   searchPlayers: (q: string) => get<PlayerHit[]>(lg("player-search"), { q }),
   player: (id: string, marketWeight: number) => get<PlayerDetail>(lg(`players/${id}`), { market_weight: marketWeight }),
   moneylines: (book: string, marketWeight: number) => get<MoneylineGame[]>(lg("moneylines"), { book, market_weight: marketWeight }),
@@ -270,6 +272,7 @@ const staticApi: typeof liveApi = {
       && (f.game === "all" || p.game_id === f.game) && (!q || p.name.toLowerCase().includes(q)));
   },
   allProjections: () => file<Projection[]>("projections.json"),
+  nflProjections: () => file<Projection[]>("projections.json"),
   // the snapshot has no roster, so search covers the week's projected players
   searchPlayers: async (q) => {
     const needle = q.trim().toLowerCase(), seen = new Map<string, PlayerHit>();

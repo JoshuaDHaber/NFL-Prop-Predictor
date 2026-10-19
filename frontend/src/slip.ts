@@ -1,4 +1,5 @@
 import type { Kind, Ladder } from "./api";
+import { parlayProb, type CorrTable } from "./copula";
 import { isYesNo, KIND_LABEL, americanOdds, playLabel } from "./format";
 
 export interface Leg {
@@ -73,6 +74,14 @@ export function slipText(legs: Leg[]) {
 }
 
 export const sameGame = (legs: Leg[]) => new Set(legs.map((l) => l.gameId)).size < legs.length;
+
+/** The chance every leg hits. Legs in one game are priced with the same-game correlations (copula.ts), which need each
+ *  player's position: `positions` (player id -> position) comes from the projections, since slip legs don't carry it,
+ *  and a leg whose player isn't there is treated as independent of the others. */
+export function slipHitChance(legs: Leg[], positions: Record<string, string>, corr?: CorrTable): number {
+  return parlayProb(legs.map((l) => ({ player_id: l.playerId, team: l.team, game_id: l.gameId, kind: l.kind, pos: positions[l.playerId] ?? "",
+    side: l.side, prob: l.prob })), corr);
+}
 
 export interface BookOption { book: string; line: number; odds: number; prob: number; ev: number; link: string | null; eventLink: string | null; alt: boolean }
 
