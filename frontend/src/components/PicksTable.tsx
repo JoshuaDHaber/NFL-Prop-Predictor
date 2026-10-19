@@ -11,11 +11,14 @@ import WeatherChip from "./WeatherChip";
 const GROUP_KEY = "picks-one-per-player";
 const storedGrouped = () => { try { return localStorage.getItem(GROUP_KEY) !== "0"; } catch { return true; } };
 
-export default function PicksTable({ picks, onSelect, weather = {}, empty }: { picks: Pick[]; onSelect: (p: Pick) => void; weather?: Record<string, GameWeather | null | undefined>; empty?: string }) {
+/** picks arrive best EV first. limit shows only the top rows (after grouping) with a "Show all" button, as on the game pages. */
+export default function PicksTable({ picks, onSelect, weather = {}, empty, limit }: { picks: Pick[]; onSelect: (p: Pick) => void; weather?: Record<string, GameWeather | null | undefined>; empty?: string; limit?: number }) {
   const [grouped, setGroupedState] = useState(storedGrouped);
   const setGrouped = (g: boolean) => { setGroupedState(g); try { localStorage.setItem(GROUP_KEY, g ? "1" : "0"); } catch { /* private mode: not remembered */ } };
+  const [showAll, setShowAll] = useState(false);
   const rows: GroupedPick[] = useMemo(() => grouped ? onePerPlayer(picks) : picks.map((p) => ({ ...p, related: [] })), [picks, grouped]);
-  const { sorted, toggle, arrow } = useSort(rows, "ev");
+  const shown = useMemo(() => (limit && !showAll ? rows.slice(0, limit) : rows), [rows, limit, showAll]);
+  const { sorted, toggle, arrow } = useSort(shown, "ev");
   const th = (key: string, label: string, title?: string) => (
     <th scope="col" onClick={() => toggle(key)} title={title} aria-sort="none" className="sortable">{label}{arrow(key)}</th>
   );
@@ -70,6 +73,9 @@ export default function PicksTable({ picks, onSelect, weather = {}, empty }: { p
         </tbody>
       </table>
     </div>
+    {limit !== undefined && rows.length > limit && (
+      <button className="link go-more" onClick={() => setShowAll(!showAll)}>{showAll ? "Show fewer" : `Show all ${rows.length} ${grouped ? "players" : "props"}`}</button>
+    )}
     </>
   );
 }
