@@ -147,16 +147,21 @@ def _one_per_player(rows: list) -> list:
     return list(best.values())
 
 
-def report(session, season: Optional[int] = None) -> dict:
+def _week(r) -> tuple:
+    return r.week, f"Week {r.week}"
+
+
+def report(session, season: Optional[int] = None, table=PickLog, period: Callable = _week) -> dict:
     """How the board did once graded: record and units for what a visitor saw (Min EV 3%, flags hidden), split by
-    market, side and EV, plus whether the model or the posted line landed closer to the result, per market."""
-    q = select(PickLog).where(PickLog.result.is_not(None))
+    market, side, EV and period, plus whether the model or the posted line landed closer to the result, per market.
+    table: PickLog, or NbaPickLog for the NBA; period(row) -> (sort key, label) for the by_week rows."""
+    q = select(table).where(table.result.is_not(None))
     if season is None:
-        season = session.scalars(select(PickLog.season).order_by(PickLog.season.desc()).limit(1)).first()
+        season = session.scalars(select(table.season).order_by(table.season.desc()).limit(1)).first()
     if season is not None:
-        q = q.where(PickLog.season == season)
+        q = q.where(table.season == season)
     rows = session.scalars(q).all()
-    pending = session.query(PickLog).filter(PickLog.result.is_(None)).count()
+    pending = session.query(table).filter(table.result.is_(None)).count()
     board = [r for r in rows if r.ev >= BOARD_MIN_EV and not r.flagged]
     kinds = sorted({r.kind for r in board})
     by_ev = [(f"EV {lo:.0%}–{hi:.0%}" if hi < 9 else f"EV {lo:.0%}+", lo, hi) for lo, hi in ((0.03, 0.08), (0.08, 0.15), (0.15, 0.25), (0.25, 9))]
@@ -173,7 +178,7 @@ def report(session, season: Optional[int] = None) -> dict:
                            model_closer=round(sum(abs(r.mu - r.actual) < abs(r.line - r.actual) for r in v) / len(v), 3)))
     return dict(
         season=season, graded=len(rows), pending=pending,
-        weeks=sorted({r.week for r in rows}),
+        weeks=sorted({r.week for r in rows}) if table is PickLog else [],
         board=[_line("Board (Min EV 3%, flags hidden)", board),
                _line("One pick per player", _one_per_player(board)),
                _line("Overs", [r for r in board if r.side == "Over" and r.kind not in YES_NO]),
@@ -181,6 +186,6 @@ def report(session, season: Optional[int] = None) -> dict:
                _line("Flagged (hidden)", [r for r in rows if r.flagged and r.ev >= BOARD_MIN_EV])],
         by_market=[_line(k, [r for r in board if r.kind == k]) for k in kinds],
         by_ev=[_line(label, [r for r in board if lo <= r.ev < hi]) for label, lo, hi in by_ev],
-        by_week=[_line(f"Week {w}", [r for r in board if r.week == w]) for w in sorted({r.week for r in board})],
+        by_week=[_line(label, [r for r in board if period(r)[1] == label]) for _, label in sorted({period(r) for r in board})],
         model_vs_line=checks,
     )

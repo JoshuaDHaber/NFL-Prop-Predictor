@@ -16,6 +16,7 @@ from sqlalchemy import select
 from . import config, grading, pipeline
 from .db import NbaRun, Run, SessionLocal, SyncRun
 from .engine import odds as odds_api
+from .nba import grading as nba_grading
 from .nba import pipeline as nba_pipeline
 
 ET = ZoneInfo("America/New_York")
@@ -147,8 +148,7 @@ def run(odds_mode: str, full: bool = False, slot: str = "manual", trigger: str =
             parts.append(_odds_summary(res))
             if res.get("skipped_for_credits") or res.get("failed"):
                 status = "partial"
-        if not nba:
-            _snapshot(log)
+        _snapshot(log, nba)
     except Exception as e:  # surfaced to the UI and the run log
         status, error = "error", odds_api.redact(f"{type(e).__name__}: {e}")
         log(traceback.format_exc(limit=3))
@@ -175,13 +175,13 @@ def run(odds_mode: str, full: bool = False, slot: str = "manual", trigger: str =
         after_job()
 
 
-def _snapshot(log) -> None:
-    """Log the board for games still to kick off (app/grading.py). Never fails the sync."""
+def _snapshot(log, nba: bool = False) -> None:
+    """Log the board for games still to kick off (app/grading.py, app/nba/grading.py). Never fails the sync."""
     try:
         with SessionLocal() as s:
-            n = grading.snapshot_board(s)
+            n = (nba_grading if nba else grading).snapshot_board(s)
         if n:
-            log(f"Logged {n} picks for grading")
+            log(f"Logged {n} {'NBA ' if nba else ''}picks for grading")
     except Exception as e:   # noqa: BLE001
         log(f"  couldn't log picks for grading ({type(e).__name__}: {e})")
 

@@ -36,6 +36,7 @@ The NBA side covers the **slate**: the next two game dates (Eastern) with games 
 - **Best props / Projections:** points, rebounds, assists and 3-pointers made, with the same filters, pricing, player drawer and betslip as the NFL.
 - **Parlays:** the NFL's tiles at one sportsbook (likely plays, ladders of points/rebounds/assists/threes overs on alternate lines stacked to +100 to +300, and the likeliest single alternate props), for the whole slate or chosen games; each game page has its own. No touchdown section.
 - **Injuries:** ESPN's report for every slate team. *Out*, *Doubtful* and *Suspended* players aren't projected; *Day-to-day* players are, and are flagged.
+- **Model check:** **graded picks** and the backtest. Every NBA sync logs the board for games still to tip off (`nba_pick_log`; the last snapshot before tip-off is the one kept), and each NBA model run grades finished games from ESPN's game logs, the morning after. A player missing from a finished game's box score is void (as the books settle it), but only once he has played again or two days have passed, so a stale gamelog fetch never reads as a DNP. The report has the NFL's shape (record and units for Min EV 3% with flags hidden, by market, side, EV and week, and the projection's vs the posted line's average miss) at `GET /api/nba/grades`.
 
 **Data.** ESPN's public JSON API (no key) for the schedule, rosters, every rostered player's game logs (this season and the two before) and injuries; stats.nba.com and NBA.com's CDN refuse requests from hosting providers. Responses are cached in `backend/data/nba_cache/`, on the Railway volume, so finished seasons are fetched once (a first run takes about 25 seconds, later ones a few). Lines come from The Odds API (`basketball_nba`) with its own key, **`ODDS_API_KEY_NBA`**.
 
@@ -63,7 +64,7 @@ The edge over a plain last-10 average is small; the books' lines are sharper sti
 
 That is roughly 8 credits per game per day plus 3, about 2,000-2,700 credits a month in season, so a free 500-credit key won't last; trim the 6 PM re-pull (`nba-pregame` in `scheduler.py`) to save half. The credit floor (`ODDS_CREDIT_FLOOR`) applies to the NBA key too, and the admin page shows both keys' balances.
 
-**NBA API:** `GET /api/nba/meta`, `/api/nba/picks`, `/api/nba/projections`, `/api/nba/moneylines`, `/api/nba/injuries`, `/api/nba/players/{id}`, `/api/nba/players/{id}/lines?kind=pts|reb|ast|threes`, with the same parameters and shapes as the NFL routes.
+**NBA API:** `GET /api/nba/meta`, `/api/nba/picks`, `/api/nba/projections`, `/api/nba/moneylines`, `/api/nba/injuries`, `/api/nba/grades`, `/api/nba/players/{id}`, `/api/nba/players/{id}/lines?kind=pts|reb|ast|threes`, with the same parameters and shapes as the NFL routes.
 
 Alternate lines are bought once per game and market, never re-pulled, and The Odds API only charges for markets it returns, so a game without alternates costs nothing extra.
 

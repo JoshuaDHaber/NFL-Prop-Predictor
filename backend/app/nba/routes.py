@@ -17,9 +17,9 @@ from ..engine import odds
 from ..engine.ladder import build_ladder
 from ..engine.picks import build_picks
 from ..engine.search import rank_hits
-from ..schemas import (AutoSync, BacktestStat, Game, GameLogEntry, InjuredPlayer, InjuryReport, LadderOut, MoneylineGame,
+from ..schemas import (AutoSync, BacktestStat, Game, GameLogEntry, GradeReport, InjuredPlayer, InjuryReport, LadderOut, MoneylineGame,
                        NbaMeta, NbaRunInfo, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut)
-from . import espn, model
+from . import espn, grading, model
 from . import odds as nba_odds
 
 NbaKind = Literal["pts", "reb", "ast", "threes"]
@@ -140,6 +140,12 @@ def picks(kind: Optional[NbaKind] = None, side: Optional[Literal["Over", "Under"
     if q:
         df = df[df.name.str.contains(q, case=False, regex=False)]
     return _records(df.head(limit))
+
+
+@router.get("/grades", response_model=GradeReport)
+def grades(season: Optional[int] = None, db: Session = Depends(get_db)):
+    """How the NBA board did once graded (app/nba/grading.py)."""
+    return grading.report(db, season)
 
 
 @router.get("/moneylines", response_model=list[MoneylineGame])
