@@ -3,6 +3,7 @@ import { useBetSlip } from "../BetSlipContext";
 import { americanOdds, kickoff, pct, playLabel, signedPct, KIND_LABEL } from "../format";
 import { getLeague } from "../league";
 import { pickToLeg, type Parlay, type ParlayLeg } from "../parlays";
+import { toAmerican } from "../slip";
 import Avatar from "./Avatar";
 
 const STAKE = 10;
@@ -20,11 +21,14 @@ function ParlayCard({ p, lead }: { p: Parlay; lead: boolean }) {
         <span className="tile-label">{lead ? "★ " : ""}{p.title}</span>
         <span className="mut">{p.legs.length} legs</span>
       </header>
-      <div className="parlay-odds">{americanOdds(p.american)}<small>combined odds</small></div>
+      <div className="parlay-odds">{americanOdds(p.american)}<small>{p.sameGame ? "legs multiplied" : "combined odds"}</small></div>
       <dl className="parlay-stats">
         <div><dt>Hit chance</dt><dd>{pct(p.prob, 0)}</dd></div>
-        <div><dt>Model EV</dt><dd className={p.ev >= 0 ? "pos" : "under"}>{signedPct(p.ev)}</dd></div>
-        <div><dt>${STAKE} pays</dt><dd>${(STAKE * p.decimal).toFixed(2)}</dd></div>
+        {p.sameGame
+          // a same-game parlay is paid at the book's own price, not the legs multiplied, so an EV here would be made up
+          ? <div><dt>Fair odds</dt><dd>{americanOdds(toAmerican(1 / Math.max(p.prob, 1e-6)))}</dd></div>
+          : <div><dt>Model EV</dt><dd className={p.ev >= 0 ? "pos" : "under"}>{signedPct(p.ev)}</dd></div>}
+        <div><dt>${STAKE} pays{p.sameGame ? ", legs multiplied" : ""}</dt><dd>${(STAKE * p.decimal).toFixed(2)}</dd></div>
       </dl>
       <ul className="parlay-legs">
         {p.legs.map((l) => (
@@ -38,7 +42,7 @@ function ParlayCard({ p, lead }: { p: Parlay; lead: boolean }) {
         ))}
       </ul>
       <p className="mut parlay-note">{p.blurb} Every leg is at {p.book}, so these are the odds you'd get there.
-        {p.sameGame && " Some legs share a game, and their correlation isn't modelled."}</p>
+        {p.sameGame && " Some legs share a game: the hit chance counts how they move together (fitted on past games), but the book prices same-game parlays its own way, usually below the legs multiplied. Take it if the book's price beats the fair odds."}</p>
       <button className="primary" onClick={addAll} disabled={added}>{added ? "On your slip" : "Add all to slip"}</button>
     </article>
   );
@@ -130,7 +134,7 @@ export default function ParlayTiles({ books, book, onBook, games, selectedGames,
         <AltProps props={altProps} />
       </>}
 
-      <p className="td-note">Hit chance multiplies each leg's win probability (the model blended with the book's price). Models miss context and parlays compound that: expect these to lose most of the time. Not betting advice.</p>
+      <p className="td-note">Hit chance multiplies each leg's win probability (the model blended with the book's price){nba ? "" : ", except legs in the same game, which are priced with how they moved together in past games (Model check has the details)"}. Models miss context and parlays compound that: expect these to lose most of the time. Not betting advice.</p>
     </>
   );
 }

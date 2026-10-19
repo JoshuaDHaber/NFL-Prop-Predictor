@@ -379,19 +379,21 @@ def walk_forward(df, priors, sched, start_t, td_priors=None, rho=None, records=N
             continue
         aff = (pid, c["t"]) in affected
         implied = implied_map.get((c["season"], c["week"], c["team"]))
+        who = (c["pos"], c["team"], c["opp"])   # for the same-game correlations (engine/correlation.py)
         for kind, (mu, vol, eff) in all_kinds(hist, c["pos"], priors, opp_cache[c["t"]], c["sp"], c["comp"], implied).items():
-            rows.append((pid, c["name"], kind, c["t"], mu, float(actual_hist(one, kind).iloc[0]),
+            rows.append(who + (pid, c["name"], kind, c["t"], mu, float(actual_hist(one, kind).iloc[0]),
                          float(actual_hist(hist, kind).tail(5).mean()), aff, c["temp"], c["wind"], wx_ratio(kind, c["comp"], c["wx"])))
         if td_priors is not None:
             res = tdm.project_td(hist, c["comp"], c["pos"], td_priors, implied)
             if res:
-                rows.append((pid, c["name"], "td", c["t"], res[0], float(tdm.td_count(one).iloc[0] >= 1),
+                rows.append(who + (pid, c["name"], "td", c["t"], res[0], float(tdm.td_count(one).iloc[0] >= 1),
                              float((tdm.td_count(hist).tail(8) >= 1).mean()), aff, c["temp"], c["wind"], 1.0))
                 if "first_td" in one:   # unscaled, like the anytime row: the pipeline fits both scales
                     game_lam = tdm.game_tds(implied, implied_map.get((c["season"], c["week"], c["opp"])))
-                    rows.append((pid, c["name"], "ftd", c["t"], tdm.first_td(res[1], game_lam), float(one.first_td.iloc[0]),
+                    rows.append(who + (pid, c["name"], "ftd", c["t"], tdm.first_td(res[1], game_lam), float(one.first_td.iloc[0]),
                                  float(hist.first_td.tail(8).mean()), aff, c["temp"], c["wind"], 1.0))
-    return pd.DataFrame(rows, columns=["player_id", "name", "kind", "t", "mu", "actual", "naive5", "affected", "wx_temp", "wx_wind", "wx"])
+    return pd.DataFrame(rows, columns=["pos", "team", "opp", "player_id", "name", "kind", "t", "mu", "actual", "naive5", "affected",
+                                       "wx_temp", "wx_wind", "wx"])
 
 
 Z_PROBS = np.linspace(0, 1, 41)

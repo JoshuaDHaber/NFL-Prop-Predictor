@@ -1,4 +1,5 @@
-import type { Meta } from "../api";
+import { useQuery } from "@tanstack/react-query";
+import { api, type Meta } from "../api";
 import { decimals, marketLabel, unit, signed, timeAgo, weatherText, wxEffect } from "../format";
 import type { Kind } from "../api";
 import GradesCard from "./GradesCard";
@@ -33,6 +34,33 @@ function RedistributionCard({ r }: { r: NonNullable<Meta["redistribution"]> }) {
           Switched off for {off.map((k) => label[k] ?? k).join(" and ")}: on held-out weeks it overshot and made projections less accurate.
         </p>
       )}
+    </div>
+  );
+}
+
+/** How same-game parlays are priced, and how that did on backtest weeks the correlations weren't fitted on. */
+function CorrelationCard() {
+  const { data } = useQuery({ queryKey: ["correlations"], queryFn: api.correlations, staleTime: 10 * 60_000 });
+  if (!data || !Object.keys(data.pairs).length) return null;
+  const pos = data.check.positive, neg = data.check.negative, tri = data.check.triples;
+  const p0 = (x?: number) => (x == null ? "–" : `${(x * 100).toFixed(1)}%`);
+  return (
+    <div className="card prose">
+      <h3>Same-game parlays</h3>
+      <p>
+        Legs in one game move together: a quarterback's yards with his receivers', the two lead backs apart (the team ahead runs).
+        Same-game parlays are priced with {Object.keys(data.pairs).length} correlations fitted on the backtest (by player, teammate
+        or opponent, market and position) instead of multiplying the legs' chances.
+      </p>
+      {pos?.n ? (
+        <p>
+          On held-out weeks, pairs that move together hit together <b>{p0(pos.actual)}</b> of the time: the correlations said{" "}
+          {p0(pos.copula)}, multiplying said {p0(pos.independent)}.
+          {neg?.n ? <> Pairs that pull apart: {p0(neg.actual)} actual, {p0(neg.copula)} with correlations, {p0(neg.independent)} multiplied.</> : null}
+          {tri?.n ? <> A quarterback's passing yards with two of his receivers', all overs: {p0(tri.actual)} actual, {p0(tri.copula)} with correlations, {p0(tri.independent)} multiplied ({tri.n.toLocaleString()} combinations).</> : null}
+        </p>
+      ) : null}
+      <p className="mut">Books price same-game parlays their own way, so those tiles show fair odds rather than an EV.</p>
     </div>
   );
 }
@@ -138,6 +166,7 @@ export default function ModelCheck({ meta }: { meta: Meta }) {
       <GradesCard />
       {meta.redistribution && <RedistributionCard r={meta.redistribution} />}
       {meta.weather && <WeatherCard fit={meta.weather} games={meta.games} />}
+      <CorrelationCard />
       <div className="card prose">
         <h3>How to read this</h3>
         <p>

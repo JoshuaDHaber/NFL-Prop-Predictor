@@ -176,6 +176,13 @@ class MarketCheck(BaseModel):
     model_closer: float            # share of player-games where the projection was closer than the line
 
 
+class Correlations(BaseModel):
+    """Same-game correlations for pricing parlays (engine/correlation.py): pair key -> latent correlation. Empty when
+    the latest run was fitted before they existed; parlays are then priced as independent legs."""
+    pairs: dict[str, float] = {}
+    check: dict = {}
+
+
 class GradeReport(BaseModel):
     season: Optional[int] = None
     graded: int

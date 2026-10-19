@@ -1,4 +1,4 @@
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api, type Filters } from "./api";
 import { getLeague } from "./league";
@@ -21,6 +21,9 @@ export function useParlayBoard(books: string[], chosenGames: string[], enabled: 
   const tdQueries = useQueries({
     queries: books.map((book) => ({ queryKey: ["parlay-td", book], queryFn: () => api.picks({ ...PARLAY_FILTERS, kind: "td", book }, 1000), enabled: enabled && hasTd })),
   });
+  // same-game correlations from the latest run (NFL only; without them, legs are priced as independent)
+  const corrQuery = useQuery({ queryKey: ["correlations"], queryFn: api.correlations, enabled: enabled && hasTd, staleTime: 10 * 60_000 });
+  const corr = hasTd ? corrQuery.data?.pairs : undefined;
   const loading = parlayQueries.some((q) => q.isLoading);
   const [book, setBook] = useState<string | null>(null);
   const parlayStamp = parlayQueries.map((q) => q.dataUpdatedAt).join();
@@ -28,7 +31,7 @@ export function useParlayBoard(books: string[], chosenGames: string[], enabled: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [books.join(), parlayStamp]);
   const gamePicks = useMemo(() => filterGames(allPicksByBook, chosenGames), [allPicksByBook, chosenGames]);
-  const byBook = useMemo(() => parlaysByBook(gamePicks), [gamePicks]);
+  const byBook = useMemo(() => parlaysByBook(gamePicks, corr), [gamePicks, corr]);
   // a page-wide sportsbook choice wins over the tab's own picker
   const chosenBook = preferredBook && books.includes(preferredBook) ? preferredBook : book;
   const activeBook = chosenBook && books.includes(chosenBook) ? chosenBook : defaultBook(byBook, gamePicks);
@@ -41,16 +44,16 @@ export function useParlayBoard(books: string[], chosenGames: string[], enabled: 
   const ladderEntries = useMemo(() => targets.map((base, i) => ({ base, ladder: ladderQueries[i]?.data })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [targets, ladderStamp]);
-  const ladderParlays = useMemo(() => activeBook ? buildLadderParlays(ladderEntries, activeBook) : [], [activeBook, ladderEntries]);
+  const ladderParlays = useMemo(() => activeBook ? buildLadderParlays(ladderEntries, activeBook, corr) : [], [activeBook, ladderEntries, corr]);
   // with games chosen, one more ladder per game that uses both teams
-  const balancedLadders = useMemo(() => activeBook ? buildBalancedLadders(ladderEntries, activeBook, chosenGames.slice(0, 4), ladderParlays) : [],
-    [activeBook, ladderEntries, chosenGames, ladderParlays]);
+  const balancedLadders = useMemo(() => activeBook ? buildBalancedLadders(ladderEntries, activeBook, chosenGames.slice(0, 4), ladderParlays, corr) : [],
+    [activeBook, ladderEntries, chosenGames, ladderParlays, corr]);
   const tdStamp = tdQueries.map((q) => q.dataUpdatedAt).join();
   const tdParlays = useMemo(() => {
     const i = books.indexOf(activeBook ?? "");
-    return activeBook && i >= 0 ? buildTdParlays(tdQueries[i]?.data ?? [], activeBook, chosenGames) : [];
+    return activeBook && i >= 0 ? buildTdParlays(tdQueries[i]?.data ?? [], activeBook, chosenGames, corr) : [];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeBook, books, chosenGames, tdStamp]);
+  }, [activeBook, books, chosenGames, tdStamp, corr]);
   const altProps = useMemo(() => activeBook ? ladderProps(ladderEntries, activeBook) : [], [activeBook, ladderEntries]);
   const ladders = useMemo(() => [...ladderParlays, ...balancedLadders], [ladderParlays, balancedLadders]);
 

@@ -13,6 +13,7 @@ import requests
 from . import config, grading
 from .db import AltLine, OddsHistory, OddsLine, Projection, Run, SessionLocal
 from .engine import data, model, odds
+from .engine import correlation as cm
 from .engine import moneyline as mlm
 from .engine import redistribute as rd
 from .engine import td as tdm
@@ -44,6 +45,8 @@ def reusable_calibration(season: int, now: datetime = None):
             return None  # fitted before a market existed (e.g. receptions, passing TDs)
         if not isinstance((v.get("_weather") or {}).get("coef"), dict):
             return None  # fitted before weather was modeled
+        if not isinstance((v.get("_correlation") or {}).get("pairs"), dict):
+            return None  # fitted before same-game correlations
         if (now - datetime.fromisoformat(cal["at"])).days > CALIBRATION_MAX_AGE_DAYS:
             return None
         return dict(variance=copy.deepcopy(v), backtest=copy.deepcopy(run.backtest), run_id=run.id)
@@ -135,6 +138,8 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
         log(f"First TD: scale {ftd_scale:.2f}, Brier {bt_sum['ftd']['mae_model']:.4f} (base rate {bt_sum['ftd']['mae_naive']:.4f})")
         var_params["_redistribution"] = _redistribution_summary(base, bt, rho_fit, rho)
         var_params["_weather"] = wxm.summary(bt, wx_coef)
+        var_params["_correlation"] = cm.fit(pd.concat([bt, bt_td]), var_params)
+        log(_correlation_line(var_params["_correlation"]))
         var_params["_calibration"] = dict(at=datetime.utcnow().isoformat(), season=season, week=week)
         log(f"Redistribution: {var_params['_redistribution']['summary']}")
         log("Weather: " + _weather_line(wx_coef))
@@ -180,6 +185,14 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
         s.commit()
         log(f"Stored run {run.id}: {len(run.projections)} projections, {len(excluded)} players excluded")
         return run.id
+
+
+def _correlation_line(c: dict) -> str:
+    """e.g. 'Same-game correlations: 363 pairs; held out, correlated pairs hit together 23.1% (copula 23.7%, independent 17.0%)'"""
+    p = (c.get("check") or {}).get("positive") or {}
+    tail = (f"; held out, correlated pairs hit together {p['actual']:.1%} (copula {p['copula']:.1%}, independent {p['independent']:.1%})"
+            if p.get("n") else "")
+    return f"Same-game correlations: {len(c.get('pairs', {}))} pairs{tail}"
 
 
 def _weather_line(coef: dict) -> str:

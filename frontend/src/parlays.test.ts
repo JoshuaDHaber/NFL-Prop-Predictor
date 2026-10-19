@@ -324,3 +324,31 @@ describe("anytime TD parlays", () => {
     expect(buildTdParlays(rows, "DraftKings", [A]).map((p) => p.key)).toEqual([`td-${A}`]);
   });
 });
+
+describe("same-game correlation", () => {
+  const corr = { "team|pass:QB|rec:WR": 0.36, "opp|rush:RB|rush:RB": -0.19 };
+  const qb = pick({ player_id: "qb", kind: "pass", pos: "QB", side: "Over", prob: 0.6 });
+  const wr = pick({ player_id: "wr", kind: "rec", pos: "WR", side: "Over", prob: 0.6 });
+
+  it("prices a quarterback and his receiver together above the legs multiplied, and leaves other games alone", () => {
+    expect(priceParlay([qb, wr]).prob).toBeCloseTo(0.36, 12);
+    const stacked = priceParlay([qb, wr], corr);
+    expect(stacked.prob).toBeGreaterThan(0.4);
+    expect(stacked.ev).toBeCloseTo(stacked.prob * stacked.decimal - 1, 12);
+    expect(priceParlay([qb, { ...wr, game_id: "g2" }], corr).prob).toBeCloseTo(0.36, 12);
+  });
+
+  it("lets the ladder search prefer a combination whose legs move together", () => {
+    // every pair lands in the same band at the same price; c is the likeliest alone
+    const entry = (id: string, o: Partial<Pick>, prob: number) =>
+      ({ base: over({ player_id: id, name: id, game_id: "g1", ...o }), ladder: ladder(rung(30.5, -200, prob)) });
+    const entries = [entry("a", { kind: "rush", pos: "RB" }, 0.7), entry("b", { kind: "rush", pos: "RB", team: "BBB" }, 0.7),
+      entry("c", { kind: "rush", pos: "RB" }, 0.72)];
+    expect(buildLadderParlays(entries, "DraftKings")[0].legs.map((l) => l.player_id).sort()).toEqual(["a", "c"]);
+    // b is the other team's back: pulled apart from a and c by the real table, so a+c stays ahead; with a positive sign b
+    // pairs best with the likelier of the two
+    const pro = { "opp|rush:RB|rush:RB": 0.3 };
+    expect(buildLadderParlays(entries, "DraftKings", pro)[0].legs.map((l) => l.player_id).sort()).toEqual(["b", "c"]);
+    expect(buildLadderParlays(entries, "DraftKings", corr)[0].legs.map((l) => l.player_id).sort()).toEqual(["a", "c"]);
+  });
+});

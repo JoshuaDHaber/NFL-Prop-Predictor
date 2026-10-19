@@ -31,7 +31,7 @@ from .engine.ladder import build_ladder
 from .engine.picks import build_picks
 from .engine.search import rank_hits
 from .nba import routes as nba_routes
-from .schemas import (AdminState, GradeReport, AltFetchResult, AutoSync, CreditStatus, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, InjuryReport, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut,
+from .schemas import (AdminState, Correlations, GradeReport, AltFetchResult, AutoSync, CreditStatus, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, InjuryReport, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut,
                       RefreshRequest, RunInfo)
 
 @asynccontextmanager
@@ -285,6 +285,17 @@ def picks(kind: Optional[Kind] = None, exclude_kind: Optional[Kind] = None, side
     if q:
         df = df[df.name.str.contains(q, case=False, regex=False)]
     return records(df.head(limit))
+
+
+@app.get("/api/correlations", response_model=Correlations)
+def correlations(db: Session = Depends(get_db)):
+    """The latest run's same-game correlations, for pricing parlays whose legs share a game."""
+    return build_correlations(latest_run(db))
+
+
+def build_correlations(run: Optional[Run]) -> Correlations:
+    c = ((run.variance or {}).get("_correlation") if run else None) or {}
+    return Correlations(pairs={k: v[0] for k, v in (c.get("pairs") or {}).items()}, check=c.get("check") or {})
 
 
 @app.get("/api/grades", response_model=GradeReport)
