@@ -51,7 +51,6 @@ export default function GameOverview({ game, books, book, onBook, marketWeight, 
   const id = game.game_id;
   const [propKind, setPropKind] = useState<Kind | "all">("all");
   const [projKind, setProjKind] = useState<Kind | "all">("all");
-  const [allProps, setAllProps] = useState(false);
   const [showReserve, setShowReserve] = useState(false);
 
   const moneylines = useQuery({ queryKey: ["moneylines", book, marketWeight], queryFn: () => api.moneylines(book, marketWeight) });
@@ -73,7 +72,6 @@ export default function GameOverview({ game, books, book, onBook, marketWeight, 
   const board = useParlayBoard(books, chosen, true, book === "all" ? undefined : book);
 
   const ml = moneylines.data?.find((g) => g.game_id === id);
-  const shownPicks = allProps ? picks.data ?? [] : (picks.data ?? []).slice(0, PROPS_SHOWN);
   const jump = (el: string) => document.getElementById(el)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   return (
@@ -101,12 +99,9 @@ export default function GameOverview({ game, books, book, onBook, marketWeight, 
 
       <section id="go-props" className="go-sec">
         <h2 className="parlay-h">Best props <small>positive EV for this game{book !== "all" ? ` at ${book}` : ""}</small></h2>
-        <KindSeg value={propKind} onChange={(k) => { setPropKind(k); setAllProps(false); }} />
+        <KindSeg value={propKind} onChange={setPropKind} />
         {picks.isLoading ? <p className="mut">Balancing the equation…</p> : <>
-          <PicksTable picks={shownPicks} weather={{ [id]: game.weather }} empty="No positive-EV props for this game yet. Books post props mid-week; the scheduled syncs pick them up." onSelect={(p) => onSelect(p.player_id, p.kind)} />
-          {(picks.data?.length ?? 0) > PROPS_SHOWN && (
-            <button className="link go-more" onClick={() => setAllProps(!allProps)}>{allProps ? "Show fewer" : `Show all ${picks.data!.length} props`}</button>
-          )}
+          <PicksTable key={propKind} picks={picks.data ?? []} limit={PROPS_SHOWN} weather={{ [id]: game.weather }} empty="No positive-EV props for this game yet. Books post props mid-week; the scheduled syncs pick them up." onSelect={(p) => onSelect(p.player_id, p.kind)} />
         </>}
       </section>
 

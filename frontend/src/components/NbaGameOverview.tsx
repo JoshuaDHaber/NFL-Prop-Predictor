@@ -39,7 +39,6 @@ export default function NbaGameOverview({ game, books, book, onBook, marketWeigh
   const id = game.game_id;
   const [propKind, setPropKind] = useState<NbaKind | "all">("all");
   const [projKind, setProjKind] = useState<NbaKind | "all">("pts");
-  const [allProps, setAllProps] = useState(false);
   const base = { side: "all", game: id, book, q: "", minEv: 0, marketWeight, flagged: false } as const;
 
   const moneylines = useQuery({ queryKey: ["moneylines", book, marketWeight], queryFn: () => api.moneylines(book, marketWeight) });
@@ -53,7 +52,6 @@ export default function NbaGameOverview({ game, books, book, onBook, marketWeigh
   // parlays need one book; with "all books" they fall back to the board's own default
   const board = useParlayBoard(books, chosen, true, book === "all" ? undefined : book);
   const ml = moneylines.data?.find((g) => g.game_id === id);
-  const shownPicks = allProps ? picks.data ?? [] : (picks.data ?? []).slice(0, PROPS_SHOWN);
   const jump = (el: string) => document.getElementById(el)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   return (
@@ -78,13 +76,10 @@ export default function NbaGameOverview({ game, books, book, onBook, marketWeigh
 
       <section id="go-props" className="go-sec">
         <h2 className="parlay-h">Best props <small>positive EV for this game{book !== "all" ? ` at ${book}` : ""}</small></h2>
-        <KindSeg value={propKind} onChange={(k) => { setPropKind(k); setAllProps(false); }} />
+        <KindSeg value={propKind} onChange={setPropKind} />
         {picks.isLoading ? <p className="mut">Balancing the equation…</p> : <>
-          <PicksTable picks={shownPicks} empty="No positive-EV props for this game yet. Books post NBA props the day of the game; the 10 AM, 2 PM and 6 PM ET syncs pick them up."
+          <PicksTable key={propKind} picks={picks.data ?? []} limit={PROPS_SHOWN} empty="No positive-EV props for this game yet. Books post NBA props the day of the game; the 10 AM, 2 PM and 6 PM ET syncs pick them up."
             onSelect={(p) => onSelect(p.player_id, p.kind)} />
-          {(picks.data?.length ?? 0) > PROPS_SHOWN && (
-            <button className="link go-more" onClick={() => setAllProps(!allProps)}>{allProps ? "Show fewer" : `Show all ${picks.data!.length} props`}</button>
-          )}
         </>}
       </section>
 
