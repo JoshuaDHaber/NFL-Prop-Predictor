@@ -68,7 +68,7 @@ That is roughly 8 credits per game per day plus 3, about 2,000-2,700 credits a m
 
 Alternate lines are bought once per game and market, never re-pulled, and The Odds API only charges for markets it returns, so a game without alternates costs nothing extra.
 
-**NBA limitations.** A teammate's absence doesn't move anyone's minutes or usage yet (early in the season, last season's roles carry over); rookies and players with fewer than 5 NBA games aren't projected; a move to a new team isn't modeled (their old role's minutes carry over), though in the 2025-26 backtest movers' first three games with a new team were projected no worse than anyone's (points MAE 5.1 vs 5.5); alternate lines aren't refreshed before tip-off; back-to-backs, rest days and blowouts aren't modeled; the static GitHub Pages demo is NFL only.
+**NBA limitations.** A teammate's absence doesn't move anyone's minutes or usage yet (early in the season, last season's roles carry over); rookies and players with fewer than 5 NBA games aren't projected; a move to a new team isn't modeled (their old role's minutes carry over), though in the 2025-26 backtest movers' first three games with a new team were projected no worse than anyone's (points MAE 5.1 vs 5.5); alternate lines aren't refreshed before tip-off; back-to-backs, rest days and blowouts aren't modeled.
 
 ## Architecture
 
@@ -206,16 +206,15 @@ Requires Python 3.9+ and Node 20+. Everything goes through one script:
 
 **Docker** (untested so far): `docker build -t nfl-props . && docker run -p 8000:8000 -v nfl-data:/srv/backend/data nfl-props`. Set `DATABASE_URL` to a Postgres URL (and add a driver such as `psycopg`) when deploying beyond one instance.
 
-## Going live: Railway (one service, no sleep)
+## Hosting: Railway (one service, no sleep)
 
-The `Dockerfile` builds the React app and the API into one container, so on Railway the whole app is one service at one URL: no GitHub Pages, no CORS, no Neon. `railway.json` tells Railway to build the `Dockerfile` and health-check `/healthz`. Use the **Hobby** plan: the Free plan caps a service at 0.5 GB of RAM and $1 of usage a month, which this app outgrows. Leave **Serverless** off so the app never sleeps.
+The `Dockerfile` builds the React app and the API into one container, so on Railway the whole app is one service at one URL. `railway.json` tells Railway to build the `Dockerfile` and health-check `/healthz`. Use the **Hobby** plan: the Free plan caps a service at 0.5 GB of RAM and $1 of usage a month, which this app outgrows. Leave **Serverless** off so the app never sleeps.
 
 1. **New project → Deploy from GitHub repo** → this repo. Every push to `main` redeploys.
 2. **Volume:** right-click the service → *Attach volume*, mount path `/srv/backend/data`. The SQLite database lives there and survives redeploys.
 3. **Variables:** `ODDS_API_KEY` and `ADMIN_TOKEN` (your admin password, 12+ characters). Leave `DATABASE_URL` unset to use the SQLite file on the volume.
 4. **Settings → Networking → Generate domain** for a public `*.up.railway.app` URL.
-5. **Bring your data** (optional): in the service's *Console*, copy an existing database onto the volume so the odds you already paid for come along: `python -m app.copy_db --from 'postgresql://…' --to sqlite:////srv/backend/data/app.db`.
-6. **GitHub Pages:** delete the `API_URL` repository variable so the Pages site goes back to the static demo (or turn Pages off).
+5. **Bring your data** (optional): in the service's *Console*, copy an existing database onto the volume so the odds you already paid for come along: `python -m app.copy_db --from '<database URL>' --to sqlite:////srv/backend/data/app.db`.
 
 **Scheduled syncs** (`backend/app/scheduler.py`) run inside the web process, on by default on Railway (`AUTO_SYNC=1`) and off elsewhere, so a laptop never spends credits by itself. Times are Eastern:
 
@@ -230,50 +229,6 @@ The `Dockerfile` builds the React app and the API into one container, so on Rail
 A slot missed by a redeploy (within 3 hours) runs when the server comes back. Every sync, scheduled or *Run now*, is logged on the admin page.
 
 **Credit floor and key rotation.** Before fetching odds, a sync checks the key's balance (a free call) and skips any game whose cost would take it under `ODDS_CREDIT_FLOOR` (default 75). Those syncs are logged as *Partial*, and the admin page shows a banner. To switch keys, replace `ODDS_API_KEY` in the service's *Variables* and deploy. A free key's 500 credits a month covers roughly two to three weeks of syncs (a full week is about 180 credits before top-ups), so expect to rotate keys during the season.
-
-## Going live: Render API + GitHub Pages site
-
-> The older setup. The *Admin* button and *Sync next week* menu described below have since been replaced by scheduled syncs and the `/admin` page (see the Railway section). On Render the free service sleeps, so the schedule would not run reliably there.
-
-The React app is served from GitHub Pages and calls the API hosted on Render, so the public site is the real, working app. Anyone can browse; refreshing data and fetching alternate lines (which spend Odds API credits) need your **admin password**. It's the `ADMIN_TOKEN` environment variable on Render: Render generates a random one, but you can replace it with a password only you know (Environment tab → edit `ADMIN_TOKEN` → Save; use 12+ characters). Repeated wrong guesses from one client are slowed down (429), and the right password always works.
-
-```
-GitHub Pages (React)  ──HTTPS──▶  Render (FastAPI)  ──▶  Neon Postgres (free)
-                                          └──▶ The Odds API
-```
-
-**Why these pieces.** Render's free web service has no persistent disk and sleeps after 15 idle minutes, so the database lives on Neon (free Postgres). The first visit after a sleep takes up to a minute; the app shows "Waking the server…" and retries by itself. The model run peaked at about 380 MB with the server (measured on a Mac; Linux may differ) after trimming it to the 16 stat columns it uses, which fits Render's 512 MB free tier with some room. If the service ever runs out of memory, set `PROJECTIONS_ON_SERVER=0` in Render: the site then only fetches odds and you run the model on your Mac against the same database.
-
-**One-time setup** (accounts and secrets are yours to create):
-1. **Neon:** create a project at [neon.tech](https://neon.tech) and copy its connection string (`postgresql://…`).
-2. **Copy your data up** (keeps the odds you already paid credits for):
-   ```bash
-   DATABASE_URL='postgresql://…' ./run.sh push-data
-   ```
-3. **Render:** New → Blueprint → pick this repo (it reads `render.yaml`). When asked, set `DATABASE_URL` (the Neon string) and `ODDS_API_KEY`. After the deploy, copy the service URL (`https://nfl-prop-predictor-api.onrender.com`). Then, in the service's Environment tab, set `ADMIN_TOKEN` to your own password.
-4. **GitHub:** Settings → Secrets and variables → Actions → **Variables** → new variable `API_URL` = the Render URL. Settings → Pages → Source: **GitHub Actions**. Merge to `main` (or run the "Deploy demo to GitHub Pages" workflow). If your GitHub user isn't `JoshuaDHaber`, change `CORS_ORIGINS` in Render to your Pages origin.
-5. **Open the site, click Admin, enter the admin password.** Refresh controls appear for you only (it stays in that browser).
-
-**Syncing a new week from the site (no code or push needed).** Once the API has been deployed with `PROJECTIONS_ON_SERVER=1`, open the site, unlock **Admin**, and click **Sync next week**. It works out the next week with unplayed games, shows exactly what it will do and what it costs in Odds API credits (for example "15 of 15 games, about 180 credits"), and when you confirm it runs the model, stores the new projections in Neon, and fetches odds for every game that doesn't have them yet: main lines, anytime TD, moneylines and alternate lines. A repeat costs nothing, because odds are stored per game and market and only the missing ones are bought (so a game synced before receptions and moneylines were added only buys those, about 3 credits). The menu also has "Model only" (no credits) and "Re-fetch all odds for the week". The sync shows its progress: a live timer, which step it is on ("Step 1 of 2 · Running the model"), the current sub-step, and a bar through the odds fetch.
-
-**Fast by default.** The slow part of a model run is the walk-forward backtest that calibrates it (error tables, the touchdown scale, the injury-redistribution share, the weather effect). Those change very little from one week to the next, so a normal sync reuses the previous run's calibration and only computes the new week's projections: about 0.7 seconds instead of 14 on a laptop, with projections identical to a full run on the same data. On Render's free tier the full run took about 8 minutes, so expect this to take a fraction of that. Tick **Recalibrate the model** in the confirm step (or choose "Recalibrate model" from the menu) to refit it; it is also refit automatically if the saved calibration is missing, from another season, older than 21 days, or from before the weather model (so the first sync after this update does a full run). The weather forecast itself is fetched fresh on every run, fast or full. The Model check tab says which week the calibration was last fitted for.
-
-**Topping up thin games.** Books post lines gradually through the week, so a sync early in the week can leave some games with few quotes. "Top up thin games" in the menu re-fetches games that have fewer than 100 stored quotes whose lines are at least 3 hours old, plus any that are missing, and shows the games and cost first. The normal sync never re-buys a game that already has lines.
-
-**Each week, from your Mac instead (optional):** `DATABASE_URL='postgresql://…' ./run.sh refresh` runs the model (add `--full` to recalibrate) and stores projections straight into Neon; then use *Fetch odds* on the site (or the same command with `--odds missing`) to pull lines.
-
-Without the `API_URL` variable the same workflow publishes the static snapshot demo described next.
-
-## Public demo on GitHub Pages
-
-GitHub Pages hosts static files only, so it can't run the API. Instead the repo publishes a **static demo**: the same React app reading a saved snapshot (`frontend/public/demo/*.json`) instead of calling the server. Browsing, filtering, the player drawer, line tables and the betslip all work; refreshing data, loading new lines and the market-trust slider (fixed at 35%) need the live app.
-
-```bash
-./run.sh refresh && ./run.sh export     # update the snapshot from your data
-git add frontend/public/demo && git commit -m "Update demo snapshot" && git push
-```
-
-Pushing to `main` runs `.github/workflows/pages.yml`, which builds with `VITE_STATIC=1` and deploys. One-time setup: in the repo go to **Settings → Pages** and set **Source** to **GitHub Actions** (free Pages needs a public repo). The snapshot contains sportsbook lines from The Odds API, so check their terms on redistribution before publishing, and expect the lines and betslip links in it to be stale.
 
 ## Using it from your phone anywhere (Tailscale, free)
 
@@ -295,8 +250,7 @@ backend/
     db.py          SQLAlchemy models (runs, projections, odds_lines, alt_lines)
     schemas.py     Pydantic response models
     cli.py         run the pipeline without the web app
-    export_static.py  write the data as static JSON for the Pages demo
-    copy_db.py     copy the local database to a hosted Postgres (./run.sh push-data)
+    copy_db.py     copy one database into another (e.g. onto the Railway volume)
     engine/        model.py (projections, backtest, probabilities) · injuries.py (injury report for the UI) · td.py (anytime touchdown) · moneyline.py (team ratings, win probability) · weather.py (fitted wind/cold effect, stadium forecasts) · picks.py (pricing) · ladder.py (alt-line pricing) · odds.py · data.py
   tests/           pytest suite
 frontend/src/      App, components (picks table, player drawer, line ladder, betslip, controls, refresh), betslip math in slip.ts, typed API client

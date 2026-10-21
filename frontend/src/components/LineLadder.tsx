@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api, type Kind, type LadderRow, type QuoteSide } from "../api";
 import { useBetSlip } from "../BetSlipContext";
-import { IS_STATIC } from "../env";
 import { KIND_LABEL, isYesNo, americanOdds, fmtProj, isNba, playLabel, signedPct, timeAgo, unit } from "../format";
 import { legId, type Leg } from "../slip";
 
@@ -117,7 +116,7 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
               </tbody>
             </table>
           </div>
-          {!hasAlt && !IS_STATIC && !isTd && meta?.can_write && meta.supports_alt !== false && (
+          {!hasAlt && !isTd && meta?.can_write && meta.supports_alt !== false && (
             <div className="alt-cta">
               <button className="primary" onClick={load} disabled={!meta?.has_odds_key || fetchAlt.isPending}>
                 {fetchAlt.isPending ? "Fetching…" : "Load alternate lines"}

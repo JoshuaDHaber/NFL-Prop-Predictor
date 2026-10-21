@@ -90,7 +90,6 @@ class Meta(BaseModel):
     job: JobStatus
     lan_url: Optional[str] = None
     books: list[str] = []
-    snapshot_at: Optional[str] = None  # set only in the static demo export
     calibration: Optional[dict] = None  # when/for which week the error tables were last fitted
     redistribution: Optional[dict] = None  # what teammate redistribution did in the backtest (see engine/redistribute.py)
     weather: Optional[dict] = None  # the fitted weather effect and what it did in the backtest (see engine/weather.py)

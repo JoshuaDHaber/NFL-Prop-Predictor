@@ -15,7 +15,6 @@ import PlayerCompare from "./components/PlayerCompare";
 import ProjectionsTable from "./components/ProjectionsTable";
 import ThemeToggle from "./components/ThemeToggle";
 import TopTiles, { type Tile } from "./components/TopTiles";
-import { useWaking } from "./auth";
 import { KIND_LABEL, NBA_KINDS, americanOdds, fmtProj, fmtSd, matchup, playLabel, projCaption, signedPct, timeAgo } from "./format";
 import { importOrReload } from "./staleChunk";
 import { localWhen } from "./sync";
@@ -36,7 +35,6 @@ const day = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefine
 
 /** The NBA side: the next two game dates' moneylines, points/rebounds/assists props and projections, and injuries. */
 export default function NbaApp() {
-  const waking = useWaking();
   const [tab, setTab] = useState<Tab>("games");
   const [gameId, setGameId] = useState<string | null>(gameFromHash);
   const pushedGame = useRef(false);
@@ -81,7 +79,7 @@ export default function NbaApp() {
   const injuries = useQuery({ queryKey: ["injuries"], queryFn: api.injuries, enabled: tab === "injuries" || onSlate, refetchInterval: 15 * 60_000 });
   const projections = useQuery({ queryKey: ["projections", debounced], queryFn: () => api.projections(debounced), enabled: tab === "projections", placeholderData: (p) => p });
 
-  if (meta.isLoading) return <div className="wrap"><p className="mut">{waking ? "Heating the reactor…" : "Reaching equilibrium…"}</p></div>;
+  if (meta.isLoading) return <div className="wrap"><p className="mut">Reaching equilibrium…</p></div>;
   if (meta.error || !meta.data) return (
     <div className="wrap">
       <header><h1><Logo /> <span>The Haber <span className="grad">Process</span></span></h1><div className="head-actions"><LeagueSwitch /></div></header>

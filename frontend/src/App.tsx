@@ -13,8 +13,7 @@ import ParlayTiles from "./components/ParlayTiles";
 import PicksTable from "./components/PicksTable";
 import PlayerCompare from "./components/PlayerCompare";
 import ProjectionsTable from "./components/ProjectionsTable";
-import { useWaking } from "./auth";
-import { API_URL, BASE, IS_STATIC } from "./env";
+import { BASE } from "./env";
 import { isYesNo, KIND_LABEL, americanOdds, fmtProj, fmtSd, marketLabel, projCaption, matchup, playLabel, signedPct, timeAgo } from "./format";
 import ThemeToggle from "./components/ThemeToggle";
 import LeagueSwitch from "./components/LeagueSwitch";
@@ -30,11 +29,10 @@ const PlayerDrawer = lazy(() => importOrReload(() => import("./components/Player
 const AdminPage = lazy(() => importOrReload(() => import("./components/AdminPage")));
 const NbaApp = lazy(() => importOrReload(() => import("./NbaApp")));
 /** The owner's sync page lives at <base>/admin; everything else is the public app. */
-const IS_ADMIN_PAGE = !IS_STATIC && window.location.pathname.slice(BASE.length - 1).replace(/\/+$/, "") === "/admin";
+const IS_ADMIN_PAGE = window.location.pathname.slice(BASE.length - 1).replace(/\/+$/, "") === "/admin";
 
 type Tab = "games" | "picks" | "parlays" | "injuries" | "projections" | "compare" | "model" | "admin";
-const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["injuries", "Injuries"], ["projections", "Projections"], ["compare", "Compare"], ["model", "Model check"],
-  ...(IS_STATIC ? [] : [["admin", "Admin"] as [Tab, string]])];
+const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["injuries", "Injuries"], ["projections", "Projections"], ["compare", "Compare"], ["model", "Model check"], ["admin", "Admin"]];
 /** A game's overview page lives at #game=<game_id>, so the browser's back button returns to the slate and the page can be linked. */
 const gameFromHash = () => new URLSearchParams(window.location.hash.slice(1)).get("game");
 /** The game page's sportsbook, remembered in this browser. */
@@ -49,7 +47,6 @@ export default function App() {
 }
 
 function PublicApp() {
-  const waking = useWaking();
   const [tab, setTab] = useState<Tab>("games");
   const [gameId, setGameId] = useState<string | null>(gameFromHash);
   // true while a game page sits on top of the slate in history, so "All games" can go back instead of stacking another entry
@@ -99,12 +96,12 @@ function PublicApp() {
 
   if (meta.isLoading) return (
     <div className="wrap">
-      <p className="mut">{waking ? "Heating the reactor… free hosting stops idle apps, so the first visit can take up to a minute." : "Reaching equilibrium…"}</p>
+      <p className="mut">Reaching equilibrium…</p>
     </div>
   );
   if (meta.error || !meta.data) return (
     <div className="wrap">
-      <p className="err">{API_URL ? "The reaction stalled: can't reach the API right now. Try again in a minute." : "Can't reach the API. Is the backend running on port 8000?"}</p>
+      <p className="err">{window.location.hostname === "localhost" ? "Can't reach the API. Is the backend running on port 8000?" : "The reaction stalled: can't reach the API right now. Try again in a minute."}</p>
     </div>
   );
   const m = meta.data;
@@ -154,22 +151,11 @@ function PublicApp() {
         </div>
         <div className="head-actions">
           <LeagueSwitch />
-          {IS_STATIC && <div className="demo-tag" title="This page reads a saved snapshot, not a live server">Demo snapshot</div>}
         </div>
       </header>
 
-      {waking && <div className="banner">Heating the reactor… some data may take a moment to load.</div>}
-      {IS_STATIC && (
-        <div className="banner">
-          <b>Static demo.</b> This is a frozen snapshot{m.snapshot_at ? ` from ${new Date(m.snapshot_at + "Z").toLocaleString()}` : ""}.
-          Projections come from this project's model; sportsbook lines are from <a href="https://the-odds-api.com">The Odds API</a> and
-          are out of date by now, as are the betslip links. Refreshing, loading new lines and the market-trust slider need the live app.
-          For information only, not betting advice.
-        </div>
-      )}
-
-      {!IS_STATIC && !m.run && <div className="banner">No projections yet. They appear after the next scheduled sync{m.auto_sync?.next_at ? ` (${localWhen(m.auto_sync.next_at)})` : ""}.</div>}
-      {!IS_STATIC && m.run && !hasOdds && (tab === "games" || tab === "picks" || tab === "parlays") && (
+      {!m.run && <div className="banner">No projections yet. They appear after the next scheduled sync{m.auto_sync?.next_at ? ` (${localWhen(m.auto_sync.next_at)})` : ""}.</div>}
+      {m.run && !hasOdds && (tab === "games" || tab === "picks" || tab === "parlays") && (
         <div className="banner">No sportsbook lines are loaded yet, so there are no picks. Books post props mid-week; the scheduled syncs fetch them as they appear.</div>
       )}
 

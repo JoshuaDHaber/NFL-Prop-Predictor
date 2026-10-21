@@ -1,5 +1,3 @@
-import { IS_STATIC } from "./env";
-
 /** Which league the page shows. One league is on screen at a time, so shared code (API paths, team colors and
  * logos) reads it from here instead of every component passing it down; main.tsx remounts the app on a switch. */
 export type League = "nfl" | "nba";
@@ -8,7 +6,7 @@ const KEY = "league";
 const NBA_GAME = /^\d{4}_\d{8}_/;
 
 function initial(): League {
-  if (IS_STATIC || typeof window === "undefined") return "nfl";   // the static demo snapshot is NFL only (and tests have no window)
+  if (typeof window === "undefined") return "nfl";   // tests have no window
   const game = new URLSearchParams(window.location.hash.slice(1)).get("game");
   if (game) return NBA_GAME.test(game) ? "nba" : "nfl";   // a shared game link opens in its own league
   try { return localStorage.getItem(KEY) === "nba" ? "nba" : "nfl"; } catch { return "nfl"; }

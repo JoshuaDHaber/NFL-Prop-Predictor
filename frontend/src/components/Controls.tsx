@@ -1,5 +1,4 @@
 import type { Filters, Game, Kind } from "../api";
-import { IS_STATIC } from "../env";
 import { isYesNo, playLabel, KIND_SHORT, MARKET_TABS, NBA_KINDS, SUB_LABEL, groupOf, kickoff, pct, signedPct } from "../format";
 import { getLeague } from "../league";
 
@@ -83,9 +82,9 @@ export default function Controls({ filters, onChange, games, books, showPickCont
               <input type="range" min={-0.1} max={0.2} step={0.01} value={filters.minEv}
                 onChange={(e) => set({ minEv: Number(e.target.value) })} />
             </label>
-            <label className="slider" title={IS_STATIC ? "Fixed at 35% in the demo snapshot" : "How much to blend the market's no-vig probability into the model's"}>
+            <label className="slider" title="How much to blend the market's no-vig probability into the model's">
               <span>Trust market <b>{pct(filters.marketWeight, 0)}</b></span>
-              <input type="range" min={0} max={1} step={0.05} value={filters.marketWeight} disabled={IS_STATIC}
+              <input type="range" min={0} max={1} step={0.05} value={filters.marketWeight}
                 onChange={(e) => set({ marketWeight: Number(e.target.value) })} />
             </label>
             <label className="check" title="Show plays where the model and market disagree by 40%+ (usually model blind spots)">

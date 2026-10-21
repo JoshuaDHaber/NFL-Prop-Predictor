@@ -1,13 +1,11 @@
-import { IS_STATIC } from "../env";
 import { useLeague } from "../LeagueContext";
 import type { League } from "../league";
 
 const OPTIONS: [League, string, string][] = [["nfl", "🏈", "NFL"], ["nba", "🏀", "NBA"]];
 
-/** The main toggle between the NFL and NBA sides of the app (the static demo is NFL only). */
+/** The main toggle between the NFL and NBA sides of the app. */
 export default function LeagueSwitch() {
   const { league, setLeague } = useLeague();
-  if (IS_STATIC) return null;
   return (
     <div className="seg league-switch" role="group" aria-label="League">
       {OPTIONS.map(([l, icon, label]) => (

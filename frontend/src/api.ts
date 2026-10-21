@@ -1,6 +1,4 @@
-import { getToken, setWaking } from "./auth";
-import { API_URL, BASE, IS_STATIC } from "./env";
-import { isYesNo } from "./format";
+import { getToken } from "./auth";
 import { getLeague } from "./league";
 
 /** NFL markets, then the NBA's points, rebounds, assists and 3-pointers made. */
@@ -74,7 +72,6 @@ export interface Meta {
   job: JobStatus;
   lan_url: string | null;
   books: string[];
-  snapshot_at?: string | null;
   redistribution?: Redistribution | null;
   weather?: WeatherFit | null;
   calibration?: { at: string; season: number; week: number; reused_from_run?: number } | null;
@@ -150,26 +147,11 @@ export interface NbaMeta {
 }
 export interface AltFetchResult { kinds: string[]; alt_quotes: number; linked: number; credits_remaining: string | null }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const WAKE_TRIES = 30; // x 3 s: a sleeping free host takes up to about a minute to come back
-
-/** fetch against the API. Reads are retried while a hosted API wakes up; writes never are (they can spend credits). */
+/** fetch against the API (same origin), with the admin password when one is saved. */
 export async function request(path: string, init: RequestInit = {}): Promise<Response> {
   const token = getToken();
   const headers = { ...(init.headers as Record<string, string>), ...(token ? { Authorization: `Bearer ${encodeURIComponent(token)}` } : {}) };
-  const canRetry = !!API_URL && (init.method ?? "GET") === "GET";
-  for (let attempt = 1; ; attempt++) {
-    try {
-      const res = await fetch(`${API_URL}${path}`, { ...init, headers });
-      if (canRetry && [502, 503, 504].includes(res.status) && attempt < WAKE_TRIES) throw new Error("waking");
-      setWaking(false);
-      return res;
-    } catch (e) {
-      if (!canRetry || attempt >= WAKE_TRIES) { setWaking(false); throw e; }
-      setWaking(true);
-      await sleep(3000);
-    }
-  }
+  return fetch(path, { ...init, headers });
 }
 
 /** League data lives under /api/nba/... for the NBA; admin and sync endpoints are shared. */
@@ -197,7 +179,7 @@ export interface GradeReport {
 
 export interface Filters { kind: Kind | "all"; side: "all" | "Over" | "Under"; game: string; book: string; q: string; minEv: number; marketWeight: number; flagged: boolean }
 
-const liveApi = {
+export const api = {
   meta: () => get<Meta>(lg("meta")),
   nbaMeta: () => get<NbaMeta>("nba/meta"),
   picks: (f: Filters, limit = 300) =>
@@ -239,64 +221,3 @@ const liveApi = {
 };
 
 
-// ---------- static demo: the same functions, backed by exported JSON ----------
-const slug = (book: string) => book.replace(/[^A-Za-z0-9]+/g, "_");
-async function file<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}demo/${path}`);
-  if (!res.ok) throw new Error(`${res.status} ${path}`);
-  return res.json();
-}
-const unavailable = () => { throw new Error("Not available in the demo snapshot"); };
-
-/** Mirrors the server's odds-range rule: hide a side priced beyond -N..+N, drop rows left with neither. */
-export function limitOdds(quotes: LadderRow[], range: number, kind?: Kind): LadderRow[] {
-  if (!range || isYesNo(kind)) return quotes; // anytime TD prices (+400, +1200) are ordinary, so the range never applies
-  const ok = (q: QuoteSide | null) => (q && q.odds >= -range && q.odds <= range ? q : null);
-  return quotes.map((r) => ({ ...r, over: ok(r.over), under: ok(r.under) })).filter((r) => r.over || r.under);
-}
-
-const staticApi: typeof liveApi = {
-  meta: () => file<Meta>("meta.json"),
-  nbaMeta: async () => unavailable(),
-  picks: async (f, limit = 300) => {
-    const all = await file<Pick[]>(`picks/${f.book === "all" ? "all" : slug(f.book)}.json`);
-    const q = f.q.toLowerCase();
-    return all
-      .filter((p) => p.ev >= f.minEv && (f.flagged || !p.flagged) && (f.side === "all" || p.side === f.side) && (f.kind === "all" ? !isYesNo(p.kind) : p.kind === f.kind)
-        && (f.game === "all" || p.game_id === f.game) && (!q || p.name.toLowerCase().includes(q)))
-      .sort((a, b) => b.ev - a.ev)
-      .slice(0, limit);
-  },
-  projections: async (f) => {
-    const q = f.q.toLowerCase();
-    return (await file<Projection[]>("projections.json")).filter((p) => (f.kind === "all" ? !isYesNo(p.kind) : p.kind === f.kind)
-      && (f.game === "all" || p.game_id === f.game) && (!q || p.name.toLowerCase().includes(q)));
-  },
-  allProjections: () => file<Projection[]>("projections.json"),
-  nflProjections: () => file<Projection[]>("projections.json"),
-  // the snapshot has no roster, so search covers the week's projected players
-  searchPlayers: async (q) => {
-    const needle = q.trim().toLowerCase(), seen = new Map<string, PlayerHit>();
-    if (!needle) return [];
-    for (const p of await file<Projection[]>("projections.json"))
-      if (!seen.has(p.player_id) && p.name.toLowerCase().includes(needle)) seen.set(p.player_id, { player_id: p.player_id, name: p.name, pos: p.pos, team: p.team, projected: true });
-    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name)).slice(0, 12);
-  },
-  player: (id) => file<PlayerDetail>(`players/${id}.json`),
-  moneylines: (book) => file<MoneylineGame[]>(`moneylines/${book === "all" ? "all" : slug(book)}.json`).catch(() => []),
-  injuries: () => file<InjuryReport>("injuries.json").catch(() => ({ season: null, week: null, report_week: null, fetched_at: null, teams: {} })),
-  lines: async (id, kind, range = 300) => {
-    const l = await file<Ladder>(`ladders/${id}_${kind}.json`);
-    return { ...l, quotes: limitOdds(l.quotes, range, kind) };
-  },
-  grades: async () => unavailable(),
-  correlations: () => file<Correlations>("correlations.json").catch(() => ({ pairs: {}, check: {} })),
-  nbaGrades: async () => unavailable(),
-  fetchAlt: async () => unavailable(),
-  admin: async () => unavailable(),
-  adminRun: async () => unavailable(),
-  runSlotNow: async () => unavailable(),
-  status: async () => ({ state: "idle", started_at: null, finished_at: null, log: [], error: null }),
-};
-
-export const api = IS_STATIC ? staticApi : liveApi;
