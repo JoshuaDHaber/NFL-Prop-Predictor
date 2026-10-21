@@ -72,6 +72,15 @@ function AltProps({ props }: { props: ParlayLeg[] }) {
   );
 }
 
+/** Ladder tiles split into rows by type (mixed markets, threes only, both teams), in the order they came. */
+function ladderRows(ladders: Parlay[], nba: boolean): { key: string; label: string; tiles: Parlay[] }[] {
+  const type = (k: string) => (k.startsWith("threes-") ? "threes" : k.startsWith("both-") ? "both" : "mixed");
+  const labels: Record<string, string> = { mixed: nba ? "Mixed markets" : "Rushing and receiving", threes: "Threes only", both: "Both teams" };
+  const rows = new Map<string, Parlay[]>();
+  for (const p of ladders) rows.set(type(p.key), [...(rows.get(type(p.key)) ?? []), p]);
+  return [...rows].map(([key, tiles]) => ({ key, label: labels[key], tiles }));
+}
+
 interface Props {
   books: string[]; book: string | null;
   /** Omit to hide the sportsbook picker (the game page picks one book for the whole page). */
@@ -126,7 +135,11 @@ export default function ParlayTiles({ books, book, onBook, games, selectedGames,
 
       <h2 className="parlay-h">Ladders <small>{ladderMarkets} overs stacked to +100 to +300</small></h2>
       {ladders.length
-        ? <section className="parlays" aria-label="Ladder parlays">{ladders.map((p, i) => <ParlayCard key={p.key} p={p} lead={i === 0} />)}</section>
+        ? ladderRows(ladders, nba).map((row, r, rows) => (
+          <section key={row.key} aria-label={`${row.label} ladders`}>
+            {rows.length > 1 && <h3 className="ladder-row-h">{row.label} <small>{row.tiles.length}</small></h3>}
+            <div className="parlay-row">{row.tiles.map((p, i) => <ParlayCard key={p.key} p={p} lead={r === 0 && i === 0} />)}</div>
+          </section>))
         : <div className="card empty">{laddersLoading ? "Loading alternate lines…" : `No ${ladderMarkets} over combinations with betslip links at ${book ?? "this sportsbook"} land between +100 and +300. ${nba ? "NBA alternate lines come with the day-of props syncs. " : ""}Not every book publishes links for alternate lines; try another book.`}</div>}
 
       {altProps.length > 0 && <>
