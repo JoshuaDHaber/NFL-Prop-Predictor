@@ -22,9 +22,10 @@ export function useParlayBoard(books: string[], chosenGames: string[], enabled: 
   const tdQueries = useQueries({
     queries: books.map((book) => ({ queryKey: ["parlay-td", book], queryFn: () => api.picks({ ...PARLAY_FILTERS, kind: "td", book }, 1000), enabled: enabled && hasTd })),
   });
-  // same-game correlations from the latest run (NFL only; without them, legs are priced as independent)
-  const corrQuery = useQuery({ queryKey: ["correlations"], queryFn: api.correlations, enabled: enabled && hasTd, staleTime: 10 * 60_000 });
-  const corr = hasTd ? corrQuery.data?.pairs : undefined;
+  // same-game correlations from the league's latest run (without them, legs are priced as independent)
+  const corrQuery = useQuery({ queryKey: [hasTd ? "correlations" : "nba-correlations"], queryFn: hasTd ? api.correlations : api.nbaCorrelations,
+    enabled, staleTime: 10 * 60_000 });
+  const corr = corrQuery.data?.pairs;
   const loading = parlayQueries.some((q) => q.isLoading);
   const [book, setBook] = useState<string | null>(null);
   const parlayStamp = parlayQueries.map((q) => q.dataUpdatedAt).join();

@@ -111,6 +111,50 @@ def test_walk_forward_and_team_ratings_run_on_the_logs():
     games = espn.team_games(logs)
     r, hfa = model.ratings(games, date(2026, 3, 1))
     assert r["BOS"] > r["NY"]   # BOS won every game at home
+    # what the same-game correlations need: each row's game (team, opponent, date ordinal) and position group
+    g = bt[bt.player_id == "g"].iloc[0]
+    assert (g.team, g.opp, g.pos, g.t) == ("BOS", "NY", "G", date.fromisoformat(g.date).toordinal())
+    assert set(bt[bt.player_id == "c"].pos) == {"C"}
+
+
+def _shooter_logs(n=150, start=date(2025, 10, 25)):
+    """Four guards on two teams, one game a day: a player's points move with his threes, players are independent."""
+    rng = np.random.default_rng(7)
+    rows = []
+    for i in range(n):
+        d = (start + timedelta(days=i)).isoformat()
+        for pid, team, opp, home in (("g1", "BOS", "NY", True), ("g2", "BOS", "NY", True), ("g3", "NY", "BOS", False), ("g4", "NY", "BOS", False)):
+            threes = float(rng.poisson(3.0))
+            rows.append(dict(player_id=pid, event_id=str(i), season=2026, date=d, team=team, opp=opp, home=home, min=34.0,
+                             pts=max(0.0, 12.0 + 3.0 * threes + rng.normal(0, 3)), reb=float(rng.poisson(5)), ast=float(rng.poisson(5)),
+                             threes=threes, stl=float(rng.poisson(1)), blk=float(rng.poisson(0.5)), home_score=110.0 + i % 7, away_score=106.0))
+    return pd.DataFrame(rows)
+
+
+def test_nba_run_stores_same_game_correlations(monkeypatch):
+    logs = _shooter_logs()
+    now = datetime(2026, 3, 20, 15)
+    game = dict(event_id="9", game_id="2026_20260321_NY_BOS", season=2026, gameday="2026-03-21", gametime="19:30",
+                start="2026-03-21T23:30Z", home="BOS", away="NY", state="pre", spread_line=-2.5, total=220.5)
+    ro = pd.DataFrame([dict(player_id=p, name=p.upper(), pos=x, team=t, headshot=None)
+                       for p, x, t in (("g1", "PG", "BOS"), ("g2", "SG", "BOS"), ("g3", "G", "NY"), ("g4", "PG", "NY"))])
+    monkeypatch.setattr(nba_pipeline.espn, "slate", lambda now=None: [game])
+    monkeypatch.setattr(nba_pipeline.espn, "rosters", lambda: ro)
+    monkeypatch.setattr(nba_pipeline.espn, "gamelogs", lambda *a, **k: logs)
+    monkeypatch.setattr(nba_pipeline.espn, "injuries", lambda: ([], None))
+    monkeypatch.setattr(nba_pipeline.grading, "grade_logged", lambda *a, **k: None)
+    log = []
+    rid = nba_pipeline.run_projections(log=log.append, now=now)
+    with SessionLocal() as s:
+        corr = s.get(NbaRun, rid).variance["_correlation"]
+    pairs = corr["pairs"]
+    assert pairs["same|pts:G|threes:G"][0] > 0.5
+    assert all(abs(r) < 0.3 for k, (r, n) in pairs.items() if not k.startswith("same|"))
+    assert corr["check"]["positive"]["n"] > 0 and corr["check"]["triples"] == dict(n=0)   # the QB triple check is NFL-only
+    assert any(m.strip().startswith("Same-game correlations:") for m in log)
+    with TestClient(main.app) as c:
+        js = c.get("/api/nba/correlations").json()
+    assert js["pairs"]["same|pts:G|threes:G"] == pairs["same|pts:G|threes:G"][0] and "positive" in js["check"]
 
 
 @pytest.fixture()
@@ -140,6 +184,10 @@ def nba_client(monkeypatch):
                                                                       injury="Knee", comment="Out for the opener", updated=None, return_date="2026-11-01")], None))
     with TestClient(main.app) as c:
         yield c
+
+
+def test_nba_correlations_are_empty_for_a_run_fitted_before_them(nba_client):
+    assert nba_client.get("/api/nba/correlations").json() == dict(pairs={}, check={})
 
 
 def test_nba_meta_lists_the_slate_and_books(nba_client):

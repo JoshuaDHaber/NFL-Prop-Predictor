@@ -142,7 +142,8 @@ def project_rows(st: dict, opp: dict, team_opp: str) -> dict:
 
 def walk_forward(logs: pd.DataFrame, pos_group: dict, start: date, end: date, step_days: int = 7) -> pd.DataFrame:
     """Every game played from start to end, projected with only the games before its week. Columns: kind, mu,
-    actual, naive5 (the last-10 average, named like the NFL backtest's baseline), min_proj, min_actual, date."""
+    actual, naive5 (the last-10 average, named like the NFL backtest's baseline), min_proj, min_actual, date, and for the
+    same-game correlations (engine/correlation.py) team, opp, pos (G/F/C) and t (the date's ordinal: one game per team a day)."""
     logs = logs[logs["min"] > 0]
     rows = []
     d = start
@@ -158,12 +159,14 @@ def walk_forward(logs: pd.DataFrame, pos_group: dict, start: date, end: date, st
                 s = st.get(r.player_id)
                 if not s or s["min"] < MIN_MINUTES:
                     continue
+                ctx = (r.team, r.opp, pos_group.get(r.player_id, "G"), date.fromisoformat(r.date[:10]).toordinal())
                 for k, (mu, _) in project_rows(s, opp, r.opp).items():
-                    rows.append((r.date, r.player_id, k, mu, actual(r, k), s["naive_" + k], s["min"], r.min))
+                    rows.append((r.date, r.player_id, k, mu, actual(r, k), s["naive_" + k], s["min"], r.min, *ctx))
                 for k in DOUBLES:   # chances come from the other rows' error tables (calibrate), so mu is left empty here
-                    rows.append((r.date, r.player_id, k, np.nan, actual(r, k), s["naive_" + k], s["min"], r.min))
+                    rows.append((r.date, r.player_id, k, np.nan, actual(r, k), s["naive_" + k], s["min"], r.min, *ctx))
         d = nxt
-    return pd.DataFrame(rows, columns=["date", "player_id", "kind", "mu", "actual", "naive5", "min_proj", "min_actual"])
+    return pd.DataFrame(rows, columns=["date", "player_id", "kind", "mu", "actual", "naive5", "min_proj", "min_actual",
+                                       "team", "opp", "pos", "t"])
 
 
 POISSON_KINDS = ("threes", "stl", "blk")   # priced as Poisson counts (engine.model.prob_over_under_dist), not from the error table

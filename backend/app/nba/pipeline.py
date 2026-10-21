@@ -14,10 +14,11 @@ import requests
 
 from .. import config
 from ..db import NbaAltLine, NbaOddsLine, NbaProjection, NbaRun, SessionLocal
+from ..engine import correlation as cm
 from ..engine import model as nfl_model
 from ..engine import moneyline as mlm
 from ..engine import odds as nfl_odds
-from ..pipeline import _s, archive_quotes, store_lines
+from ..pipeline import _correlation_line, _s, archive_quotes, store_lines
 from . import espn, grading, model
 from . import odds as nba_odds
 
@@ -62,6 +63,8 @@ def run_projections(log: Log = print, now: Optional[datetime] = None) -> Optiona
             log(f"  {k}: Brier {b['mae_model']:.4f} vs the player's last-10 rate {b['mae_naive']:.4f} over {b['n']:,} games")
         else:
             log(f"  {k}: MAE {b['mae_model']:.2f} vs last-10 average {b['mae_naive']:.2f} over {b['n']:,} games")
+    corr = cm.fit(bt, dists)
+    log("  " + _correlation_line(corr))
     games = espn.team_games(logs)
     ml_bt = model.ml_walk_forward(games, start, end)
     sigma = mlm.fit_sigma(ml_bt)
@@ -109,7 +112,7 @@ def run_projections(log: Log = print, now: Optional[datetime] = None) -> Optiona
                                               last5=s["last5_" + k], wx=1.0, teammate_out=""))
     with SessionLocal() as s:
         run = NbaRun(season=season, slate=dates, backtest=backtest, created_at=now,
-                     variance={**dists, "_moneyline": dict(sigma=sigma, halflife_days=model.ML_HL_DAYS,
+                     variance={**dists, "_correlation": corr, "_moneyline": dict(sigma=sigma, halflife_days=model.ML_HL_DAYS,
                                                            min_market_weight=model.ML_MIN_MARKET_WEIGHT)},
                      excluded=sorted(set(excluded)), games=slate, teams=teams)
         run.projections = rows
