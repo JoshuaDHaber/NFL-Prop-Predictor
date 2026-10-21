@@ -177,15 +177,17 @@ export interface GradeReport {
   board: GradeLine[]; by_market: GradeLine[]; by_ev: GradeLine[]; by_week: GradeLine[]; model_vs_line: MarketCheck[];
 }
 
-export interface Filters { kind: Kind | "all"; side: "all" | "Over" | "Under"; game: string; book: string; q: string; minEv: number; marketWeight: number; flagged: boolean }
+export interface Filters { kind: Kind | "all"; side: "all" | "Over" | "Under"; game: string; book: string; q: string; minEv: number; marketWeight: number; flagged: boolean;
+  /** NBA only: one Eastern game date ("YYYY-MM-DD"), or every date when unset. */
+  date?: string }
 
 export const api = {
   meta: () => get<Meta>(lg("meta")),
   nbaMeta: () => get<NbaMeta>("nba/meta"),
   picks: (f: Filters, limit = 300) =>
-    get<Pick[]>(lg("picks"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, side: f.side, game_id: f.game, book: f.book, q: f.q, min_ev: f.minEv, market_weight: f.marketWeight,
+    get<Pick[]>(lg("picks"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, side: f.side, game_id: f.game, gameday: f.date, book: f.book, q: f.q, min_ev: f.minEv, market_weight: f.marketWeight,
       include_flagged: f.flagged, limit }),
-  projections: (f: Filters) => get<Projection[]>(lg("projections"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, game_id: f.game, q: f.q }),
+  projections: (f: Filters) => get<Projection[]>(lg("projections"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, game_id: f.game, gameday: f.date, q: f.q }),
   /** Every market for every projected player, anytime TD included (the player compare tab). */
   allProjections: () => get<Projection[]>(lg("projections")),
   /** The NFL's projections whatever league is on screen: the betslip reads players' positions from them. */

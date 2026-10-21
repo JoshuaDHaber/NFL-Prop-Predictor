@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GameWeather } from "./api";
-import { compassPoint, groupOf, isYesNo, skyIcon, americanOdds, fmtEdge, fmtProj, fmtSd, kickoff, marketLabel, unit, notableWeather, pct, playLabel, signed, signedPct, timeAgo, weatherShort, weatherText, wxEffect } from "./format";
+import { compassPoint, easternToday, groupOf, isYesNo, skyIcon, americanOdds, fmtEdge, fmtProj, fmtSd, kickoff, marketLabel, unit, notableWeather, pct, playLabel, signed, signedPct, timeAgo, weatherShort, weatherText, wxEffect } from "./format";
 
 describe("format", () => {
   it("formats percentages and signs", () => {
@@ -119,5 +119,12 @@ describe("first TD scorer and longest rush formatting", () => {
   it("shows longest rush in yards", () => {
     expect(fmtProj("rlng", 17.36)).toBe("17");
     expect(playLabel("rlng", "Over", 15.5)).toBe("Over 15.5");
+  });
+});
+
+describe("easternToday", () => {
+  it("uses the Eastern date, not UTC's", () => {
+    expect(easternToday(new Date("2026-10-22T02:30:00Z"))).toBe("2026-10-21");   // 10:30 PM EDT
+    expect(easternToday(new Date("2026-10-22T05:00:00Z"))).toBe("2026-10-22");
   });
 });

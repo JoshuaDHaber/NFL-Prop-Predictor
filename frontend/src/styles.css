@@ -451,3 +451,4 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
 .cmp-none { padding: 14px; }
 .cmp-foot { font-size: 12px; margin: 0; }
 @media (max-width: 700px) { .t-cmp { min-width: calc(84px + var(--n) * 132px); } .t-cmp .cmp-mkt { width: 84px; } .cmp-player > b { font-size: 14px; } .t-cmp th, .t-cmp td { padding: 10px 8px; } .cmp-val b { font-size: 17px; } }
+.date-filter { display: flex; justify-content: flex-end; margin: -8px 0 12px; }

@@ -101,7 +101,7 @@ def all_picks(db: Session, run: NbaRun, w: float, book: Optional[str] = None) ->
 
 
 @router.get("/projections", response_model=list[ProjectionOut])
-def projections(kind: Optional[NbaKind] = None, game_id: Optional[str] = None, q: Optional[str] = None,
+def projections(kind: Optional[NbaKind] = None, game_id: Optional[str] = None, gameday: Optional[str] = None, q: Optional[str] = None,
                 db: Session = Depends(get_db)):
     run = latest_run(db)
     if not run:
@@ -112,6 +112,8 @@ def projections(kind: Optional[NbaKind] = None, game_id: Optional[str] = None, q
         stmt = stmt.where(NbaProjection.kind == kind)
     if game_id:
         stmt = stmt.where(NbaProjection.game_id == game_id)
+    if gameday:
+        stmt = stmt.where(NbaProjection.gameday == gameday)
     if q:
         stmt = stmt.where(NbaProjection.name.ilike(f"%{q}%"))
     return db.scalars(stmt).all()
@@ -119,7 +121,7 @@ def projections(kind: Optional[NbaKind] = None, game_id: Optional[str] = None, q
 
 @router.get("/picks", response_model=list[PickOut])
 def picks(kind: Optional[NbaKind] = None, side: Optional[Literal["Over", "Under"]] = None, game_id: Optional[str] = None,
-          q: Optional[str] = None, book: Optional[str] = None, min_ev: float = Query(0.03, ge=-1, le=1),
+          gameday: Optional[str] = None, q: Optional[str] = None, book: Optional[str] = None, min_ev: float = Query(0.03, ge=-1, le=1),
           market_weight: float = Query(0.35, ge=0, le=1), include_flagged: bool = False,
           limit: int = Query(200, ge=1, le=1000), db: Session = Depends(get_db)):
     run = latest_run(db)
@@ -137,6 +139,8 @@ def picks(kind: Optional[NbaKind] = None, side: Optional[Literal["Over", "Under"
         df = df[df.side == side]
     if game_id:
         df = df[df.game_id == game_id]
+    if gameday:
+        df = df[df.gameday == gameday]
     if q:
         df = df[df.name.str.contains(q, case=False, regex=False)]
     return _records(df.head(limit))

@@ -9,9 +9,10 @@ export const PARLAY_FILTERS: Filters = { kind: "all", side: "all", game: "all", 
 
 /**
  * Every parlay tile for the chosen games (none = every game) at one sportsbook: likely plays, touchdowns, ladders and single alternate props.
+ * `slateGames` narrows "every game" when none are chosen (the NBA's date filter).
  * The per-book picks and line ladders are fetched for the whole slate and shared through the query cache, so the Parlays tab and a game page reuse them.
  */
-export function useParlayBoard(books: string[], chosenGames: string[], enabled: boolean, preferredBook?: string) {
+export function useParlayBoard(books: string[], chosenGames: string[], enabled: boolean, preferredBook?: string, slateGames?: string[]) {
   // one pricing per sportsbook, so every parlay's legs sit at a single book
   const parlayQueries = useQueries({
     queries: books.map((book) => ({ queryKey: ["parlay-picks", book], queryFn: () => api.picks({ ...PARLAY_FILTERS, book }, 1000), enabled })),
@@ -30,7 +31,10 @@ export function useParlayBoard(books: string[], chosenGames: string[], enabled: 
   const allPicksByBook = useMemo(() => Object.fromEntries(books.map((b, i) => [b, parlayQueries[i]?.data ?? []])),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [books.join(), parlayStamp]);
-  const gamePicks = useMemo(() => filterGames(allPicksByBook, chosenGames), [allPicksByBook, chosenGames]);
+  const pool = chosenGames.length ? chosenGames : slateGames ?? [];
+  const poolKey = pool.join();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const gamePicks = useMemo(() => filterGames(allPicksByBook, pool), [allPicksByBook, poolKey]);
   const byBook = useMemo(() => parlaysByBook(gamePicks, corr), [gamePicks, corr]);
   // a page-wide sportsbook choice wins over the tab's own picker
   const chosenBook = preferredBook && books.includes(preferredBook) ? preferredBook : book;

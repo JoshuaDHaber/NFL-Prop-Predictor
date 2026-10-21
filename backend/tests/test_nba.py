@@ -157,6 +157,11 @@ def test_nba_picks_moneylines_and_projections(nba_client):
     away, home = ml["sides"]
     assert (away["team"], home["team"]) == ("BOS", "DET") and home["odds"] == -130 and ml["total"] == 221.5
     assert len(nba_client.get("/api/nba/projections", params={"kind": "reb"}).json()) == 1
+    # the date filter: the game's own day keeps it, another day has nothing
+    day = over["gameday"]
+    assert nba_client.get("/api/nba/picks", params={"min_ev": -1, "gameday": day}).json()
+    assert nba_client.get("/api/nba/picks", params={"min_ev": -1, "gameday": "1999-01-01"}).json() == []
+    assert nba_client.get("/api/nba/projections", params={"kind": "reb", "gameday": "1999-01-01"}).json() == []
     # the NFL board never sees NBA quotes
     assert all(g["game_id"] != GID for g in nba_client.get("/api/moneylines").json())
 
