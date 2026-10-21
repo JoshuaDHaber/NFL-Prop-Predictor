@@ -157,6 +157,11 @@ def test_nba_picks_moneylines_and_projections(nba_client):
     away, home = ml["sides"]
     assert (away["team"], home["team"]) == ("BOS", "DET") and home["odds"] == -130 and ml["total"] == 221.5
     assert len(nba_client.get("/api/nba/projections", params={"kind": "reb"}).json()) == 1
+    # the date filter: the game's own day keeps it, another day has nothing
+    day = over["gameday"]
+    assert nba_client.get("/api/nba/picks", params={"min_ev": -1, "gameday": day}).json()
+    assert nba_client.get("/api/nba/picks", params={"min_ev": -1, "gameday": "1999-01-01"}).json() == []
+    assert nba_client.get("/api/nba/projections", params={"kind": "reb", "gameday": "1999-01-01"}).json() == []
     # the NFL board never sees NBA quotes
     assert all(g["game_id"] != GID for g in nba_client.get("/api/moneylines").json())
 
@@ -266,13 +271,13 @@ def test_double_double_chances_follow_the_projections():
     assert (model.tens(row), model.actual(row, "dd"), model.actual(row, "tpl")) == (3, 1.0, 1.0)
 
 
-def test_double_doubles_are_priced_as_yes_no_and_follow_the_market_slider():
+def test_double_doubles_are_priced_as_yes_no_with_the_td_market_floor():
     from app.engine.picks import build_picks
     proj = pd.DataFrame([dict(player_id="p1", name="Big Man", pos="C", team="DET", opp="BOS", home=True, kind="dd", mu=0.6, sd=0.49,
                               status="", game_id="g1", gameday="2026-10-20", gametime="19:00", wx=1.0, teammate_out="")])
     lines = pd.DataFrame([dict(player="Big Man", market="dd", line=0.5, over_odds=-110, under_odds=-110, book="B", game_id="g1")])
     over = build_picks(proj, lines, market_weight=0.0).set_index("side").loc["Over"]
-    assert (over.p_model, over.prob) == (pytest.approx(0.6), pytest.approx(0.6))   # no 60% market floor, unlike anytime TD
+    assert (over.p_model, over.prob) == (pytest.approx(0.6), pytest.approx(0.4 * 0.6 + 0.6 * 0.5))   # 60% market floor, like anytime TD
     assert build_picks(proj, lines, market_weight=1.0).set_index("side").loc["Over"].prob == pytest.approx(0.5)
 
 

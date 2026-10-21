@@ -27,9 +27,10 @@ TD_MIN_MARKET_WEIGHT = 0.6
 # markets posted as a "Yes" price per player, some books adding "No" (stored as an Over 0.5); mu is a probability.
 # NBA double- and triple-doubles too (nba/model.py)
 YES_NO = ("td", "ftd", "dd", "tpl")
-# the least a yes/no play leans on the market's chance, by market: the NBA's double-double model holds up in its
-# backtest, so it follows the "trust market" slider like any other market
-MIN_MARKET_WEIGHT = {"td": TD_MIN_MARKET_WEIGHT, "ftd": TD_MIN_MARKET_WEIGHT}
+# the least a yes/no play leans on the market's chance, by market. The NBA's double- and triple-double models are
+# calibrated in their backtest but never tested against posted prices, and on long shots (+2500) a point or two of
+# disagreement reads as a huge EV, so they lean on the market as much as anytime TD does
+MIN_MARKET_WEIGHT = {"td": TD_MIN_MARKET_WEIGHT, "ftd": TD_MIN_MARKET_WEIGHT, "dd": TD_MIN_MARKET_WEIGHT, "tpl": TD_MIN_MARKET_WEIGHT}
 # touchdowns of every kind (rushing, receiving, defense and returns) per point scored: 2022-26 regular seasons, 2.49 a
 # team-game at 22.45 points
 TDS_PER_POINT = 0.111

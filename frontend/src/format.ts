@@ -96,6 +96,11 @@ export function easternToDate(gameday: string, gametime: string): Date | null {
   return new Date(guess + (guess - asEastern));
 }
 
+/** Today's US Eastern date as "YYYY-MM-DD", the schedule's gameday format (or `now`'s, for tests). */
+export function easternToday(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+}
+
 /** "Sun 10:00 AM": kickoff in the viewer's own time zone (or `timeZone`, for tests). */
 export function kickoff(gameday: string, gametime: string, timeZone?: string): string {
   const at = easternToDate(gameday, gametime);
