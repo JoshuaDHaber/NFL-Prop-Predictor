@@ -110,7 +110,7 @@ def run_projections(log: Log = print, now: Optional[datetime] = None) -> Optiona
         for old in s.query(NbaRun).order_by(NbaRun.id.desc()).offset(KEEP_RUNS).all():
             s.delete(old)
         s.commit()
-        log(f"Stored NBA run {run.id}: {len(rows) // len(model.KINDS)} players projected, {len(set(excluded))} ruled out")
+        log(f"Stored NBA run {run.id}: {len(rows) // len(model.ALL_KINDS)} players projected, {len(set(excluded))} ruled out")
         return run.id
 
 

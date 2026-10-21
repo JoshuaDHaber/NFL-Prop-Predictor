@@ -2,9 +2,9 @@ import { getToken } from "./auth";
 import { getLeague } from "./league";
 
 /** NFL markets, then the NBA's points, rebounds, assists and 3-pointers made. */
-export type Kind = "rush" | "rec" | "pass" | "rr" | "td" | "recs" | "ptd" | "lng" | "rlng" | "ftd" | "pts" | "reb" | "ast" | "threes";
-export type NbaKind = "pts" | "reb" | "ast" | "threes";
-const NBA_KIND_SET = new Set<Kind>(["pts", "reb", "ast", "threes"]);
+export type Kind = "rush" | "rec" | "pass" | "rr" | "td" | "recs" | "ptd" | "lng" | "rlng" | "ftd" | "pts" | "reb" | "ast" | "threes" | "pra" | "pr" | "pa";
+export type NbaKind = "pts" | "reb" | "ast" | "threes" | "pra" | "pr" | "pa";
+const NBA_KIND_SET = new Set<Kind>(["pts", "reb", "ast", "threes", "pra", "pr", "pa"]);
 
 export interface CalibrationBin { predicted: number; actual: number; n: number }
 /** Yardage kinds report mean absolute error in yards; anytime TD reports Brier scores (metric: "brier"). */

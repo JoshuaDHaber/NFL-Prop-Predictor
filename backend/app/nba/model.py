@@ -1,4 +1,6 @@
 """NBA projections: points, rebounds, assists and 3-pointers made = projected minutes x per-minute rate x opponent factor.
+The combo markets (PRA, PR, PA) are the sums of their parts' projections, so they always agree with them; only their
+error tables are their own (fit on the combo's walk-forward misses).
 
 - Minutes: recency-weighted average of the player's recent games (half-life MIN_HL games), so a new role shows quickly.
 - Rate: per-minute production with a longer half-life (RATE_HL games), shrunk toward the position group's average
@@ -20,6 +22,8 @@ from ..engine import model as nfl_model
 from . import espn
 
 KINDS = ("pts", "reb", "ast", "threes")
+COMBOS = {"pra": ("pts", "reb", "ast"), "pr": ("pts", "reb"), "pa": ("pts", "ast")}
+ALL_KINDS = KINDS + tuple(COMBOS)
 MIN_HL = 8.0            # games: minutes follow role changes quickly
 RATE_HL = 40.0          # games: per-minute production is steadier (20 and 10 did slightly worse in the backtest)
 PRIOR_SEASON = 0.6      # weight on earlier seasons' games
@@ -38,6 +42,11 @@ ML_HL_DAYS = 60.0
 ML_RIDGE = 2.0
 ML_PRIOR_SEASON = 0.5
 ML_MIN_MARKET_WEIGHT = 0.8   # as for the NFL: the ratings know nothing about injuries or rest, so lean on the market
+
+
+def actual(r, kind: str) -> float:
+    """A game log row's value for any kind, combos summed from their parts."""
+    return sum(getattr(r, k) for k in COMBOS.get(kind, (kind,)))
 
 
 def _weights(g: pd.DataFrame, season: int, hl: float) -> np.ndarray:
@@ -85,6 +94,9 @@ def player_state(g: pd.DataFrame, season: int, prior: dict) -> dict:
         out[k] = float(((wr * g[k].to_numpy()).sum() + PSEUDO_MIN[k] * prior[k]) / ((wr * mins).sum() + PSEUDO_MIN[k]))
         out["naive_" + k] = float(g[k].tail(NAIVE_N).mean())
         out["last5_" + k] = [float(x) for x in g[k].tail(5)]
+    for c, parts in COMBOS.items():
+        out["naive_" + c] = sum(out["naive_" + k] for k in parts)
+        out["last5_" + c] = [float(x) for x in g[list(parts)].sum(axis=1).tail(5)]
     return out
 
 
@@ -99,8 +111,11 @@ def states(hist: pd.DataFrame, pos_group: dict, season: int, prior: dict) -> dic
 
 
 def project_rows(st: dict, opp: dict, team_opp: str) -> dict:
-    """kind -> (mu, per-minute rate after the opponent factor) for one player and opponent."""
-    return {k: (st["min"] * st[k] * opp[k].get(team_opp, 1.0), st[k] * opp[k].get(team_opp, 1.0)) for k in KINDS}
+    """kind -> (mu, per-minute rate after the opponent factor) for one player and opponent; combos sum their parts."""
+    out = {k: (st["min"] * st[k] * opp[k].get(team_opp, 1.0), st[k] * opp[k].get(team_opp, 1.0)) for k in KINDS}
+    for c, parts in COMBOS.items():
+        out[c] = (sum(out[k][0] for k in parts), sum(out[k][1] for k in parts))
+    return out
 
 
 def walk_forward(logs: pd.DataFrame, pos_group: dict, start: date, end: date, step_days: int = 7) -> pd.DataFrame:
@@ -122,7 +137,7 @@ def walk_forward(logs: pd.DataFrame, pos_group: dict, start: date, end: date, st
                 if not s or s["min"] < MIN_MINUTES:
                     continue
                 for k, (mu, _) in project_rows(s, opp, r.opp).items():
-                    rows.append((r.date, r.player_id, k, mu, getattr(r, k), s["naive_" + k], s["min"], r.min))
+                    rows.append((r.date, r.player_id, k, mu, actual(r, k), s["naive_" + k], s["min"], r.min))
         d = nxt
     return pd.DataFrame(rows, columns=["date", "player_id", "kind", "mu", "actual", "naive5", "min_proj", "min_actual"])
 

@@ -16,7 +16,7 @@ from ..db import NbaOddsLine, NbaPickLog, NbaRun, current_lines
 from ..engine.picks import build_picks
 from ..grading import MARKET_WEIGHT, outcome
 from ..grading import report as _report
-from . import espn
+from . import espn, model
 
 VOID_AFTER_DAYS = 2      # a player missing from a graded game's box score is void after this many days
 STALE_AFTER_DAYS = 7     # a game whose box score never shows up (postponed) is voided after this long
@@ -87,7 +87,7 @@ def grade(session, logs: pd.DataFrame, today: date, fetch: Callable = espn.gamel
             st = by_player.get((row.player_id, row.gameday))
             if st is None and last_game.get(row.player_id, "") <= row.gameday and age < VOID_AFTER_DAYS:
                 continue   # no row yet, and nothing newer to show his log is current
-            v = None if st is None or not st.min else getattr(st, row.kind)
+            v = None if st is None or not st.min else model.actual(st, row.kind)
             row.actual = None if v is None or pd.isna(v) else float(v)
         row.result, row.graded_at = outcome(row.side, row.line, row.actual), now
         n += 1

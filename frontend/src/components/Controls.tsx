@@ -1,9 +1,9 @@
 import type { Filters, Game, Kind } from "../api";
-import { isYesNo, playLabel, KIND_SHORT, MARKET_TABS, NBA_KINDS, SUB_LABEL, groupOf, kickoff, pct, signedPct } from "../format";
+import { isYesNo, playLabel, KIND_SHORT, MARKET_TABS, NBA_MARKET_TABS, SUB_LABEL, groupOf, kickoff, pct, signedPct } from "../format";
 import { getLeague } from "../league";
 
 const ICON: Record<Kind | "all", string> = { all: "📊", rush: "🏃", rec: "🙌", recs: "🧤", pass: "🎯", rr: "⚡", td: "🏈", ptd: "🎯", lng: "🚀", rlng: "💨", ftd: "🥇",
-  pts: "🏀", reb: "🔁", ast: "🤝", threes: "🎯" };
+  pts: "🏀", reb: "🔁", ast: "🤝", threes: "🎯", pra: "➕", pr: "➕", pa: "➕" };
 
 interface Props {
   filters: Filters;
@@ -15,12 +15,12 @@ interface Props {
 
 export default function Controls({ filters, onChange, games, books, showPickControls }: Props) {
   const set = (patch: Partial<Filters>) => onChange({ ...filters, ...patch });
-  const group = groupOf(filters.kind);   // receiving and passing markets sit under one sub tab each
+  const group = groupOf(filters.kind);   // receiving, passing and NBA combo markets sit under one sub tab each
   const nba = getLeague() === "nba";
   return (
     <section className="controls" aria-label="Filters">
       <div className="seg" role="tablist" aria-label="Market">
-        {(nba ? ["all", ...NBA_KINDS] as const : MARKET_TABS).map((k) => {
+        {(nba ? NBA_MARKET_TABS : MARKET_TABS).map((k) => {
           if (typeof k === "object") {
             const on = group === k;
             return (
