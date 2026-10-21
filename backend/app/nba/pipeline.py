@@ -58,7 +58,10 @@ def run_projections(log: Log = print, now: Optional[datetime] = None) -> Optiona
     bt = model.walk_forward(logs, pos, start, end)
     backtest, dists = model.calibrate(bt)
     for k, b in backtest.items():
-        log(f"  {k}: MAE {b['mae_model']:.2f} vs last-10 average {b['mae_naive']:.2f} over {b['n']:,} games")
+        if b.get("metric") == "brier":
+            log(f"  {k}: Brier {b['mae_model']:.4f} vs the player's last-10 rate {b['mae_naive']:.4f} over {b['n']:,} games")
+        else:
+            log(f"  {k}: MAE {b['mae_model']:.2f} vs last-10 average {b['mae_naive']:.2f} over {b['n']:,} games")
     games = espn.team_games(logs)
     ml_bt = model.ml_walk_forward(games, start, end)
     sigma = mlm.fit_sigma(ml_bt)
@@ -92,8 +95,13 @@ def run_projections(log: Log = print, now: Optional[datetime] = None) -> Optiona
                 if stat in DROP:
                     excluded.append(f"{p.name} ({stat})")
                     continue
-                for k, (mu, eff) in model.project_rows(s, opp, other).items():
-                    sd = nfl_model.sd_at(mu, dists[k]) if k in dists else math.sqrt(max(mu, 1.0))
+                proj = model.project_rows(s, opp, other)
+                kinds = {k: (mu, nfl_model.sd_at(mu, dists[k]) if k in dists else math.sqrt(max(mu, 1.0)), eff) for k, (mu, eff) in proj.items()}
+                # double/triple-double: mu is the chance, sd its Bernoulli spread, eff the expected stats in double figures
+                mus = {k: mu for k, (mu, _) in proj.items()}
+                for k, (chance, tens) in model.doubles(mus, dists, dists.get("_doubles", {})).items():
+                    kinds[k] = (chance, math.sqrt(chance * (1 - chance)), tens)
+                for k, (mu, sd, eff) in kinds.items():
                     rows.append(NbaProjection(player_id=p.player_id, name=p.name, pos=p.pos or espn.position_group(p.pos),
                                               team=team, opp=other, home=home, kind=k, mu=float(mu), sd=float(sd),
                                               vol=float(s["min"]), eff=float(eff), spread=float(spread), status=stat,
@@ -139,7 +147,7 @@ def sync_plan(session, slate: list[dict], mode: str = "missing", now: Optional[d
         if tip <= now or tip - now > timedelta(hours=PROPS_WINDOW_HOURS):
             continue
         need = list(nba_odds.PROP_KINDS) if mode == "all" else [k for k in nba_odds.PROP_KINDS if k not in have.get(g["game_id"], set())]
-        need_alt = [k for k in nba_odds.PROP_KINDS if k not in have_alt.get(g["game_id"], set())]
+        need_alt = [k for k in nba_odds.ALT_KINDS if k not in have_alt.get(g["game_id"], set())]
         if need or need_alt:
             out.append(dict(game_id=g["game_id"], away=g["away"], home=g["home"], label=f"{g['away']} @ {g['home']}",
                             gameday=g["gameday"], need=need, need_alt=need_alt, credits=len(need) + len(need_alt)))

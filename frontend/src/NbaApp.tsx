@@ -15,7 +15,7 @@ import PlayerCompare from "./components/PlayerCompare";
 import ProjectionsTable from "./components/ProjectionsTable";
 import ThemeToggle from "./components/ThemeToggle";
 import TopTiles, { type Tile } from "./components/TopTiles";
-import { KIND_LABEL, NBA_KINDS, americanOdds, fmtProj, fmtSd, matchup, playLabel, projCaption, signedPct, timeAgo } from "./format";
+import { KIND_LABEL, NBA_KINDS, isYesNo, americanOdds, fmtProj, fmtSd, matchup, playLabel, projCaption, signedPct, timeAgo } from "./format";
 import { importOrReload } from "./staleChunk";
 import { localWhen } from "./sync";
 import { useDebounced } from "./useDebounced";
@@ -98,7 +98,7 @@ export default function NbaApp() {
       ? (filters.kind === "all" ? NBA_KINDS.map((k) => (projections.data ?? []).filter((p) => p.kind === k).sort((a, b) => b.mu - a.mu)[0])
         : [...(projections.data ?? [])].sort((a, b) => b.mu - a.mu).slice(0, 3)).filter(Boolean).map((p) => ({
         key: `${p.player_id}-${p.kind}`, label: filters.kind === "all" ? `Top ${KIND_LABEL[p.kind].toLowerCase()}` : KIND_LABEL[p.kind], name: p.name,
-        meta: `${p.pos} ${p.team} ${matchup(p.opp, p.home)}`, value: <>{fmtProj(p.kind, p.mu)} <em>{fmtSd(p.kind, p.sd)}</em></>, caption: projCaption(p.kind),
+        meta: `${p.pos} ${p.team} ${matchup(p.opp, p.home)}`, value: <>{fmtProj(p.kind, p.mu)} {!isYesNo(p.kind) && <em>{fmtSd(p.kind, p.sd)}</em>}</>, caption: projCaption(p.kind),
         onClick: () => select(p.player_id, p.kind),
       }))
       : [];
@@ -161,7 +161,8 @@ export default function NbaApp() {
 
       <footer>
         Points, rebounds, assists, threes, steals and blocks = projected minutes × a per-minute rate, recency-weighted and shrunk toward the position's average, adjusted for
-        the opponent; PRA, PR and PA are the sums of those projections. Win probabilities come from the backtest's own errors (threes, steals and blocks: Poisson counts), blended with the market's no-vig price. Team win chances come from
+        the opponent; PRA, PR and PA are the sums of those projections. Double- and triple-double chances combine each stat's chance of
+        reaching 10, calibrated on past games. Win probabilities come from the backtest's own errors (threes, steals and blocks: Poisson counts), blended with the market's no-vig price. Team win chances come from
         point-margin ratings and lean heavily on the moneyline market. Teammates' injuries don't move a player's projection yet. Not betting advice.
         <span className="signoff">Bread from air, picks from stats. Built by JD Haber.</span>
       </footer>
@@ -215,10 +216,11 @@ function NbaBacktest({ backtest }: { backtest: Record<string, BacktestStat> }) {
         <tbody>
           {rows.map((k) => {
             const b = backtest[k];
+            const d = b.metric === "brier" ? 4 : 2;   // double-doubles: Brier score of the chance, against the player's last-10 rate
             return (
-              <tr key={k}><td>{KIND_LABEL[k]}</td><td>{b.n.toLocaleString()}</td>
-                <td className={b.mae_model <= b.mae_naive ? "good" : ""}>{b.mae_model.toFixed(2)}</td><td>{b.mae_naive.toFixed(2)}</td>
-                <td>{b.bias >= 0 ? "+" : "−"}{Math.abs(b.bias).toFixed(2)}</td></tr>
+              <tr key={k}><td>{KIND_LABEL[k]}{b.metric === "brier" && <span className="mut"> (Brier)</span>}</td><td>{b.n.toLocaleString()}</td>
+                <td className={b.mae_model <= b.mae_naive ? "good" : ""}>{b.mae_model.toFixed(d)}</td><td>{b.mae_naive.toFixed(d)}</td>
+                <td>{b.bias >= 0 ? "+" : "−"}{Math.abs(b.bias).toFixed(d)}</td></tr>
             );
           })}
         </tbody>

@@ -24,13 +24,21 @@ TD_ASSUMED_HOLD = 0.10  # books post anytime-TD as a lone "Yes" price; this stri
 # The TD model is a weak signal next to the market (it lacks red-zone usage), so a TD play always leans at least this
 # much on the market's chance, whatever the "trust market" slider says.
 TD_MIN_MARKET_WEIGHT = 0.6
-YES_NO = ("td", "ftd")   # markets posted as a lone "Yes" price per player (stored as an Over 0.5); mu is a probability
+# markets posted as a "Yes" price per player, some books adding "No" (stored as an Over 0.5); mu is a probability.
+# NBA double- and triple-doubles too (nba/model.py)
+YES_NO = ("td", "ftd", "dd", "tpl")
+# the least a yes/no play leans on the market's chance, by market: the NBA's double-double model holds up in its
+# backtest, so it follows the "trust market" slider like any other market
+MIN_MARKET_WEIGHT = {"td": TD_MIN_MARKET_WEIGHT, "ftd": TD_MIN_MARKET_WEIGHT}
 # touchdowns of every kind (rushing, receiving, defense and returns) per point scored: 2022-26 regular seasons, 2.49 a
 # team-game at 22.45 points
 TDS_PER_POINT = 0.111
 # first-TD prices carry a much bigger margin than anytime TD: each book prices 30+ players for one outcome. A guess
 # until enough posted prices are logged to measure it (sum of a game's Yes chances against the model's)
 FTD_ASSUMED_HOLD = 0.25
+# NBA double- and triple-double Yes prices: guesses too; long-shot triple-double prices carry the bigger margin
+DD_ASSUMED_HOLD = 0.10
+TPL_ASSUMED_HOLD = 0.20
 _COLS = {"rush": ("carries", "rushing_tds"), "rec": ("targets", "receiving_tds")}
 
 

@@ -424,7 +424,7 @@ def test_grades_report_is_empty_before_anything_is_graded(client):
 
 
 def test_leaving_out_anytime_td_leaves_out_first_td_too():
-    assert main._excluded("td") == ("td", "ftd")     # the "all over/unders" views
+    assert main._excluded("td") == ("td", "ftd", "dd", "tpl")     # the "all over/unders" views
     assert main._excluded("rush") == ("rush",)
 
 

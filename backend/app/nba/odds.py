@@ -1,5 +1,5 @@
 """NBA lines from The Odds API (key: ODDS_API_KEY_NBA): moneylines for the whole slate in one call, and points,
-rebounds, assists, 3-pointers-made, combo (PRA, PR, PA), steals and blocks props one game at a time (one credit per market per game)."""
+rebounds, assists, 3-pointers-made, combo (PRA, PR, PA), steals, blocks, double-double and triple-double props one game at a time (one credit per market per game)."""
 import pandas as pd
 
 from ..engine import odds as nfl_odds
@@ -7,10 +7,12 @@ from ..engine import odds as nfl_odds
 API = "https://api.the-odds-api.com/v4/sports/basketball_nba"
 PROP_MARKETS = {"player_points": "pts", "player_rebounds": "reb", "player_assists": "ast", "player_threes": "threes",
                 "player_points_rebounds_assists": "pra", "player_points_rebounds": "pr", "player_points_assists": "pa",
-                "player_steals": "stl", "player_blocks": "blk"}
-ALT_MARKETS = {k + "_alternate": v for k, v in PROP_MARKETS.items()}   # ladder rungs for the parlays
+                "player_steals": "stl", "player_blocks": "blk", "player_double_double": "dd", "player_triple_double": "tpl"}
+YES_NO_KINDS = ("dd", "tpl")   # Yes / No, no line: so no alternates either
+ALT_MARKETS = {k + "_alternate": v for k, v in PROP_MARKETS.items() if v not in YES_NO_KINDS}   # ladder rungs for the parlays
 MARKETS = {**PROP_MARKETS, "h2h": "ml"}
 PROP_KINDS = tuple(PROP_MARKETS.values())
+ALT_KINDS = tuple(ALT_MARKETS.values())
 
 # ESPN abbreviation -> The Odds API's team name
 TEAM_NAMES = {

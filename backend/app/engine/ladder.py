@@ -4,7 +4,7 @@ import pandas as pd
 from . import odds
 from .model import prob_over_under, prob_over_under_dist
 from .picks import HOLD
-from .td import TD_MIN_MARKET_WEIGHT, YES_NO
+from .td import MIN_MARKET_WEIGHT, YES_NO
 
 
 def price_quote(mu: float, sd: float, line: float, side: str, american: float, kind: str = "", dist: dict = None):
@@ -28,8 +28,8 @@ def build_ladder(mu: float, sd: float, quotes: pd.DataFrame, max_abs_odds: float
     It doesn't apply to anytime or first TD, where +400 to +2000 are ordinary prices."""
     out = []
     # anytime TD: lean on the market's chance (the lone Yes prices, margin stripped), as the Best props board does
-    td_market = None
-    if kind in YES_NO and quotes.over_odds.notna().any():
+    td_market, floor = None, MIN_MARKET_WEIGHT.get(kind, 0.0)
+    if floor and quotes.over_odds.notna().any():
         td_market = float((odds.implied(quotes.over_odds.dropna()) / (1 + HOLD[kind])).mean())
     for q in quotes.itertuples():
         row = dict(line=float(q.line), book=q.book, alt=bool(q.alt), event_link=_none(q.event_link), over=None, under=None)
@@ -38,7 +38,7 @@ def build_ladder(mu: float, sd: float, quotes: pd.DataFrame, max_abs_odds: float
             if pd.notna(odd) and (kind in YES_NO or not max_abs_odds or -max_abs_odds <= odd <= max_abs_odds):
                 p, ev = price_quote(mu, sd, q.line, side, odd, kind, dist)
                 if td_market is not None and side == "over":
-                    p = (1 - TD_MIN_MARKET_WEIGHT) * mu + TD_MIN_MARKET_WEIGHT * td_market
+                    p = (1 - floor) * mu + floor * td_market
                     ev = p * (float(odds.american_to_dec(odd)) - 1) - (1 - p)
                 row[side] = dict(odds=int(odd), prob=p, ev=ev, link=_none(getattr(q, f"{side}_link")))
         if row["over"] or row["under"]:

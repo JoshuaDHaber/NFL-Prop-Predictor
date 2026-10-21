@@ -3,16 +3,19 @@ import type { GameWeather, Kind } from "./api";
 export const KIND_LABEL: Record<Kind, string> = {
   rush: "Rushing yds", rec: "Receiving yds", pass: "Passing yds", rr: "Rush+Rec yds", td: "Anytime TD", recs: "Receptions",
   ptd: "Passing TDs", lng: "Longest reception", rlng: "Longest rush", ftd: "First TD scorer", pts: "Points", reb: "Rebounds", ast: "Assists", threes: "3-pointers made",
-  pra: "Pts+Reb+Ast", pr: "Pts+Reb", pa: "Pts+Ast", stl: "Steals", blk: "Blocks",
+  pra: "Pts+Reb+Ast", pr: "Pts+Reb", pa: "Pts+Ast", stl: "Steals", blk: "Blocks", dd: "Double-double", tpl: "Triple-double",
 };
 export const KIND_SHORT: Record<Kind, string> = { rush: "Rushing", rec: "Receiving", pass: "Passing", rr: "Rush+Rec", td: "Anytime TD", recs: "Receptions",
   ptd: "Passing TDs", lng: "Longest rec", rlng: "Longest rush", ftd: "First TD", pts: "Points", reb: "Rebounds", ast: "Assists", threes: "Threes",
-  pra: "PRA", pr: "PR", pa: "PA", stl: "Steals", blk: "Blocks" };
+  pra: "PRA", pr: "PR", pa: "PA", stl: "Steals", blk: "Blocks", dd: "Double-double", tpl: "Triple-double" };
 /** The NBA's markets: projected minutes x a per-minute rate. */
-export const NBA_KINDS = ["pts", "reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk"] as const;
+export const NBA_KINDS = ["pts", "reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk", "dd", "tpl"] as const;
 export const isNba = (kind: Kind) => (NBA_KINDS as readonly Kind[]).includes(kind);
 /** Touchdown markets: a lone "Yes" price per player (stored as an over 0.5), and mu is the chance. */
-export const isYesNo = (kind?: Kind | "all") => kind === "td" || kind === "ftd";
+export const isYesNo = (kind?: Kind | "all") => kind === "td" || kind === "ftd" || isDouble(kind);
+/** NBA double- and triple-doubles: yes/no, and how many stats must reach double figures. */
+export const DOUBLE_NEED: Partial<Record<Kind, number>> = { dd: 2, tpl: 3 };
+export const isDouble = (kind?: Kind | "all") => kind === "dd" || kind === "tpl";
 
 /** Grouped markets: one sub tab each, with a pill per market inside. */
 export interface MarketGroup { label: string; icon: string; kinds: Kind[] }
@@ -25,7 +28,7 @@ export const PROJ_GROUPS: MarketGroup[] = [
 /** The market picker's top row (props and projections alike): single markets, and the groups above. */
 export const MARKET_TABS: (Kind | "all" | MarketGroup)[] = ["all", ...PROJ_GROUPS.slice(0, 3), "rr", PROJ_GROUPS[3]];
 /** The NBA's combo markets, under one tab. */
-export const NBA_COMBOS: MarketGroup = { label: "Combos", icon: "➕", kinds: ["pra", "pr", "pa"] };
+export const NBA_COMBOS: MarketGroup = { label: "Combos", icon: "➕", kinds: ["pra", "pr", "pa", "dd", "tpl"] };
 /** Steals and blocks, under one tab. */
 export const NBA_DEFENSE: MarketGroup = { label: "Defense", icon: "🛡️", kinds: ["stl", "blk"] };
 /** The NBA market picker's top row. */
@@ -55,7 +58,8 @@ export const effText = (kind: Kind, eff: number): [string, string] =>
   : ["Yds / att", eff.toFixed(2)];
 /** The caption under a projection: what the number counts. */
 export const projCaption = (kind: Kind) =>
-  isNba(kind) ? `projected ${KIND_LABEL[kind].toLowerCase()}`
+  isDouble(kind) ? `chance of a ${KIND_LABEL[kind].toLowerCase()}`
+  : isNba(kind) ? `projected ${KIND_LABEL[kind].toLowerCase()}`
   : kind === "td" ? "chance to score" : kind === "ftd" ? "chance to score first" : isCount(kind) ? "projected receptions" : kind === "ptd" ? "projected passing TDs"
   : kind === "lng" ? "projected longest catch" : kind === "rlng" ? "projected longest rush" : "projected yards";
 
@@ -64,9 +68,10 @@ export const fmtProj = (kind: Kind, mu: number) => (isYesNo(kind) ? `${(mu * 100
 /** The typical miss around a projection. */
 export const fmtSd = (kind: Kind, sd: number) => `±${sd.toFixed(decimals(kind))}`;
 
-/** What a play is called. Yardage is "Over 54.5"; anytime TD is stored as an over 0.5, shown as "Anytime TD" / "No TD". */
+/** What a play is called. Yardage is "Over 54.5"; anytime TD is stored as an over 0.5, shown as "Anytime TD" / "No TD" (double-doubles alike). */
 export const playLabel = (kind: Kind, side: "Over" | "Under", line: number) =>
-  kind === "td" ? (side === "Over" ? "Anytime TD" : "No TD") : kind === "ftd" ? (side === "Over" ? "First TD" : "Not first TD") : `${side} ${line}`;
+  kind === "td" ? (side === "Over" ? "Anytime TD" : "No TD") : kind === "ftd" ? (side === "Over" ? "First TD" : "Not first TD")
+  : isDouble(kind) ? (side === "Over" ? KIND_LABEL[kind] : `No ${KIND_LABEL[kind].toLowerCase()}`) : `${side} ${line}`;
 
 /** Edge between the projection and the line: yards (catches for receptions), percentage points for anytime TD. */
 export const fmtEdge = (kind: Kind, edge: number) => `${edge >= 0 ? "+" : ""}${edge.toFixed(1)}${isYesNo(kind) ? " pts" : ""}`;
