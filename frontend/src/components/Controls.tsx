@@ -1,9 +1,9 @@
 import type { Filters, Game, Kind } from "../api";
-import { isYesNo, playLabel, KIND_SHORT, MARKET_TABS, NBA_MARKET_TABS, SUB_LABEL, groupOf, kickoff, pct, signedPct } from "../format";
+import { isDouble, isYesNo, playLabel, KIND_SHORT, MARKET_TABS, NBA_MARKET_TABS, SUB_LABEL, groupOf, kickoff, pct, signedPct } from "../format";
 import { getLeague } from "../league";
 
 const ICON: Record<Kind | "all", string> = { all: "📊", rush: "🏃", rec: "🙌", recs: "🧤", pass: "🎯", rr: "⚡", td: "🏈", ptd: "🎯", lng: "🚀", rlng: "💨", ftd: "🥇",
-  pts: "🏀", reb: "🔁", ast: "🤝", threes: "🎯", pra: "➕", pr: "➕", pa: "➕", stl: "🖐️", blk: "🧱" };
+  pts: "🏀", reb: "🔁", ast: "🤝", threes: "🎯", pra: "➕", pr: "➕", pa: "➕", stl: "🖐️", blk: "🧱", dd: "✌️", tpl: "🤟" };
 
 interface Props {
   filters: Filters;
@@ -98,6 +98,13 @@ export default function Controls({ filters, onChange, games, books, showPickCont
         <p className="td-note">
           <b>Anytime TD:</b> books post a single “Yes” price with a large margin, and this model doesn't see red-zone usage, so it
           always leans at least 60% on the market's chance. Treat these edges with caution; big ones usually mean the model is missing something.
+        </p>
+      )}
+      {isDouble(filters.kind) && (
+        <p className="td-note">
+          <b>{filters.kind === "dd" ? "Double-double" : "Triple-double"}:</b> the chance that {filters.kind === "dd" ? "two" : "three"} of points, rebounds,
+          assists, steals and blocks reach 10, from each stat's projection and its backtested misses, calibrated on past games
+          (stats rise and fall together with minutes). Shown as a percentage; plays read Yes / No.
         </p>
       )}
       {filters.kind === "ftd" && (

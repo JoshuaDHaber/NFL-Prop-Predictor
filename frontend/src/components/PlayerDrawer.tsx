@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, type Kind } from "../api";
-import { isYesNo, KIND_LABEL, KIND_SHORT, effText, fmtProj, fmtSd, isCount, isNba, matchup, unit, volLabel, weatherText, wxEffect } from "../format";
+import { DOUBLE_NEED, isDouble, isYesNo, KIND_LABEL, KIND_SHORT, effText, fmtProj, fmtSd, isCount, isNba, matchup, unit, volLabel, weatherText, wxEffect } from "../format";
 import Avatar from "./Avatar";
 import LineLadder, { ODDS_RANGE } from "./LineLadder";
 
@@ -62,7 +62,14 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
               ))}
             </div>
             <div className="facts">
-              {isTd ? (
+              {isDouble(kind) ? (
+                <>
+                  <div><span className="mut">Chance</span><b>{fmtProj(kind, proj.mu)}</b></div>
+                  <div><span className="mut">Needs</span><b>{DOUBLE_NEED[kind]} stats at 10+</b></div>
+                  <div><span className="mut">Expected at 10+</span><b>{proj.eff.toFixed(2)}</b></div>
+                  <div><span className="mut">Minutes</span><b>{proj.vol.toFixed(1)}</b></div>
+                </>
+              ) : isTd ? (
                 <>
                   <div><span className="mut">{kind === "ftd" ? "Chance to score first" : "Chance to score"}</span><b>{fmtProj(kind, proj.mu)}</b></div>
                   <div><span className="mut">Expected TDs</span><b>{proj.eff.toFixed(2)}</b></div>
@@ -78,19 +85,19 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
                 </>
               )}
             </div>
-            <h3>Last {logs.length} games · {kind === "ftd" ? "scored the first TD" : isTd ? "touchdowns scored" : KIND_LABEL[kind]}</h3>
+            <h3>Last {logs.length} games · {isDouble(kind) ? "stats in double figures" : kind === "ftd" ? "scored the first TD" : isTd ? "touchdowns scored" : KIND_LABEL[kind]}</h3>
             <div className="chart">
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={logs} margin={{ top: 8, right: 8, bottom: 0, left: -16 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
                   <XAxis dataKey="label" tick={{ fontSize: 10, fill: "var(--mut)" }} interval={0} angle={-35} textAnchor="end" height={50} />
                   <YAxis tick={{ fontSize: 11, fill: "var(--mut)" }} />
-                  <Tooltip formatter={(v: number) => (isNba(kind) ? [`${v}`, KIND_LABEL[kind]] : kind === "ftd" ? [v ? "Yes" : "No", "First TD"] : isTd ? [`${v}`, "TDs"] : kind === "ptd" ? [`${v}`, "Passing TDs"] : isCount(kind) ? [`${v}`, "Receptions"] : [`${v} yds`, kind === "lng" || kind === "rlng" ? "Longest" : "Yards"])}
+                  <Tooltip formatter={(v: number) => (isDouble(kind) ? [`${v}`, "Stats at 10+"] : isNba(kind) ? [`${v}`, KIND_LABEL[kind]] : kind === "ftd" ? [v ? "Yes" : "No", "First TD"] : isTd ? [`${v}`, "TDs"] : kind === "ptd" ? [`${v}`, "Passing TDs"] : isCount(kind) ? [`${v}`, "Receptions"] : [`${v} yds`, kind === "lng" || kind === "rlng" ? "Longest" : "Yards"])}
                     labelFormatter={(l, items) => `${l} ${items[0]?.payload ? "vs " + items[0].payload.opp : ""}`}
                     contentStyle={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--ink)" }} />
                   <Bar dataKey="yards" fill="var(--acc)" radius={[3, 3, 0, 0]} />
-                  <ReferenceLine y={kind === "td" ? proj.eff : proj.mu} stroke="var(--good)" strokeDasharray="5 3"
-                    label={{ value: kind === "ftd" ? `chance ${fmtProj(kind, proj.mu)}` : isTd ? `expected ${proj.eff.toFixed(2)}` : `proj ${fmtProj(kind, proj.mu)}`, position: "insideTopRight", fill: "var(--good)", fontSize: 11 }} />
+                  <ReferenceLine y={isDouble(kind) ? DOUBLE_NEED[kind] : kind === "td" ? proj.eff : proj.mu} stroke="var(--good)" strokeDasharray="5 3"
+                    label={{ value: isDouble(kind) ? `needs ${DOUBLE_NEED[kind]} · chance ${fmtProj(kind, proj.mu)}` : kind === "ftd" ? `chance ${fmtProj(kind, proj.mu)}` : isTd ? `expected ${proj.eff.toFixed(2)}` : `proj ${fmtProj(kind, proj.mu)}`, position: "insideTopRight", fill: "var(--good)", fontSize: 11 }} />
                   {lines.map((l) => (
                     <ReferenceLine key={l} y={l} stroke="var(--bad)" strokeDasharray="2 3"
                       label={{ value: `line ${l}`, position: "insideBottomRight", fill: "var(--bad)", fontSize: 11 }} />

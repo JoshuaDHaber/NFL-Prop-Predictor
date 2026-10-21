@@ -96,11 +96,15 @@ def test_projection_is_minutes_times_a_rate_shrunk_toward_the_position():
 def test_walk_forward_and_team_ratings_run_on_the_logs():
     logs = _logs(60)
     bt = model.walk_forward(logs, {"g": "G", "c": "C"}, date(2025, 12, 15), date(2026, 2, 1))
-    assert set(bt.kind) == set(model.ALL_KINDS) and np.isfinite(bt.mu).all()
+    assert set(bt.kind) == set(model.ALL_KINDS) and np.isfinite(bt[~bt.kind.isin(model.DOUBLES)].mu).all()
+    # the center's 12 and 10+ is a double-double every night; the guard's 30, 4 and 7 never is
+    dd = bt[bt.kind == "dd"].groupby("player_id").actual.mean()
+    assert (dd["c"], dd["g"]) == (1.0, 0.0)
     summary, dists = model.calibrate(bt)
     assert summary["pts"]["n"] > 0 and "z" in dists["pts"]
     assert summary["threes"]["n"] > 0 and dists["threes"] == dists["stl"] == dists["blk"] == {"poisson": True}
     assert "z" in dists["pra"]
+    assert summary["dd"]["metric"] == "brier" and summary["dd"]["n"] > 0 and "dd" in dists["_doubles"]
     pra = bt[bt.kind == "pra"].set_index(["date", "player_id"]).actual.sort_index()
     parts = bt[bt.kind.isin(["pts", "reb", "ast"])].groupby(["date", "player_id"]).actual.sum()
     assert pra.tolist() == parts.tolist()
@@ -197,11 +201,12 @@ def test_odds_plan_buys_props_only_for_games_tipping_off_soon():
         s.commit()
         plan = nba_pipeline.sync_plan(s, [soon, tomorrow], "missing", now)
         [g] = plan["games"]
-        assert g["game_id"] == "a" and g["need"] == ["reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk"] and g["need_alt"] == g["need"]
-        assert plan["credits"] == 1 + 8 + 8   # one for every moneyline, one per missing market, main and alternate
+        assert g["game_id"] == "a" and g["need"] == [*g["need_alt"], "dd", "tpl"]
+        assert g["need_alt"] == ["reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk"]   # yes/no markets have no alternates
+        assert plan["credits"] == 1 + 10 + 8   # one for every moneyline, one per missing market, main and alternate
         # 'all' re-pulls every main market, but alternates are bought once
         [g] = nba_pipeline.sync_plan(s, [soon, tomorrow], "all", now)["games"]
-        assert g["need"] == ["pts", *g["need_alt"]] and g["need_alt"] == ["reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk"]
+        assert g["need"] == ["pts", *g["need_alt"], "dd", "tpl"] and g["need_alt"] == ["reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk"]
         assert nba_pipeline.sync_plan(s, [soon], "none", now)["credits"] == 0
 
 
@@ -225,7 +230,7 @@ def test_refresh_odds_stores_moneylines_and_props(monkeypatch):
         s.commit()
     res = nba_pipeline.refresh_odds("missing", log=lambda m: None, now=datetime(2026, 10, 20, 14))
     kinds = ["pts", "reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk"]
-    assert calls == [("e1", kinds, kinds)] and res["fetched"] == 1 and res["credits_after"] == 497
+    assert calls == [("e1", kinds + ["dd", "tpl"], kinds)] and res["fetched"] == 1 and res["credits_after"] == 497
     with SessionLocal() as s:
         assert sorted(m for (m,) in s.query(NbaOddsLine.market)) == ["ml", "pts"]
         [alt] = s.query(NbaAltLine).all()
@@ -246,6 +251,29 @@ def test_threes_are_priced_as_poisson_counts():
     po, pu = prob_over_under_dist(2.2, 2, {"poisson": True})   # a whole-number line leaves room for a push at 2
     assert po + pu == pytest.approx(1 - poisson.pmf(2, 2.2))
     assert sd_at(4.0, {"poisson": True}) == 2.0
+
+
+def test_double_double_chances_follow_the_projections():
+    dists = {k: {"poisson": True} for k in model.DD_STATS}
+    star = model.doubles(dict(pts=25.0, reb=11.0, ast=8.0, stl=1.0, blk=0.5), dists, {})
+    wing = model.doubles(dict(pts=12.0, reb=4.0, ast=2.0, stl=1.0, blk=0.5), dists, {})
+    assert 0.4 < star["dd"][0] < 0.9 and star["tpl"][0] < star["dd"][0] and wing["dd"][0] < 0.05
+    assert star["dd"][1] == pytest.approx(sum(model.p_ten([m], dists[k])[0] for k, m in dict(pts=25.0, reb=11.0, ast=8.0, stl=1.0, blk=0.5).items()))
+    # the backtest's calibration curve lifts (or trims) the independent chance
+    lifted = model.doubles(dict(pts=25.0, reb=11.0, ast=8.0, stl=1.0, blk=0.5), dists, {"tpl": {"a": 1.0, "b": 1.0}})
+    assert lifted["tpl"][0] > star["tpl"][0] and lifted["dd"] == star["dd"]
+    row = pd.Series(dict(pts=24.0, reb=10.0, ast=9.0, stl=2.0, blk=10.0))
+    assert (model.tens(row), model.actual(row, "dd"), model.actual(row, "tpl")) == (3, 1.0, 1.0)
+
+
+def test_double_doubles_are_priced_as_yes_no_and_follow_the_market_slider():
+    from app.engine.picks import build_picks
+    proj = pd.DataFrame([dict(player_id="p1", name="Big Man", pos="C", team="DET", opp="BOS", home=True, kind="dd", mu=0.6, sd=0.49,
+                              status="", game_id="g1", gameday="2026-10-20", gametime="19:00", wx=1.0, teammate_out="")])
+    lines = pd.DataFrame([dict(player="Big Man", market="dd", line=0.5, over_odds=-110, under_odds=-110, book="B", game_id="g1")])
+    over = build_picks(proj, lines, market_weight=0.0).set_index("side").loc["Over"]
+    assert (over.p_model, over.prob) == (pytest.approx(0.6), pytest.approx(0.6))   # no 60% market floor, unlike anytime TD
+    assert build_picks(proj, lines, market_weight=1.0).set_index("side").loc["Over"].prob == pytest.approx(0.5)
 
 
 def test_nba_player_search_covers_the_slate_and_rosters(nba_client, monkeypatch):

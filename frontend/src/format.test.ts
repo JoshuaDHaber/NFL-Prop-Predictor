@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GameWeather } from "./api";
-import { compassPoint, skyIcon, americanOdds, fmtEdge, fmtProj, fmtSd, kickoff, marketLabel, unit, notableWeather, pct, playLabel, signed, signedPct, timeAgo, weatherShort, weatherText, wxEffect } from "./format";
+import { compassPoint, groupOf, isYesNo, skyIcon, americanOdds, fmtEdge, fmtProj, fmtSd, kickoff, marketLabel, unit, notableWeather, pct, playLabel, signed, signedPct, timeAgo, weatherShort, weatherText, wxEffect } from "./format";
 
 describe("format", () => {
   it("formats percentages and signs", () => {
@@ -45,6 +45,16 @@ describe("anytime TD formatting", () => {
   });
 });
 
+
+describe("double-double formatting", () => {
+  it("reads as a yes/no chance under the Combos tab", () => {
+    expect(isYesNo("dd") && isYesNo("tpl")).toBe(true);
+    expect(fmtProj("dd", 0.437)).toBe("44%");
+    expect(playLabel("dd", "Over", 0.5)).toBe("Double-double");
+    expect(playLabel("tpl", "Under", 0.5)).toBe("No triple-double");
+    expect(groupOf("tpl")?.label).toBe("Combos");
+  });
+});
 
 describe("weather", () => {
   const w = (o: Partial<GameWeather>): GameWeather => ({ stadium: "Lambeau Field", roof: "outdoors", indoor: false, source: "forecast", temp: 38,

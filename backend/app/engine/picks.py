@@ -4,9 +4,11 @@ import pandas as pd
 
 from . import odds
 from .model import prob_over_under, prob_over_under_dist
-from .td import FTD_ASSUMED_HOLD, TD_ASSUMED_HOLD, TD_MIN_MARKET_WEIGHT, YES_NO  # noqa: F401  (re-exported for callers and tests)
+from .td import (DD_ASSUMED_HOLD, FTD_ASSUMED_HOLD, MIN_MARKET_WEIGHT, TD_ASSUMED_HOLD, TD_MIN_MARKET_WEIGHT,  # noqa: F401
+                 TPL_ASSUMED_HOLD, YES_NO)  # (re-exported for callers and tests)
 
-HOLD = {"td": TD_ASSUMED_HOLD, "ftd": FTD_ASSUMED_HOLD}   # margin stripped from a lone Yes price
+# margin stripped from a lone Yes price
+HOLD = {"td": TD_ASSUMED_HOLD, "ftd": FTD_ASSUMED_HOLD, "dd": DD_ASSUMED_HOLD, "tpl": TPL_ASSUMED_HOLD}
 
 
 
@@ -84,11 +86,11 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
             if pd.isna(odd):
                 continue
             mk = p_side if pd.isna(mk) else mk  # only one side posted: no market view to blend
-            w = max(market_weight, TD_MIN_MARKET_WEIGHT) if is_td else market_weight
+            w = max(market_weight, MIN_MARKET_WEIGHT.get(r.market, 0.0))
             prob = (1 - w) * p_side + w * mk
             dec = float(odds.american_to_dec(odd))
             ev = prob * (dec - 1) - (1 - prob)
-            # yardage: projection minus line in yards; TD: model minus market chance in percentage points
+            # yardage: projection minus line in yards; yes/no (TD, double-double): model minus market chance in percentage points
             edge = (p_side - mk) * 100 if is_td else (p.mu - r.line) * (1 if side == "Over" else -1)
             # passing TDs (and NBA threes, steals, blocks) sit at 0.5 / 1.5 / 2.5, where projection-over-line ratios swing wildly, so like anytime TD they
             # compare chances instead

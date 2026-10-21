@@ -41,7 +41,7 @@ export default function ProjectionsTable({ rows, onSelect, weather = {}, nba = f
               <td data-label="Proj"><b>{fmtProj(p.kind, p.mu)}</b></td>
               <td data-label="SD">{isYesNo(p.kind) ? "–" : fmtSd(p.kind, p.sd)}</td>
               <td data-label={nba ? "Minutes" : "Volume"}>{p.vol.toFixed(1)}</td>
-              <td data-label={nba ? "Per 36" : "Yds/att · E[TD]"}>{isYesNo(p.kind) ? p.eff.toFixed(2) : effText(p.kind, p.eff)[1]}</td>
+              <td data-label={nba ? "Per 36" : "Yds/att · E[TD]"}>{isYesNo(p.kind) ? (nba ? "–" : p.eff.toFixed(2)) : effText(p.kind, p.eff)[1]}</td>
               <td data-label="Spread">{signed(p.spread)}</td>
               <td data-label="Last 5"><Spark values={p.last5} /></td>
             </tr>

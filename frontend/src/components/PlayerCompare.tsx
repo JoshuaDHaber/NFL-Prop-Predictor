@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type GameWeather, type Kind, type PlayerHit, type Projection } from "../api";
-import { isYesNo, KIND_LABEL, NBA_KINDS, effText, fmtProj, fmtSd, kickoff, matchup, volLabel } from "../format";
+import { isDouble, isYesNo, KIND_LABEL, NBA_KINDS, effText, fmtProj, fmtSd, kickoff, matchup, volLabel } from "../format";
 import { getLeague } from "../league";
 import { useDebounced } from "../useDebounced";
 import Avatar from "./Avatar";
@@ -131,7 +131,7 @@ export default function PlayerCompare({ onSelect, weather = {} }: { onSelect: (i
                           title={`Open ${h.name}'s ${KIND_LABEL[k].toLowerCase()}`}>
                           <div className="cmp-val"><b>{fmtProj(k, p.mu)}</b>{!isYesNo(k) && <small className="mut"> {fmtSd(k, p.sd)}</small>}</div>
                           {isYesNo(k)
-                            ? <small className="mut">{p.eff.toFixed(2)} expected TDs</small>
+                            ? <small className="mut">{p.eff.toFixed(2)} {isDouble(k) ? "stats expected in double figures" : "expected TDs"}</small>
                             : <small className="mut">{volLabel(k)} {p.vol.toFixed(1)} · {effLabel} {eff}</small>}
                           {!isYesNo(k) && <Spark values={p.last5} />}
                         </td>

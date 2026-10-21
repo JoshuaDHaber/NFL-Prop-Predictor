@@ -22,7 +22,7 @@ from ..schemas import (AutoSync, BacktestStat, Game, GameLogEntry, GradeReport, 
 from . import espn, grading, model
 from . import odds as nba_odds
 
-NbaKind = Literal["pts", "reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk"]
+NbaKind = Literal["pts", "reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk", "dd", "tpl"]
 router = APIRouter(prefix="/api/nba", tags=["nba"])
 # main.py sets these: who may see owner-only bits, and the next scheduled NBA sync
 is_admin: Callable[[Request], bool] = lambda request: False
@@ -233,10 +233,11 @@ def player(player_id: str, market_weight: float = Query(0.35, ge=0, le=1), db: S
 
 
 def _game_logs(player_id: str, season: int, n: int = 12) -> dict:
-    """The player's last n games per stat (value, with minutes as the volume), from the cached ESPN logs."""
+    """The player's last n games per stat (value, with minutes as the volume), from the cached ESPN logs. For double-
+    and triple-doubles the value is how many stats reached double figures."""
     logs = espn.gamelogs([player_id], [season - 1, season], season, log=lambda _: None).tail(n)
     label = lambda d: datetime.fromisoformat(d).strftime("%b %-d")  # noqa: E731
-    return {k: [GameLogEntry(label=label(r.date), opp=r.opp or "", yards=float(model.actual(r, k)), volume=float(r.min))
+    return {k: [GameLogEntry(label=label(r.date), opp=r.opp or "", yards=float(model.tens(r) if k in model.DOUBLES else model.actual(r, k)), volume=float(r.min))
                 for r in logs.itertuples()] for k in model.ALL_KINDS}
 
 
