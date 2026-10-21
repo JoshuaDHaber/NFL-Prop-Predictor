@@ -215,6 +215,10 @@ tr.clickable:hover td:last-child { border-top-right-radius: 10px; border-bottom-
 @media (max-width: 420px) { .tabs { gap: 2px; padding: 4px; } .tabs button { padding: 8px 7px; font-size: 12px; } }
 .parlay-h { font-size: 15px; margin: 18px 0 10px; } .parlay-h small { font-weight: 400; color: var(--mut); font-size: 12px; margin-left: 6px; }
 .parlay-books { margin-bottom: 4px; }
+/* ladder rows: one sideways strip per ladder type, so a phone isn't a column of ten tiles; the next tile peeks in at the edge */
+.ladder-row-h { font-size: 13px; font-weight: 600; margin: 4px 0 8px; } .ladder-row-h small { font-weight: 400; color: var(--mut); margin-left: 4px; }
+.parlay-row { display: flex; gap: 14px; overflow-x: auto; scroll-snap-type: x proximity; scroll-padding-inline: 2px; padding: 2px 2px 10px; margin-bottom: 8px; scrollbar-width: thin; }
+.parlay-row > .parlay { flex: 1 0 min(300px, 82%); max-width: 420px; scroll-snap-align: start; }
 
 /* ---------- small screens: popovers stay on screen ---------- */
 @media (max-width: 600px) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Ladder, LadderRow, Pick } from "./api";
-import { bestBook, buildBalancedLadders, buildTdParlays, buildThreesLadder, buildLadderParlays, ladderProps, candidates, defaultBook, filterGames, ladderRungs, ladderTargets, parlaysByBook, pickToLeg, priceParlay, recommendParlays } from "./parlays";
+import { bestBook, buildBalancedLadders, buildTdParlays, buildThreesLadders, buildLadderParlays, ladderProps, candidates, defaultBook, filterGames, ladderRungs, ladderTargets, parlaysByBook, pickToLeg, priceParlay, recommendParlays } from "./parlays";
 import { setLeague } from "./league";
 import { toAmerican, toDecimal } from "./slip";
 
@@ -260,22 +260,31 @@ describe("balanced ladders", () => {
   });
 });
 
-describe("threes ladder", () => {
+describe("threes ladders", () => {
   const t = (id: string, ...quotes: LadderRow[]) => ({ base: over({ player_id: id, name: id, kind: "threes" }), ladder: ladder(...quotes) });
-  it("stacks only likely threes rungs into one +100 to +300 tile", () => {
+  it("builds only from threes rungs, at least as likely as each band asks", () => {
     const es = [t("a", rung(0.5, -250, 0.8), rung(2.5, 120, 0.5)), t("b", rung(0.5, -250, 0.8)), t("c", rung(1.5, -250, 0.8)),
       { base: over({ player_id: "d", name: "d" }), ladder: ladder(rung(10.5, -250, 0.9)) }];
-    const [p, ...rest] = buildThreesLadder(es, "DraftKings");
-    expect(rest).toEqual([]);
-    expect(p.key).toBe("threes");
-    expect(p.legs.map((l) => [l.player_id, l.line])).toEqual([["a", 0.5], ["b", 0.5], ["c", 1.5]]);
-    expect(p.legs.every((l) => l.kind === "threes" && l.prob >= 0.7)).toBe(true);
-    expect(p.decimal).toBeGreaterThanOrEqual(2);
+    const parlays = buildThreesLadders(es, "DraftKings");
+    expect(parlays.map((p) => p.key)).toEqual(["threes-2"]); // two -250 legs fall just short of +100
+    expect(parlays[0].legs.map((l) => [l.player_id, l.line])).toEqual([["a", 0.5], ["b", 0.5], ["c", 1.5]]);
+    for (const p of parlays) expect(p.legs.every((l) => l.kind === "threes" && l.prob >= 0.7)).toBe(true);
+  });
+  it("stacks short-priced 1+ rungs for the cheap band and takes 2+ lines in fewer legs for the dear one", () => {
+    const es = ["a", "b", "c", "d", "e", "f", "g"].map((id) => t(id, rung(0.5, -600, 0.9), rung(1.5, -180, 0.66)));
+    const parlays = buildThreesLadders(es, "DraftKings");
+    const cheap = parlays.find((p) => p.key === "threes-1")!, dear = parlays.find((p) => p.key === "threes-3")!;
+    expect(cheap.legs.length).toBeGreaterThan(4);
+    expect(cheap.legs.every((l) => l.line === 0.5)).toBe(true);
+    expect(dear.legs.length).toBeLessThanOrEqual(4);
+    expect(dear.legs.some((l) => l.line === 1.5)).toBe(true);
+    expect(buildThreesLadders([t("a", rung(0.5, -1500, 0.97)), t("b", rung(0.5, -1500, 0.97))], "DraftKings")).toEqual([]);
   });
   it("skips a combination already shown", () => {
     const es = [t("a", rung(0.5, -250, 0.8)), t("b", rung(0.5, -250, 0.8)), t("c", rung(0.5, -250, 0.8))];
-    const [p] = buildThreesLadder(es, "DraftKings");
-    expect(buildThreesLadder(es, "DraftKings", [p])).toEqual([]);
+    const parlays = buildThreesLadders(es, "DraftKings");
+    expect(parlays.length).toBeGreaterThan(0);
+    expect(buildThreesLadders(es, "DraftKings", parlays)).toEqual([]);
   });
 });
 
