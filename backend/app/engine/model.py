@@ -229,9 +229,11 @@ def wx_ratio(kind, comp, wx):
 
 
 def combined(comp):
-    """Rush+rec projection from components; needs real volume in both roles or an RB-like rush role."""
+    """Rush+rec projection from components; needs a real rush role. The receiving part counts at any volume: a lead
+    back projected under the targets minimum (Henry, Cook) still has rush + rec lines posted, and a small receiving
+    projection beats dropping the market."""
     r, c = comp.get("rush"), comp.get("rec")
-    if not r or not c or r[1] < CFG["rush"]["min_vol"] or c[1] < CFG["rec"]["min_vol"]:
+    if not r or not c or r[1] < CFG["rush"]["min_vol"]:
         return None
     return (r[0] + c[0], r[1] + c[1], (r[0] + c[0]) / (r[1] + c[1]))
 
