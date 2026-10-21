@@ -7,6 +7,7 @@ import Avatar from "./Avatar";
 import SortBar from "./SortBar";
 import Spark from "./Spark";
 import WeatherChip from "./WeatherChip";
+import { BookName } from "./BookBadge";
 
 const GROUP_KEY = "picks-one-per-player";
 const storedGrouped = () => { try { return localStorage.getItem(GROUP_KEY) !== "0"; } catch { return true; } };
@@ -60,7 +61,7 @@ export default function PicksTable({ picks, onSelect, weather = {}, empty, limit
               </td>
               <td className="c-market">{KIND_LABEL[p.kind]}</td>
               <td>
-                <span className={`side-pill ${p.side === "Over" ? "over" : "under"}`}>{playLabel(p.kind, p.side, p.line)}</span><br /><span className="mut">{americanOdds(p.odds)} · {p.book}</span>
+                <span className={`side-pill ${p.side === "Over" ? "over" : "under"}`}>{playLabel(p.kind, p.side, p.line)}</span><br /><span className="mut">{americanOdds(p.odds)} · <BookName book={p.book} size={14} /></span>
               </td>
               <td data-label="Proj">{fmtProj(p.kind, p.mu)}{!isYesNo(p.kind) && <><br /><span className="mut">{fmtSd(p.kind, p.sd)}</span></>}</td>
               <td data-label="Edge">{fmtEdge(p.kind, p.edge_yds)}</td>

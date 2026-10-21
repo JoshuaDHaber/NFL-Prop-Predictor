@@ -1,20 +1,38 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { BASE } from "../env";
 import { useBetSlip } from "../BetSlipContext";
+import { detectState } from "../geoState";
+import BookBadge from "./BookBadge";
 import { isYesNo, KIND_SHORT, americanOdds, pct, playLabel, signedPct } from "../format";
-import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, combinedLink, legLink, shareUrl, slipLinksText, linkStatus, openProgress, parlay, rebook, sameGame, slipHitChance, slipText, toAmerican, toWin, type BookOption } from "../slip";
+import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, combinedLink, legLink, slipLinksText, linkStatus, openProgress, parlay, rebook, sameGame, slipHitChance, toAmerican, toWin, type BookOption } from "../slip";
+
+// once per page load: the stored state covers later opens, and "Try again" re-runs it
+let locatedOnce = false;
 
 export default function BetSlip() {
   const { legs, remove, replace, clear, state, setState, open, setOpen } = useBetSlip();
   const [stakes, setStakes] = useState<Record<string, number>>({});
-  const [copied, setCopied] = useState<"link" | "text" | "share" | null>(null);
+  const [copied, setCopied] = useState<"link" | null>(null);
   const [target, setTarget] = useState<string | null>(null);
-  const [combinedMsg, setCombinedMsg] = useState<Record<string, string>>({});
+  const [placeMsg, setPlaceMsg] = useState<string | null>(null);
   const [opened, setOpened] = useState<Record<string, string[]>>({});
   const [linking, setLinking] = useState<string | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locError, setLocError] = useState<string | null>(null);
   const qc = useQueryClient();
+  // some books' links need the bettor's state: find it from the device's location the first time the slip opens
+  const locate = async () => {
+    setLocating(true);
+    const r = await detectState();
+    setLocating(false);
+    if ("state" in r) { setState(r.state); setLocError(null); } else setLocError(r.error);
+  };
+  const needsState = legs.some((l) => /\{state\}/.test(`${l.link ?? ""} ${l.eventLink ?? ""}`));
+  useEffect(() => {
+    if (open && needsState && !locatedOnce) { locatedOnce = true; locate(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, needsState]);
   const metaFlags = qc.getQueryData<{ has_odds_key: boolean; can_write: boolean }>(["meta"]);
   const hasKey = !!metaFlags?.has_odds_key && !!metaFlags?.can_write;
   // line shopping data: every book's quote for each leg's exact line (shares the drawer's query cache)
@@ -46,14 +64,10 @@ export default function BetSlip() {
     [nflProj.data, nbaProj.data]);
   const corr = useMemo(() => ({ ...corrQuery.data?.pairs, ...nbaCorrQuery.data?.pairs }), [corrQuery.data, nbaCorrQuery.data]);
 
-  const copyText = async (text: string, tag: "link" | "text" | "share") => {
+  const copyText = async (text: string, tag: "link") => {
     try { await navigator.clipboard.writeText(text); setCopied(tag); setTimeout(() => setCopied(null), 1800); } catch { /* clipboard blocked */ }
   };
   const links = slipLinksText(legs, state);
-  // phones can't reach "localhost": share this app's network address instead
-  const lanUrl = qc.getQueryData<{ lan_url: string | null }>(["meta"])?.lan_url ?? null;
-  const onLocalhost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
-  const shareBase = onLocalhost ? lanUrl : (window.location.origin + BASE).replace(/\/$/, "");
   // All of a book's linked legs in a single tab (only for books whose multi-selection link format we know)
   const combineFor = (book: string) => {
     const direct = openProgress(legs, book, state, []).direct.flatMap((l) => {
@@ -62,17 +76,35 @@ export default function BetSlip() {
     });
     return combinedLink(book, direct);
   };
-  const noteCombined = (book: string, count: number) =>
-    setCombinedMsg({ ...combinedMsg, [book]: `Opened one tab with ${count} legs. Check that all ${count} are on the ${book} slip before placing; if any are missing, use "one at a time".` });
   // One new tab per click: browsers block extra pop-ups opened from a single click, so we step through the legs.
   const openNext = (book: string) => {
     let p = openProgress(legs, book, state, opened[book] ?? []);
-    if (!p.remaining.length) { setOpened({ ...opened, [book]: [] }); p = openProgress(legs, book, state, []); }  // start over
+    if (!p.remaining.length) p = openProgress(legs, book, state, []);  // start over
     const leg = p.remaining[0];
     const url = leg && legLink(leg, state);
     if (!url) return;
     window.open(url, "_blank", "noopener");
-    setOpened({ ...opened, [book]: [...(opened[book] ?? []).filter((id) => p.direct.some((l) => l.id === id)), leg.id] });
+    const done = [...(p.done ? opened[book] ?? [] : []).filter((id) => p.direct.some((l) => l.id === id)), leg.id];
+    setOpened({ ...opened, [book]: done });
+    setPlaceMsg(done.length < p.direct.length ? `Added ${done.length} of ${p.direct.length} at ${book}. Click again for the next leg.`
+      : `All ${p.direct.length} legs opened at ${book}. Check the slip there before placing.`);
+  };
+  const groups = groupByBook(legs);
+  // "Place bet": every linked leg in one tab where the book's multi-selection link is known, otherwise one leg per click
+  const placeButton = (book: string) => {
+    const prog = openProgress(legs, book, state, opened[book] ?? []);
+    if (!prog.direct.length) return null;
+    const label = <><BookBadge book={book} size={20} />{groups.length > 1 ? `Place at ${book}` : "Place bet"}</>;
+    const combine = combineFor(book);
+    // a real link (not window.open), so phones hand it to the sportsbook app
+    if (combine) return (
+      <a key={book} className="primary" href={combine.url} target="_blank" rel="noopener noreferrer"
+        onClick={() => setPlaceMsg(`Opened ${book} with ${combine.count} ${combine.count === 1 ? "leg" : "legs"}. If any are missing from the slip there, add them with each leg's button.`)}>
+        {label} ↗
+      </a>
+    );
+    const step = prog.direct.length > 1 && prog.remaining.length ? ` · leg ${prog.done + 1} of ${prog.direct.length}` : "";
+    return <button key={book} className="primary" onClick={() => openNext(book)}>{label}{step} ↗</button>;
   };
 
   // legs with no betslip link at all (links only come with a game's alternate-lines fetch); one fetch per game covers them
@@ -109,10 +141,11 @@ export default function BetSlip() {
             <h2>Betslip</h2>
             {!legs.length && <p className="mut">Nothing here yet. Open a player and tap + on a line to add it.</p>}
 
-            {legs.length > 0 && (
-              <label className="statebox">Your state <small className="mut">(some books need it for links)</small>
-                <input value={state} maxLength={2} placeholder="e.g. NJ" onChange={(e) => setState(e.target.value.toUpperCase())} />
-              </label>
+            {needsState && (
+              <p className="mut slip-where">
+                {locating ? "Finding your state…" : state ? <>Links set for <b>{state}</b>{locError && " (last known)"}</> : null}
+                {locError && !locating && <>{state ? " · " : ""}{locError} <button className="link" onClick={locate}>Try again</button></>}
+              </p>
             )}
 
             {legs.length > 1 && coverage.length > 0 && (
@@ -128,8 +161,7 @@ export default function BetSlip() {
 
             {missing.length > 0 && (
               <section className="suggest">
-                <b>{missing.length} {missing.length === 1 ? "leg has" : "legs have"} no betslip link yet.</b>
-                <p className="mut">Without one, "Add all" can't add {missing.length === 1 ? "it" : "them"} to the sportsbook slip.</p>
+                <p><b>{missing.length} {missing.length === 1 ? "leg has" : "legs have"} no betslip link yet.</b></p>
                 {hasKey ? (
                   <button className="primary" disabled={linking === "Fetching links…"} onClick={getLinks}>
                     {linking === "Fetching links…" ? "Fetching…" : `Get links (~${missingGames.length * 2} credits)`}
@@ -170,39 +202,18 @@ export default function BetSlip() {
               </section>
             )}
 
-            {groupByBook(legs).map(([book, ls]) => {
+            {groups.map(([book, ls]) => {
               const stake = stakeFor(book);
-              const prog = openProgress(legs, book, state, opened[book] ?? []);
-              const combine = combineFor(book);
+              const prog = openProgress(legs, book, state, []);
               const p = parlay(ls, stake);
               return (
                 <section className="slip-group" key={book}>
                   <div className="slip-book">
-                    <b>{book}</b><span className="mut">{ls.length} {ls.length === 1 ? "selection" : "selections"}</span>
-                    {combine && (
-                      <a className="link strong" href={combine.url} target="_blank" rel="noopener noreferrer"
-                        onClick={() => noteCombined(book, combine.count)}
-                        title="Opens one tab with every linked leg added to the slip. A real link, so phones can hand it to the sportsbook app.">
-                        Open all in one tab ↗
-                      </a>
-                    )}
-                    {prog.direct.length > 0 && (
-                      <button className="link" onClick={() => openNext(book)}>
-                        {prog.remaining.length === 0 ? "All opened · start over" :
-                          prog.direct.length === 1 ? "Add at book ↗" : combine ? `One at a time (${prog.done + 1} of ${prog.direct.length}) ↗` : `Add leg ${prog.done + 1} of ${prog.direct.length} ↗`}
-                      </button>
-                    )}
+                    <BookBadge book={book} size={28} /><b>{book}</b><span className="mut">{ls.length} {ls.length === 1 ? "selection" : "selections"}</span>
                   </div>
-                  {combinedMsg[book] && <p className="mut open-msg">{combinedMsg[book]}</p>}
-                  {prog.direct.length > 1 && (prog.done > 0 || !combine) && (
-                    <p className="mut open-msg">
-                      {prog.done === 0 ? "Your browser opens one new tab per click, so click once per leg."
-                        : prog.remaining.length ? `Opened ${prog.done} of ${prog.direct.length}. Click again for the next leg.`
-                        : `Opened all ${prog.direct.length}. Check your slip at ${book} before placing.`}
-                    </p>
-                  )}
                   {prog.skipped > 0 && (
-                    <p className="warn open-msg">{prog.skipped} {prog.skipped === 1 ? "leg has" : "legs have"} no betslip link yet and will be skipped (see "Get links" above).</p>
+                    <p className="warn open-msg">{prog.skipped} {prog.skipped === 1 ? "leg" : "legs"} can't be added: {ls.some((l) => linkStatus(l, state) === "needs-state")
+                      ? "needs your state (allow location above)." : "no betslip link yet."}</p>
                   )}
                   {ls.map((l) => {
                     const url = legLink(l, state);
@@ -210,12 +221,11 @@ export default function BetSlip() {
                     return (
                       <div className="slip-leg" key={l.id}>
                         <div>
-                          <b>{l.name}</b> <span className="mut">{l.team}</span><br />
+                          <b>{l.name}</b> <span className="mut">{l.team} {l.home ? "vs" : "@"} {l.opp}</span><br />
                           <span className={l.side === "Over" ? "over" : "under"}>{playLabel(l.kind, l.side, l.line)}</span> {!isYesNo(l.kind) && KIND_SHORT[l.kind]}
-                          {l.alt && <span className="alt">alt</span>}
-                          <span className="mut"> {l.home ? "vs" : "@"} {l.opp}</span><br />
+                          {l.alt && <span className="alt">alt</span>}<br />
                           <label className="bookpick">
-                            <span className="mut">Book</span>
+                            <BookBadge book={l.book} size={20} />
                             <select value={l.book} aria-label={`Book for ${l.name} ${playLabel(l.kind, l.side, l.line)}`}
                               onChange={(e) => { const o = options[l.id]?.find((x) => x.book === e.target.value); if (o) replace(l.id, rebook(l, o)); }}>
                               {!options[l.id]?.some((o) => o.book === l.book) && <option value={l.book}>{l.book} {americanOdds(l.odds)}</option>}
@@ -227,7 +237,8 @@ export default function BetSlip() {
                           <span className="mut">{pct(l.prob, 0)} model · <span className={l.ev > 0 ? "pos" : ""}>{signedPct(l.ev)} EV</span> · to win ${toWin(l.odds, stake).toFixed(2)}</span>
                         </div>
                         <div className="slip-actions">
-                          {url && <a href={url} target="_blank" rel="noopener noreferrer" className="btn"
+                          {/* a book's only leg goes through "Place bet" below */}
+                          {url && !(ls.length === 1 && direct) && <a href={url} target="_blank" rel="noopener noreferrer" className="btn"
                             title={direct ? "Adds this selection to your betslip at the sportsbook" : "Opens the sportsbook's page (no betslip link for this selection yet)"}>
                             {direct ? "Add at book ↗" : "Open book ↗"}
                           </a>}
@@ -258,7 +269,7 @@ export default function BetSlip() {
                     );
                   })()}
                   {ls.length > 1 && sameGame(ls) && (
-                    <p className="warn">Some legs are in the same game. The hit chance counts how those legs move together (fitted on past games), but books price same-game parlays their own way (usually below the legs multiplied) or reject some combinations, so the payout above is only a guide: take it if the book's same-game price beats the fair odds.</p>
+                    <p className="warn">Same-game legs: books price these their own way, so the payout is a guide. Take it if the book's price beats the fair odds.</p>
                   )}
                 </section>
               );
@@ -266,28 +277,17 @@ export default function BetSlip() {
 
             {legs.length > 0 && (
               <div className="slip-footer">
-                <button className="primary" disabled={!links} onClick={() => copyText(links, "link")}
-                  title={links ? "Copies the same link as \"Open all in one tab\" so you can open it on another device" : "No betslip links to copy yet"}>
+                {groups.map(([book]) => placeButton(book))}
+                <button className="primary outline" disabled={!links} onClick={() => copyText(links, "link")}
+                  title={links ? "Copies the sportsbook link so you can open the slip on another device" : "No betslip links to copy yet"}>
                   {copied === "link" ? "Link copied" : "Copy slip link"}
                 </button>
-                <button className="primary outline" disabled={!shareBase}
-                  title={shareBase ? "Copies a link that reopens this whole slip in this app on another device" : "This app's network address isn't available"}
-                  onClick={() => shareBase && copyText(shareUrl(shareBase, legs, state), "share")}>
-                  {copied === "share" ? "Phone link copied" : "Copy phone link"}
-                </button>
-                <button className="link" onClick={() => copyText(slipText(legs), "text")}>{copied === "text" ? "Copied" : "Copy as text"}</button>
-                <button className="link" onClick={clear}>Clear all</button>
+                <button className="primary outline" onClick={clear}>Clear all</button>
               </div>
             )}
-            {legs.length > 0 && (
-              <p className="mut slip-disclaimer">
-                <b>Phone link:</b> {shareBase ? <>opens this slip in the app at {shareBase}, so your phone must be on the same Wi-Fi and the app started with <code>./run.sh lan</code>. Then tap each leg's button (or "Open all in one tab") to hand it to the sportsbook app. Pasting a sportsbook link into a browser's address bar won't open the app; tapping a link on a page or in Messages does.</> : <>unavailable: the app couldn't find its network address.</>}
-              </p>
-            )}
+            {placeMsg && <p className="mut slip-place-msg" aria-live="polite">{placeMsg}</p>}
             <p className="mut slip-disclaimer">
-              This app doesn't place bets. "Add at book" opens the sportsbook with the selection added to its betslip
-              when the book supports that; you sign in and confirm the bet there. Check the line and price before you
-              place it. Odds move, and not every book accepts every combination.
+              This app doesn't place bets: you sign in and confirm at the sportsbook. Check the line and price first.
             </p>
           </aside>
         </div>

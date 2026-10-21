@@ -184,7 +184,7 @@ export function combinedLink(book: string, legs: CombinableLeg[], phone = isPhon
 }
 
 /**
- * What "Copy slip" puts on the clipboard: the same link "Open all in one tab" opens, per book.
+ * What "Copy slip" puts on the clipboard: the same link "Place bet" opens, per book.
  * One book with one link copies the bare URL (easy to paste into a message); several books are labelled.
  * A book with no combined format falls back to each leg's own link, one per line.
  */
