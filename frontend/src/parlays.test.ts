@@ -272,6 +272,14 @@ describe("threes ladder", () => {
     expect(p.legs.every((l) => l.kind === "threes" && l.prob >= 0.7)).toBe(true);
     expect(p.decimal).toBeGreaterThanOrEqual(2);
   });
+  it("uses short-priced 1+ rungs the other ladders cut, with up to six legs", () => {
+    const es = ["a", "b", "c", "d", "e", "f", "g"].map((id) => t(id, rung(0.5, -600, 0.9), rung(1.5, -180, 0.66)));
+    const [p] = buildThreesLadder(es, "DraftKings");
+    expect(p.legs.length).toBeGreaterThan(4);
+    expect(p.legs.length).toBeLessThanOrEqual(6);
+    expect(p.legs.every((l) => l.line === 0.5)).toBe(true);
+    expect(buildThreesLadder([t("a", rung(0.5, -1500, 0.97)), t("b", rung(0.5, -1500, 0.97))], "DraftKings")).toEqual([]);
+  });
   it("skips a combination already shown", () => {
     const es = [t("a", rung(0.5, -250, 0.8)), t("b", rung(0.5, -250, 0.8)), t("c", rung(0.5, -250, 0.8))];
     const [p] = buildThreesLadder(es, "DraftKings");

@@ -166,11 +166,11 @@ export function ladderTargets(picks: Pick[], n = LADDER_PLAYERS, perTeam = LADDE
 
 /** Likely overs at this book for one player, one per line. Only rungs with a usable betslip link count, so every ladder leg can be added at the book
  *  (main lines have none, and some books publish no links or templates the slip can't fill). */
-export function ladderRungs(base: Pick, ladder: Ladder | undefined, book: string): ParlayLeg[] {
+export function ladderRungs(base: Pick, ladder: Ladder | undefined, book: string, minOdds = LADDER_MIN_ODDS): ParlayLeg[] {
   const byLine = new Map<number, ParlayLeg>();
   for (const r of ladder?.quotes ?? []) {
     const q = r.over;
-    if (r.book !== book || !q || q.odds < LADDER_MIN_ODDS || linkStatus({ link: q.link }, "xx") !== "direct") continue;
+    if (r.book !== book || !q || q.odds < minOdds || linkStatus({ link: q.link }, "xx") !== "direct") continue;
     const dec = toDecimal(q.odds);
     const prob = (1 - LADDER_MARKET_WEIGHT) * q.prob + LADDER_MARKET_WEIGHT / dec;
     if (prob < LADDER_MIN_PROB) continue;
@@ -188,7 +188,8 @@ type LadderEntry = { base: Pick; ladder: Ladder | undefined };
 /** For each band, the likeliest combination of 2-4 different players' rungs (one rung each) whose combined price lands in it.
  *  With `corr`, "likeliest" counts same-game correlation: a player's rungs share a market and side, so the players'
  *  correlations are looked up once and every candidate is priced from that matrix. */
-function searchLadders(players: ParlayLeg[][], bands: Band[], valid: (legs: ParlayLeg[]) => boolean = () => true, corr?: CorrTable): (ParlayLeg[] | null)[] {
+function searchLadders(players: ParlayLeg[][], bands: Band[], valid: (legs: ParlayLeg[]) => boolean = () => true, corr?: CorrTable,
+  maxLegs = LADDER_MAX_LEGS): (ParlayLeg[] | null)[] {
   const best: (ParlayLeg[] | null)[] = bands.map(() => null);
   const bestProb = bands.map(() => 0);
   const top = Math.max(...bands.map((b) => b.hi));
@@ -208,7 +209,7 @@ function searchLadders(players: ParlayLeg[][], bands: Band[], valid: (legs: Parl
         if (p > bestProb[b]) { best[b] = [...chosen]; bestProb[b] = p; }
       }
     }
-    if (chosen.length === LADDER_MAX_LEGS) return;
+    if (chosen.length === maxLegs) return;
     for (let i = from; i < players.length; i++) {
       for (const leg of players[i]) {
         const next = dec * toDecimal(leg.odds);
@@ -252,14 +253,18 @@ export function buildLadderParlays(entries: LadderEntry[], book: string, corr?: 
 export const THREES_MIN_PROB = 0.7;
 /** Players whose threes ladder is pulled for it. */
 export const THREES_PLAYERS = 12;
+/** Shortest price on a threes rung: 1+ made is usually -500 to -1000, and 2+ rarely clears THREES_MIN_PROB, so the usual -400 floor left nothing. */
+export const THREES_MIN_ODDS = -1000;
+/** Short-priced rungs need more legs to reach +100. */
+export const THREES_MAX_LEGS = 6;
 
 /** The likeliest +100 to +300 combination of different players' threes overs at this book, each rung at least THREES_MIN_PROB.
  *  Skipped when it repeats a tile in `existing`. */
 export function buildThreesLadder(entries: LadderEntry[], book: string, existing: Parlay[] = [], corr?: CorrTable): Parlay[] {
   const players = entries.filter((e) => e.base.kind === "threes")
-    .map((e) => ladderRungs(e.base, e.ladder, book).filter((r) => r.prob >= THREES_MIN_PROB)).filter((r) => r.length);
+    .map((e) => ladderRungs(e.base, e.ladder, book, THREES_MIN_ODDS).filter((r) => r.prob >= THREES_MIN_PROB)).filter((r) => r.length);
   const band: Band = { key: "", title: "", lo: LADDER_BANDS[0].lo, hi: LADDER_BANDS[LADDER_BANDS.length - 1].hi };
-  const [legs] = searchLadders(players, [band], undefined, corr);
+  const [legs] = searchLadders(players, [band], undefined, corr, THREES_MAX_LEGS);
   if (!legs) return [];
   const sig = legs.map(pickKey).sort().join("&");
   if (existing.some((p) => p.legs.map(pickKey).sort().join("&") === sig)) return [];
