@@ -3,7 +3,7 @@ import { isYesNo, playLabel, KIND_SHORT, MARKET_TABS, NBA_MARKET_TABS, SUB_LABEL
 import { getLeague } from "../league";
 
 const ICON: Record<Kind | "all", string> = { all: "📊", rush: "🏃", rec: "🙌", recs: "🧤", pass: "🎯", rr: "⚡", td: "🏈", ptd: "🎯", lng: "🚀", rlng: "💨", ftd: "🥇",
-  pts: "🏀", reb: "🔁", ast: "🤝", threes: "🎯", pra: "➕", pr: "➕", pa: "➕" };
+  pts: "🏀", reb: "🔁", ast: "🤝", threes: "🎯", pra: "➕", pr: "➕", pa: "➕", stl: "🖐️", blk: "🧱" };
 
 interface Props {
   filters: Filters;
@@ -15,7 +15,7 @@ interface Props {
 
 export default function Controls({ filters, onChange, games, books, showPickControls }: Props) {
   const set = (patch: Partial<Filters>) => onChange({ ...filters, ...patch });
-  const group = groupOf(filters.kind);   // receiving, passing and NBA combo markets sit under one sub tab each
+  const group = groupOf(filters.kind);   // receiving, passing, NBA combo and defense markets sit under one sub tab each
   const nba = getLeague() === "nba";
   return (
     <section className="controls" aria-label="Filters">

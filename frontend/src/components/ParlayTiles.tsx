@@ -85,7 +85,7 @@ interface Props {
 /** Recommended parlays at one sportsbook: tiles of high-probability plays, then ladder-style tiles, each with the combined odds. */
 export default function ParlayTiles({ books, book, onBook, games, selectedGames, onGames, parlays, tdParlays, ladders, altProps, laddersLoading }: Props) {
   const nba = getLeague() === "nba";
-  const ladderMarkets = nba ? "points, rebounds, assists, threes and combos" : "rushing and receiving";
+  const ladderMarkets = nba ? "points, rebounds, assists, threes, combos, steals and blocks" : "rushing and receiving";
   return (
     <>
       {onBook && <div className="seg parlay-books" role="group" aria-label="Sportsbook">

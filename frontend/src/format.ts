@@ -3,13 +3,13 @@ import type { GameWeather, Kind } from "./api";
 export const KIND_LABEL: Record<Kind, string> = {
   rush: "Rushing yds", rec: "Receiving yds", pass: "Passing yds", rr: "Rush+Rec yds", td: "Anytime TD", recs: "Receptions",
   ptd: "Passing TDs", lng: "Longest reception", rlng: "Longest rush", ftd: "First TD scorer", pts: "Points", reb: "Rebounds", ast: "Assists", threes: "3-pointers made",
-  pra: "Pts+Reb+Ast", pr: "Pts+Reb", pa: "Pts+Ast",
+  pra: "Pts+Reb+Ast", pr: "Pts+Reb", pa: "Pts+Ast", stl: "Steals", blk: "Blocks",
 };
 export const KIND_SHORT: Record<Kind, string> = { rush: "Rushing", rec: "Receiving", pass: "Passing", rr: "Rush+Rec", td: "Anytime TD", recs: "Receptions",
   ptd: "Passing TDs", lng: "Longest rec", rlng: "Longest rush", ftd: "First TD", pts: "Points", reb: "Rebounds", ast: "Assists", threes: "Threes",
-  pra: "PRA", pr: "PR", pa: "PA" };
+  pra: "PRA", pr: "PR", pa: "PA", stl: "Steals", blk: "Blocks" };
 /** The NBA's markets: projected minutes x a per-minute rate. */
-export const NBA_KINDS = ["pts", "reb", "ast", "threes", "pra", "pr", "pa"] as const;
+export const NBA_KINDS = ["pts", "reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk"] as const;
 export const isNba = (kind: Kind) => (NBA_KINDS as readonly Kind[]).includes(kind);
 /** Touchdown markets: a lone "Yes" price per player (stored as an over 0.5), and mu is the chance. */
 export const isYesNo = (kind?: Kind | "all") => kind === "td" || kind === "ftd";
@@ -26,10 +26,12 @@ export const PROJ_GROUPS: MarketGroup[] = [
 export const MARKET_TABS: (Kind | "all" | MarketGroup)[] = ["all", ...PROJ_GROUPS.slice(0, 3), "rr", PROJ_GROUPS[3]];
 /** The NBA's combo markets, under one tab. */
 export const NBA_COMBOS: MarketGroup = { label: "Combos", icon: "➕", kinds: ["pra", "pr", "pa"] };
+/** Steals and blocks, under one tab. */
+export const NBA_DEFENSE: MarketGroup = { label: "Defense", icon: "🛡️", kinds: ["stl", "blk"] };
 /** The NBA market picker's top row. */
-export const NBA_MARKET_TABS: (Kind | "all" | MarketGroup)[] = ["all", "pts", "reb", "ast", "threes", NBA_COMBOS];
+export const NBA_MARKET_TABS: (Kind | "all" | MarketGroup)[] = ["all", "pts", "reb", "ast", "threes", NBA_COMBOS, NBA_DEFENSE];
 /** The group a market belongs to, if any. */
-export const groupOf = (kind: Kind | "all") => [...PROJ_GROUPS, NBA_COMBOS].find((g) => (g.kinds as string[]).includes(kind));
+export const groupOf = (kind: Kind | "all") => [...PROJ_GROUPS, NBA_COMBOS, NBA_DEFENSE].find((g) => (g.kinds as string[]).includes(kind));
 /** A market's name inside its group's sub tab. */
 export const SUB_LABEL: Partial<Record<Kind, string>> = { rush: "Yards", rlng: "Longest", rec: "Yards", recs: "Receptions", lng: "Longest",
   pass: "Yards", ptd: "TDs", td: "Anytime", ftd: "First TD" };
@@ -40,7 +42,7 @@ export const marketLabel = (k: string) => (k === "ml" ? "Moneyline" : KIND_LABEL
 export const isCount = (kind: Kind) => kind === "recs";
 /** Markets counted in small whole numbers (catches, passing TDs) show one decimal; yardage none. */
 export const decimals = (kind: Kind) => (kind === "recs" || kind === "ptd" || isNba(kind) ? 1 : 0);
-export const unit = (kind: Kind) => (kind === "threes" ? "3PM" : isNba(kind) ? (kind.startsWith("p") && kind !== "pts" ? kind.toUpperCase() : kind) : isCount(kind) ? "rec" : kind === "ptd" ? "TD" : "yds");
+export const unit = (kind: Kind) => (kind === "threes" ? "3PM" : kind === "stl" || kind === "blk" ? kind.toUpperCase() : isNba(kind) ? (kind.startsWith("p") && kind !== "pts" ? kind.toUpperCase() : kind) : isCount(kind) ? "rec" : kind === "ptd" ? "TD" : "yds");
 /** What a projection's volume is: carries / targets / attempts, for longest reception the expected catches, for the NBA minutes. */
 export const volLabel = (kind: Kind) => (isNba(kind) ? "Minutes" : isCount(kind) ? "Targets" : kind === "ptd" ? "Attempts" : kind === "lng" ? "Catches" : kind === "rlng" ? "Carries" : "Volume");
 /** A projection's efficiency, labelled: catch rate, TD rate, yards per catch, yards per attempt, or (NBA) per 36 minutes. */

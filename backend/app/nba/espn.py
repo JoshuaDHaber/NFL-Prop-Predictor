@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
@@ -27,7 +28,11 @@ ET = ZoneInfo("America/New_York")
 GAME_TYPES = {2, 3, 5}
 NBA_TEAMS = set(TEAM_NAMES)   # ESPN abbreviations of the 30 teams
 LOG_COLUMNS = ["player_id", "event_id", "season", "date", "team", "opp", "home", "min", "pts", "reb", "ast", "threes",
-               "home_score", "away_score"]
+               "stl", "blk", "home_score", "away_score"]
+# parsed game logs live in this folder; renaming it (and listing the old name below) re-fetches every season once,
+# for a column added to LOG_COLUMNS (v2: steals and blocks)
+GAMELOG_DIR = "gamelogs_v2"
+OLD_GAMELOG_DIRS = ("gamelogs",)
 _session = requests.Session()
 _session.headers["User-Agent"] = "Mozilla/5.0 (props model)"
 
@@ -70,10 +75,16 @@ def get_json(url: str, max_age_hours: Optional[float] = 6) -> dict:
 
 def prune_raw_gamelogs() -> int:
     """Delete raw ESPN gamelog responses cached by older versions (~400 KB each, 550+ MB in all: they filled the
-    500 MB volume and SQLite then failed with "disk I/O error"). Game logs are now cached as parsed rows."""
+    500 MB volume and SQLite then failed with "disk I/O error"). Game logs are now cached as parsed rows. Also drops
+    the parsed rows of older cache versions (OLD_GAMELOG_DIRS), which lack columns added since."""
     removed = 0
     if not os.path.isdir(config.NBA_CACHE):
         return 0
+    for d in OLD_GAMELOG_DIRS:
+        path = os.path.join(config.NBA_CACHE, d)
+        if os.path.isdir(path):
+            shutil.rmtree(path, ignore_errors=True)
+            removed += 1
     for e in os.scandir(config.NBA_CACHE):
         if e.is_file() and e.name.endswith(".json"):
             with open(e.path, "rb") as f:
@@ -199,6 +210,8 @@ def parse_gamelog(js: dict, player_id: str) -> list[dict]:
                 try:
                     vals = {n: float(stats[idx[n]]) for n in need}
                     vals["threes"] = float(stats[idx[threes]].split("-")[0]) if threes in idx else float("nan")
+                    for n in ("steals", "blocks"):
+                        vals[n] = float(stats[idx[n]]) if n in idx else float("nan")
                 except ValueError:
                     continue
                 home = info.get("atVs") == "vs"
@@ -207,6 +220,7 @@ def parse_gamelog(js: dict, player_id: str) -> list[dict]:
                                  date=at.strftime("%Y-%m-%d"), team=(info.get("team") or {}).get("abbreviation"),
                                  opp=(info.get("opponent") or {}).get("abbreviation"), home=home,
                                  min=vals["minutes"], pts=vals["points"], reb=vals["totalRebounds"], ast=vals["assists"], threes=vals["threes"],
+                                 stl=vals["steals"], blk=vals["blocks"],
                                  home_score=_num(info.get("homeTeamScore")), away_score=_num(info.get("awayTeamScore"))))
     return rows
 
@@ -222,7 +236,7 @@ def gamelogs(player_ids, seasons, current: int, log=print) -> pd.DataFrame:
     """Every listed player's games in the given seasons (ESPN season years). Finished seasons are cached for good.
     Only the parsed rows are kept on disk (a few KB per player-season, vs ~400 KB for ESPN's raw response)."""
     jobs = [(pid, s) for pid in player_ids for s in seasons]
-    folder = os.path.join(config.NBA_CACHE, "gamelogs")
+    folder = os.path.join(config.NBA_CACHE, GAMELOG_DIR)
     os.makedirs(folder, exist_ok=True)
 
     def one(job):

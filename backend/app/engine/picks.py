@@ -17,8 +17,9 @@ PICK_COLUMNS = [
 ]
 # a quote this far from the consensus line (or 30% of it) is an alternate or stale line; receptions are counted in catches,
 # passing TDs in touchdowns (lines step 0.5 / 1.5 / 2.5, so a whole TD off the consensus is another line)
-# NBA from pts on (threes step 0.5 / 1.5 / 2.5, like passing TDs)
-STALE_MIN_GAP = {"recs": 1.5, "ptd": 0.9, "pts": 4.0, "reb": 2.0, "ast": 2.0, "threes": 0.9, "pra": 6.0, "pr": 5.0, "pa": 5.0}
+# NBA from pts on (threes, steals and blocks step 0.5 / 1.5 / 2.5, like passing TDs)
+STALE_MIN_GAP = {"recs": 1.5, "ptd": 0.9, "pts": 4.0, "reb": 2.0, "ast": 2.0, "threes": 0.9, "pra": 6.0, "pr": 5.0, "pa": 5.0,
+                 "stl": 0.9, "blk": 0.9}
 
 
 def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 0.35, only_book: str = None,
@@ -89,9 +90,9 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
             ev = prob * (dec - 1) - (1 - prob)
             # yardage: projection minus line in yards; TD: model minus market chance in percentage points
             edge = (p_side - mk) * 100 if is_td else (p.mu - r.line) * (1 if side == "Over" else -1)
-            # passing TDs (and NBA threes) sit at 0.5 / 1.5 / 2.5, where projection-over-line ratios swing wildly, so like anytime TD they
+            # passing TDs (and NBA threes, steals, blocks) sit at 0.5 / 1.5 / 2.5, where projection-over-line ratios swing wildly, so like anytime TD they
             # compare chances instead
-            by_chance = is_td or r.market in ("ptd", "threes")
+            by_chance = is_td or r.market in ("ptd", "threes", "stl", "blk")
             gap = (not (0.6 <= p_side / max(mk, 1e-6) <= 1.67)) if by_chance else not (0.6 <= p.mu / max(c.line, 0.5) <= 1.67)
             out_ = getattr(p, "teammate_out", "") or ""
             out_ = "" if pd.isna(out_) else str(out_)
