@@ -148,11 +148,11 @@ export const LADDER_BANDS = [
  *  chance, as on the Best props board, and flagged plays are left out. Ranking by the model alone favoured exactly the plays
  *  the books disagree with most, usually a role change the model hasn't caught (Troy Franklin: 63% to the model, 52% to the market).
  *  At most `perTeam` per team, so one team's players can't crowd the other side of a game out of the ladders. */
-export function ladderTargets(picks: Pick[], n = LADDER_PLAYERS, perTeam = LADDER_PLAYERS_PER_TEAM): Pick[] {
+export function ladderTargets(picks: Pick[], n = LADDER_PLAYERS, perTeam = LADDER_PLAYERS_PER_TEAM, kinds: Kind[] = ladderKinds()): Pick[] {
   const seen = new Set<string>();
   const teams = new Map<string, number>();
   const out: Pick[] = [];
-  const overs = picks.filter((p) => p.side === "Over" && isLadderKind(p.kind) && !p.flagged);
+  const overs = picks.filter((p) => p.side === "Over" && kinds.includes(p.kind) && !p.flagged);
   for (const p of overs.sort((a, b) => b.prob - a.prob)) {
     const team = `${p.game_id}|${p.team}`;
     if (seen.has(p.player_id) || (teams.get(team) ?? 0) >= perTeam) continue;
@@ -245,6 +245,26 @@ export function buildLadderParlays(entries: LadderEntry[], book: string, corr?: 
     out.push({ key: band.key, title: band.title, blurb: ladderBlurb(), legs, ...priceParlay(legs, corr) });
   });
   return out;
+}
+
+// ---------- NBA threes ladder: only made-threes overs, each rung a likely hit (mostly the 1+ and 2+ alternates) ----------
+/** Lowest blended chance for a rung in the threes ladder: higher than other ladders, since threes are streaky. */
+export const THREES_MIN_PROB = 0.7;
+/** Players whose threes ladder is pulled for it. */
+export const THREES_PLAYERS = 12;
+
+/** The likeliest +100 to +300 combination of different players' threes overs at this book, each rung at least THREES_MIN_PROB.
+ *  Skipped when it repeats a tile in `existing`. */
+export function buildThreesLadder(entries: LadderEntry[], book: string, existing: Parlay[] = [], corr?: CorrTable): Parlay[] {
+  const players = entries.filter((e) => e.base.kind === "threes")
+    .map((e) => ladderRungs(e.base, e.ladder, book).filter((r) => r.prob >= THREES_MIN_PROB)).filter((r) => r.length);
+  const band: Band = { key: "", title: "", lo: LADDER_BANDS[0].lo, hi: LADDER_BANDS[LADDER_BANDS.length - 1].hi };
+  const [legs] = searchLadders(players, [band], undefined, corr);
+  if (!legs) return [];
+  const sig = legs.map(pickKey).sort().join("&");
+  if (existing.some((p) => p.legs.map(pickKey).sort().join("&") === sig)) return [];
+  return [{ key: "threes", title: "Threes ladder", blurb: "High-probability alternate threes overs, mostly 1+ and 2+ made, stacked to +100 to +300.",
+    legs, ...priceParlay(legs, corr) }];
 }
 
 /** "2026_05_TB_DAL" -> "TB @ DAL" */

@@ -2,7 +2,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api, type Filters } from "./api";
 import { getLeague } from "./league";
-import { buildBalancedLadders, buildLadderParlays, buildTdParlays, defaultBook, filterGames, ladderProps, ladderTargets, parlaysByBook } from "./parlays";
+import { buildBalancedLadders, buildLadderParlays, buildTdParlays, buildThreesLadder, defaultBook, filterGames, ladderProps, ladderTargets, LADDER_PLAYERS_PER_TEAM, parlaysByBook, THREES_PLAYERS } from "./parlays";
 
 // Parlays rank by win probability, not EV, so they price every play (any EV) at the default market weight
 export const PARLAY_FILTERS: Filters = { kind: "all", side: "all", game: "all", book: "all", q: "", minEv: -1, marketWeight: 0.35, flagged: false };
@@ -48,6 +48,16 @@ export function useParlayBoard(books: string[], chosenGames: string[], enabled: 
   // with games chosen, one more ladder per game that uses both teams
   const balancedLadders = useMemo(() => activeBook ? buildBalancedLadders(ladderEntries, activeBook, chosenGames.slice(0, 4), ladderParlays, corr) : [],
     [activeBook, ladderEntries, chosenGames, ladderParlays, corr]);
+  // NBA: a threes-only ladder from the likeliest threes overs (their ladders share the cache with the ones above)
+  const threesTargets = useMemo(() => (!hasTd && activeBook ? ladderTargets(gamePicks[activeBook] ?? [], THREES_PLAYERS, LADDER_PLAYERS_PER_TEAM, ["threes"]) : []),
+    [hasTd, activeBook, gamePicks]);
+  const threesQueries = useQueries({
+    queries: threesTargets.map((t) => ({ queryKey: ["ladder", t.player_id, t.kind, 0], queryFn: () => api.lines(t.player_id, t.kind, 0), enabled })),
+  });
+  const threesStamp = threesQueries.map((q) => q.dataUpdatedAt).join();
+  const threesLadder = useMemo(() => activeBook ? buildThreesLadder(threesTargets.map((base, i) => ({ base, ladder: threesQueries[i]?.data })), activeBook, ladderParlays, corr) : [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeBook, threesTargets, threesStamp, ladderParlays, corr]);
   const tdStamp = tdQueries.map((q) => q.dataUpdatedAt).join();
   const tdParlays = useMemo(() => {
     const i = books.indexOf(activeBook ?? "");
@@ -55,10 +65,10 @@ export function useParlayBoard(books: string[], chosenGames: string[], enabled: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBook, books, chosenGames, tdStamp, corr]);
   const altProps = useMemo(() => activeBook ? ladderProps(ladderEntries, activeBook) : [], [activeBook, ladderEntries]);
-  const ladders = useMemo(() => [...ladderParlays, ...balancedLadders], [ladderParlays, balancedLadders]);
+  const ladders = useMemo(() => [...ladderParlays, ...threesLadder, ...balancedLadders], [ladderParlays, threesLadder, balancedLadders]);
 
   return {
     loading, book: activeBook, setBook, parlays: (activeBook && byBook[activeBook]) || [], tdParlays, ladders, altProps,
-    laddersLoading: ladderQueries.some((q) => q.isLoading),
+    laddersLoading: ladderQueries.some((q) => q.isLoading) || threesQueries.some((q) => q.isLoading),
   };
 }

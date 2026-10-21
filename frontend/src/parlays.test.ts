@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Ladder, LadderRow, Pick } from "./api";
-import { bestBook, buildBalancedLadders, buildTdParlays, buildLadderParlays, ladderProps, candidates, defaultBook, filterGames, ladderRungs, ladderTargets, parlaysByBook, pickToLeg, priceParlay, recommendParlays } from "./parlays";
+import { bestBook, buildBalancedLadders, buildTdParlays, buildThreesLadder, buildLadderParlays, ladderProps, candidates, defaultBook, filterGames, ladderRungs, ladderTargets, parlaysByBook, pickToLeg, priceParlay, recommendParlays } from "./parlays";
 import { setLeague } from "./league";
 import { toAmerican, toDecimal } from "./slip";
 
@@ -257,6 +257,25 @@ describe("balanced ladders", () => {
     expect(buildBalancedLadders(entries, "DraftKings", [G2])).toEqual([]);
     const [both] = buildBalancedLadders(entries, "DraftKings", [G1]);
     expect(buildBalancedLadders(entries, "DraftKings", [G1], [both])).toEqual([]);
+  });
+});
+
+describe("threes ladder", () => {
+  const t = (id: string, ...quotes: LadderRow[]) => ({ base: over({ player_id: id, name: id, kind: "threes" }), ladder: ladder(...quotes) });
+  it("stacks only likely threes rungs into one +100 to +300 tile", () => {
+    const es = [t("a", rung(0.5, -250, 0.8), rung(2.5, 120, 0.5)), t("b", rung(0.5, -250, 0.8)), t("c", rung(1.5, -250, 0.8)),
+      { base: over({ player_id: "d", name: "d" }), ladder: ladder(rung(10.5, -250, 0.9)) }];
+    const [p, ...rest] = buildThreesLadder(es, "DraftKings");
+    expect(rest).toEqual([]);
+    expect(p.key).toBe("threes");
+    expect(p.legs.map((l) => [l.player_id, l.line])).toEqual([["a", 0.5], ["b", 0.5], ["c", 1.5]]);
+    expect(p.legs.every((l) => l.kind === "threes" && l.prob >= 0.7)).toBe(true);
+    expect(p.decimal).toBeGreaterThanOrEqual(2);
+  });
+  it("skips a combination already shown", () => {
+    const es = [t("a", rung(0.5, -250, 0.8)), t("b", rung(0.5, -250, 0.8)), t("c", rung(0.5, -250, 0.8))];
+    const [p] = buildThreesLadder(es, "DraftKings");
+    expect(buildThreesLadder(es, "DraftKings", [p])).toEqual([]);
   });
 });
 
