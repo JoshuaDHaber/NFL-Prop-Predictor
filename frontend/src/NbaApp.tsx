@@ -98,7 +98,8 @@ export default function NbaApp() {
   const m = meta.data;
   const select = (id: string, kind: Kind) => setSelected({ id, kind });
   const tiles: Tile[] = tab === "picks"
-    ? [...(picks.data ?? [])].sort((a, b) => b.ev - a.ev).slice(0, 3).map((p) => ({
+    // by Kelly, not EV: EV makes a 1-point edge on a +2500 long shot look like the best play on the board
+    ? [...(picks.data ?? [])].sort((a, b) => b.kelly - a.kelly).slice(0, 3).map((p) => ({
       key: `${p.player_id}-${p.kind}-${p.side}`, label: KIND_LABEL[p.kind], name: p.name, meta: `${p.pos} ${p.team} ${matchup(p.opp, p.home)}`,
       value: <>{playLabel(p.kind, p.side, p.line)} <em>{signedPct(p.ev)} EV</em></>, caption: `${americanOdds(p.odds)} at ${p.book}`,
       onClick: () => select(p.player_id, p.kind),
