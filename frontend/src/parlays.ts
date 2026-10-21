@@ -248,28 +248,36 @@ export function buildLadderParlays(entries: LadderEntry[], book: string, corr?: 
   return out;
 }
 
-// ---------- NBA threes ladder: only made-threes overs, each rung a likely hit (mostly the 1+ and 2+ alternates) ----------
-/** Lowest blended chance for a rung in the threes ladder: higher than other ladders, since threes are streaky. */
-export const THREES_MIN_PROB = 0.7;
-/** Players whose threes ladder is pulled for it. */
+// ---------- NBA threes ladders: only made-threes overs, each rung a likely hit (mostly the 1+ and 2+ alternates) ----------
+/** Players whose threes ladder is pulled for them. */
 export const THREES_PLAYERS = 12;
-/** Shortest price on a threes rung: 1+ made is usually -500 to -1000, and 2+ rarely clears THREES_MIN_PROB, so the usual -400 floor left nothing. */
+/** Shortest price on a threes rung: 1+ made is usually -500 to -1000, so the usual -400 floor left nothing. */
 export const THREES_MIN_ODDS = -1000;
-/** Short-priced rungs need more legs to reach +100. */
-export const THREES_MAX_LEGS = 6;
+/** One tile per combined-price band. The cheap band keeps every rung at 70%+, which means many short-priced 1+ legs;
+ *  the dearer bands accept 2+ lines (usually 60-68%) so they reach the price in fewer legs. */
+export const THREES_BANDS = [
+  { key: "threes-1", title: "Threes ladder +100 to +150", lo: 2, hi: 2.5, minProb: 0.7, maxLegs: 6 },
+  { key: "threes-2", title: "Threes ladder +150 to +225", lo: 2.5, hi: 3.25, minProb: 0.65, maxLegs: 5 },
+  { key: "threes-3", title: "Threes ladder +225 to +300", lo: 3.25, hi: 4.0001, minProb: 0.6, maxLegs: 4 },
+];
 
-/** The likeliest +100 to +300 combination of different players' threes overs at this book, each rung at least THREES_MIN_PROB.
- *  Skipped when it repeats a tile in `existing`. */
-export function buildThreesLadder(entries: LadderEntry[], book: string, existing: Parlay[] = [], corr?: CorrTable): Parlay[] {
-  const players = entries.filter((e) => e.base.kind === "threes")
-    .map((e) => ladderRungs(e.base, e.ladder, book, THREES_MIN_ODDS).filter((r) => r.prob >= THREES_MIN_PROB)).filter((r) => r.length);
-  const band: Band = { key: "", title: "", lo: LADDER_BANDS[0].lo, hi: LADDER_BANDS[LADDER_BANDS.length - 1].hi };
-  const [legs] = searchLadders(players, [band], undefined, corr, THREES_MAX_LEGS);
-  if (!legs) return [];
-  const sig = legs.map(pickKey).sort().join("&");
-  if (existing.some((p) => p.legs.map(pickKey).sort().join("&") === sig)) return [];
-  return [{ key: "threes", title: "Threes ladder", blurb: "High-probability alternate threes overs, mostly 1+ and 2+ made, stacked to +100 to +300.",
-    legs, ...priceParlay(legs, corr) }];
+/** For each threes band, the likeliest combination of different players' threes overs at this book whose price lands in it,
+ *  each rung at least the band's chance. Skips a tile that repeats an earlier one or one in `existing`. */
+export function buildThreesLadders(entries: LadderEntry[], book: string, existing: Parlay[] = [], corr?: CorrTable): Parlay[] {
+  const rungs = entries.filter((e) => e.base.kind === "threes").map((e) => ladderRungs(e.base, e.ladder, book, THREES_MIN_ODDS));
+  const seen = new Set(existing.map((p) => p.legs.map(pickKey).sort().join("&")));
+  const out: Parlay[] = [];
+  for (const band of THREES_BANDS) {
+    const players = rungs.map((r) => r.filter((l) => l.prob >= band.minProb)).filter((r) => r.length);
+    const [legs] = searchLadders(players, [band], undefined, corr, band.maxLegs);
+    if (!legs) continue;
+    const sig = legs.map(pickKey).sort().join("&");
+    if (seen.has(sig)) continue;
+    seen.add(sig);
+    out.push({ key: band.key, title: band.title, blurb: `Alternate threes overs, every leg at least ${Math.round(band.minProb * 100)}% likely.`,
+      legs, ...priceParlay(legs, corr) });
+  }
+  return out;
 }
 
 /** "2026_05_TB_DAL" -> "TB @ DAL" */
