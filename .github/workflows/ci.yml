@@ -1,5 +1,8 @@
 name: CI
-on: [push, pull_request]
+# push only for main: a PR branch gets just the pull_request run, not a duplicate of it
+on:
+  push: { branches: [main] }
+  pull_request:
 jobs:
   backend:
     runs-on: ubuntu-latest
