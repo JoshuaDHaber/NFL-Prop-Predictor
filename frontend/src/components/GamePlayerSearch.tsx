@@ -5,7 +5,7 @@ import Avatar from "./Avatar";
 
 /** The market a player's drawer opens on: their headline one by NFL position, else the first they're projected in (Points for the NBA). */
 const PRIMARY: Record<string, Kind> = { QB: "pass", RB: "rush", WR: "rec", TE: "rec" };
-const MARKET_ORDER: Kind[] = ["pass", "rush", "rec", "rr", "recs", "lng", "rlng", "ptd", "td", "ftd", "pts", "reb", "ast", "threes", "pra", "pr", "pa"];
+const MARKET_ORDER: Kind[] = ["pass", "rush", "rec", "rr", "recs", "lng", "rlng", "ptd", "td", "ftd", "pts", "reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk"];
 
 interface GamePlayer { player_id: string; name: string; pos: string; team: string; status: string; kinds: Kind[] }
 

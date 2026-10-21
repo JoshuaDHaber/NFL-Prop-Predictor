@@ -22,7 +22,7 @@ from ..schemas import (AutoSync, BacktestStat, Game, GameLogEntry, GradeReport, 
 from . import espn, grading, model
 from . import odds as nba_odds
 
-NbaKind = Literal["pts", "reb", "ast", "threes", "pra", "pr", "pa"]
+NbaKind = Literal["pts", "reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk"]
 router = APIRouter(prefix="/api/nba", tags=["nba"])
 # main.py sets these: who may see owner-only bits, and the next scheduled NBA sync
 is_admin: Callable[[Request], bool] = lambda request: False

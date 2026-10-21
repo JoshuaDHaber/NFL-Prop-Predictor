@@ -1,4 +1,5 @@
-"""NBA projections: points, rebounds, assists and 3-pointers made = projected minutes x per-minute rate x opponent factor.
+"""NBA projections: points, rebounds, assists, 3-pointers made, steals and blocks = projected minutes x per-minute rate
+x opponent factor.
 The combo markets (PRA, PR, PA) are the sums of their parts' projections, so they always agree with them; only their
 error tables are their own (fit on the combo's walk-forward misses).
 
@@ -21,19 +22,20 @@ from scipy.stats import norm
 from ..engine import model as nfl_model
 from . import espn
 
-KINDS = ("pts", "reb", "ast", "threes")
+KINDS = ("pts", "reb", "ast", "threes", "stl", "blk")
 COMBOS = {"pra": ("pts", "reb", "ast"), "pr": ("pts", "reb"), "pa": ("pts", "ast")}
 ALL_KINDS = KINDS + tuple(COMBOS)
 MIN_HL = 8.0            # games: minutes follow role changes quickly
 RATE_HL = 40.0          # games: per-minute production is steadier (20 and 10 did slightly worse in the backtest)
 PRIOR_SEASON = 0.6      # weight on earlier seasons' games
 # minutes of position-average play mixed into every rate; threes much less, since who shoots them varies a lot
-# within a position (150 made centers who never shoot look like shooters; 30 had the lowest backtest error)
-PSEUDO_MIN = {"pts": 150.0, "reb": 150.0, "ast": 150.0, "threes": 30.0}
+# within a position (150 made centers who never shoot look like shooters; 30 had the lowest backtest error). Steals
+# and blocks were tuned on the backtest's Poisson log-loss: 150 and 100 (15 to 250 differ by under 0.5%)
+PSEUDO_MIN = {"pts": 150.0, "reb": 150.0, "ast": 150.0, "threes": 30.0, "stl": 150.0, "blk": 100.0}
 MIN_GAMES = 5           # games played before a player is projected
 MIN_MINUTES = 12.0      # projected minutes below this aren't a prop market
 OPP_HL_DAYS = 45.0      # opponent factors: half-life in days
-OPP_PRIOR = {"pts": 400.0, "reb": 160.0, "ast": 100.0, "threes": 50.0}    # pseudo-totals pulling each defense's factor toward 1
+OPP_PRIOR = {"pts": 400.0, "reb": 160.0, "ast": 100.0, "threes": 50.0, "stl": 60.0, "blk": 30.0}    # pseudo-totals pulling each defense's factor toward 1
 OPP_CLIP = (0.85, 1.15)
 NAIVE_N = 10            # the baseline the backtest compares against: a plain last-10-games average
 
@@ -142,7 +144,7 @@ def walk_forward(logs: pd.DataFrame, pos_group: dict, start: date, end: date, st
     return pd.DataFrame(rows, columns=["date", "player_id", "kind", "mu", "actual", "naive5", "min_proj", "min_actual"])
 
 
-POISSON_KINDS = ("threes",)   # priced as Poisson counts (engine.model.prob_over_under_dist), not from the error table
+POISSON_KINDS = ("threes", "stl", "blk")   # priced as Poisson counts (engine.model.prob_over_under_dist), not from the error table
 
 
 def calibrate(bt: pd.DataFrame) -> tuple[dict, dict]:

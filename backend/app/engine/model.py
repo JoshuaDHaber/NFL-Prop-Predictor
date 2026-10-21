@@ -454,7 +454,7 @@ def sd_at(mu, dist):
 
 def prob_over_under_dist(mu, line, dist):
     """(p_over, p_under) from the empirical error distribution. Whole-number lines leave room for a push.
-    A {"poisson": True} table prices small whole-number counts (NBA threes) as Poisson(mu) instead: the smooth error
+    A {"poisson": True} table prices small whole-number counts (NBA threes, steals, blocks) as Poisson(mu) instead: the smooth error
     table underrated their overs by 4-5 points at 1.5+ in the backtest."""
     if dist.get("poisson"):
         k = np.floor(float(line))

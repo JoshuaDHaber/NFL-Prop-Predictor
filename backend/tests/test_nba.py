@@ -30,17 +30,17 @@ def test_scoreboard_keeps_real_games_with_eastern_times_and_home_spread():
 
 
 def test_gamelog_parses_regular_season_games_with_home_and_eastern_date():
-    names = ["minutes", "fieldGoalsMade-fieldGoalsAttempted", "threePointFieldGoalsMade-threePointFieldGoalsAttempted", "totalRebounds", "assists", "points"]
+    names = ["minutes", "fieldGoalsMade-fieldGoalsAttempted", "threePointFieldGoalsMade-threePointFieldGoalsAttempted", "totalRebounds", "assists", "blocks", "steals", "points"]
     js = {"names": names,
           "events": {"9": {"atVs": "@", "gameDate": "2026-01-10T00:30:00.000+00:00", "team": {"abbreviation": "BOS"},
                            "opponent": {"abbreviation": "NY"}, "homeTeamScore": "110", "awayTeamScore": "104"}},
           "seasonTypes": [{"displayName": "2025-26 Regular Season", "categories": [
-              {"type": "event", "events": [{"eventId": "9", "stats": ["34", "9-18", "3-7", "7", "5", "27"]}]},
+              {"type": "event", "events": [{"eventId": "9", "stats": ["34", "9-18", "3-7", "7", "5", "1", "2", "27"]}]},
               {"type": "total", "events": []}]},
-              {"displayName": "2025-26 Preseason", "categories": [{"type": "event", "events": [{"eventId": "9", "stats": ["1"] * 6}]}]}]}
+              {"displayName": "2025-26 Preseason", "categories": [{"type": "event", "events": [{"eventId": "9", "stats": ["1"] * 8}]}]}]}
     [r] = espn.parse_gamelog(js, "p1")
     assert r["season"] == 2026 and r["date"] == "2026-01-09" and r["home"] is False
-    assert (r["min"], r["pts"], r["reb"], r["ast"], r["threes"], r["home_score"]) == (34.0, 27.0, 7.0, 5.0, 3.0, 110.0)
+    assert (r["min"], r["pts"], r["reb"], r["ast"], r["threes"], r["stl"], r["blk"], r["home_score"]) == (34.0, 27.0, 7.0, 5.0, 3.0, 2.0, 1.0, 110.0)
 
 
 def test_gamelogs_leave_out_all_star_weekend(monkeypatch):
@@ -56,15 +56,25 @@ def test_gamelogs_leave_out_all_star_weekend(monkeypatch):
     assert list(logs.team) == ["BOS"]
 
 
+def test_prune_drops_older_gamelog_cache_versions(monkeypatch, tmp_path):
+    """Finished seasons are cached for good, so a new log column needs the old folder gone (re-fetched once)."""
+    monkeypatch.setattr(espn.config, "NBA_CACHE", str(tmp_path))
+    (tmp_path / "gamelogs").mkdir()
+    (tmp_path / "gamelogs" / "1_2025.json").write_text("[]")
+    (tmp_path / espn.GAMELOG_DIR).mkdir()
+    assert espn.prune_raw_gamelogs() == 1
+    assert not (tmp_path / "gamelogs").exists() and (tmp_path / espn.GAMELOG_DIR).exists()
+
+
 def _logs(n=40, start=date(2025, 11, 1)):
     """Two players on two teams: a 30-point guard and a 10-rebound center, one game every other day."""
     rows = []
     for i in range(n):
         d = (start + timedelta(days=2 * i)).isoformat()
         rows.append(dict(player_id="g", event_id=str(i), season=2026, date=d, team="BOS", opp="NY", home=True,
-                         min=36.0, pts=30.0 + (i % 3), reb=4.0, ast=7.0, threes=3.0 + (i % 2), home_score=110.0 + i % 5, away_score=105.0))
+                         min=36.0, pts=30.0 + (i % 3), reb=4.0, ast=7.0, threes=3.0 + (i % 2), stl=1.0 + (i % 2), blk=0.0, home_score=110.0 + i % 5, away_score=105.0))
         rows.append(dict(player_id="c", event_id=str(i), season=2026, date=d, team="NY", opp="BOS", home=False,
-                         min=30.0, pts=12.0, reb=10.0 + (i % 2), ast=2.0, threes=0.0, home_score=110.0 + i % 5, away_score=105.0))
+                         min=30.0, pts=12.0, reb=10.0 + (i % 2), ast=2.0, threes=0.0, stl=0.0, blk=2.0 + (i % 2), home_score=110.0 + i % 5, away_score=105.0))
     return pd.DataFrame(rows)
 
 
@@ -89,7 +99,7 @@ def test_walk_forward_and_team_ratings_run_on_the_logs():
     assert set(bt.kind) == set(model.ALL_KINDS) and np.isfinite(bt.mu).all()
     summary, dists = model.calibrate(bt)
     assert summary["pts"]["n"] > 0 and "z" in dists["pts"]
-    assert summary["threes"]["n"] > 0 and dists["threes"] == {"poisson": True}
+    assert summary["threes"]["n"] > 0 and dists["threes"] == dists["stl"] == dists["blk"] == {"poisson": True}
     assert "z" in dists["pra"]
     pra = bt[bt.kind == "pra"].set_index(["date", "player_id"]).actual.sort_index()
     parts = bt[bt.kind.isin(["pts", "reb", "ast"])].groupby(["date", "player_id"]).actual.sum()
@@ -187,11 +197,11 @@ def test_odds_plan_buys_props_only_for_games_tipping_off_soon():
         s.commit()
         plan = nba_pipeline.sync_plan(s, [soon, tomorrow], "missing", now)
         [g] = plan["games"]
-        assert g["game_id"] == "a" and g["need"] == ["reb", "ast", "threes", "pra", "pr", "pa"] and g["need_alt"] == g["need"]
-        assert plan["credits"] == 1 + 6 + 6   # one for every moneyline, one per missing market, main and alternate
+        assert g["game_id"] == "a" and g["need"] == ["reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk"] and g["need_alt"] == g["need"]
+        assert plan["credits"] == 1 + 8 + 8   # one for every moneyline, one per missing market, main and alternate
         # 'all' re-pulls every main market, but alternates are bought once
         [g] = nba_pipeline.sync_plan(s, [soon, tomorrow], "all", now)["games"]
-        assert g["need"] == ["pts", "reb", "ast", "threes", "pra", "pr", "pa"] and g["need_alt"] == ["reb", "ast", "threes", "pra", "pr", "pa"]
+        assert g["need"] == ["pts", *g["need_alt"]] and g["need_alt"] == ["reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk"]
         assert nba_pipeline.sync_plan(s, [soon], "none", now)["credits"] == 0
 
 
@@ -214,7 +224,7 @@ def test_refresh_odds_stores_moneylines_and_props(monkeypatch):
         s.query(NbaAltLine).delete()
         s.commit()
     res = nba_pipeline.refresh_odds("missing", log=lambda m: None, now=datetime(2026, 10, 20, 14))
-    kinds = ["pts", "reb", "ast", "threes", "pra", "pr", "pa"]
+    kinds = ["pts", "reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk"]
     assert calls == [("e1", kinds, kinds)] and res["fetched"] == 1 and res["credits_after"] == 497
     with SessionLocal() as s:
         assert sorted(m for (m,) in s.query(NbaOddsLine.market)) == ["ml", "pts"]
