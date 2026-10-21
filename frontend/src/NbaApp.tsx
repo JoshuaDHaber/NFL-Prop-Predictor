@@ -161,7 +161,7 @@ export default function NbaApp() {
 
       <footer>
         Points, rebounds, assists and threes = projected minutes × a per-minute rate, recency-weighted and shrunk toward the position's average, adjusted for
-        the opponent. Win probabilities come from the backtest's own errors (threes: a Poisson count), blended with the market's no-vig price. Team win chances come from
+        the opponent; PRA, PR and PA are the sums of those projections. Win probabilities come from the backtest's own errors (threes: a Poisson count), blended with the market's no-vig price. Team win chances come from
         point-margin ratings and lean heavily on the moneyline market. Teammates' injuries don't move a player's projection yet. Not betting advice.
         <span className="signoff">Bread from air, picks from stats. Built by JD Haber.</span>
       </footer>

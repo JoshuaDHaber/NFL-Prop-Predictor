@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api, type Game, type Kind, type NbaKind } from "../api";
-import { KIND_SHORT, NBA_KINDS } from "../format";
+import { KIND_SHORT, NBA_MARKET_TABS, SUB_LABEL, groupOf } from "../format";
 import { useParlayBoard } from "../useParlayBoard";
 import GamePlayerSearch from "./GamePlayerSearch";
 import { GameInjuries } from "./Injuries";
@@ -24,13 +24,23 @@ interface Props {
 const SECTIONS: [string, string][] = [["go-props", "Best props"], ["go-parlays", "Parlays"], ["go-proj", "Projections"], ["go-inj", "Injuries"]];
 const PROPS_SHOWN = 8;
 
+/** Stat picker; the combo markets fold into one choice, with a pill per combo below. */
 function KindSeg({ value, onChange }: { value: NbaKind | "all"; onChange: (k: NbaKind | "all") => void }) {
+  const group = groupOf(value);
+  const pick = (k: Kind | "all") => onChange(k as NbaKind | "all");
   return (
-    <div className="seg small" role="group" aria-label="Stat">
-      {(["all", ...NBA_KINDS] as const).map((k) => (
-        <button key={k} className={value === k ? "on" : ""} aria-pressed={value === k} onClick={() => onChange(k)}>{k === "all" ? "All" : KIND_SHORT[k]}</button>
-      ))}
-    </div>
+    <>
+      <div className="seg small" role="group" aria-label="Stat">
+        {NBA_MARKET_TABS.map((k) => typeof k === "object"
+          ? <button key={k.label} className={group === k ? "on" : ""} aria-pressed={group === k} onClick={() => group !== k && pick(k.kinds[0])}>{k.label}</button>
+          : <button key={k} className={value === k ? "on" : ""} aria-pressed={value === k} onClick={() => pick(k)}>{k === "all" ? "All" : KIND_SHORT[k]}</button>)}
+      </div>
+      {group && (
+        <div className="seg small sub" role="group" aria-label={`${group.label} market`}>
+          {group.kinds.map((k) => <button key={k} className={value === k ? "on" : ""} aria-pressed={value === k} onClick={() => pick(k)}>{SUB_LABEL[k] ?? KIND_SHORT[k]}</button>)}
+        </div>
+      )}
+    </>
   );
 }
 

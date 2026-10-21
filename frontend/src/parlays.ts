@@ -123,9 +123,9 @@ export function defaultBook(byBook: Record<string, Parlay[]>, picksByBook: Recor
   return Object.keys(picksByBook).sort((a, b) => overs(b) - overs(a) || a.localeCompare(b))[0] ?? null;
 }
 
-// ---------- ladder parlays: likely overs (NFL rushing / receiving, NBA points / rebounds / assists / threes) stacked to a modest price ----------
+// ---------- ladder parlays: likely overs (NFL rushing / receiving, NBA points / rebounds / assists / threes / combos) stacked to a modest price ----------
 /** The markets ladders are built from, for the league on screen. */
-export const ladderKinds = (): Kind[] => (getLeague() === "nba" ? ["pts", "reb", "ast", "threes"] : ["rush", "rec"]);
+export const ladderKinds = (): Kind[] => (getLeague() === "nba" ? ["pts", "reb", "ast", "threes", "pra", "pr", "pa"] : ["rush", "rec"]);
 const isLadderKind = (k: Kind) => ladderKinds().includes(k);
 export const LADDER_MIN_PROB = 0.6;
 /** Shortest price on a rung: heavier chalk can't help a parlay reach +100. */

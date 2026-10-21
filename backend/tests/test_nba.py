@@ -75,6 +75,10 @@ def test_projection_is_minutes_times_a_rate_shrunk_toward_the_position():
     assert st["g"]["min"] == pytest.approx(36.0)
     mu = model.project_rows(st["g"], {k: {} for k in model.KINDS}, "NY")
     assert 29 < mu["pts"][0] < 32 and mu["pts"][0] == pytest.approx(36.0 * mu["pts"][1])
+    # combos are the sums of their parts
+    assert mu["pra"][0] == pytest.approx(mu["pts"][0] + mu["reb"][0] + mu["ast"][0])
+    assert mu["pa"][1] == pytest.approx(mu["pts"][1] + mu["ast"][1])
+    assert st["g"]["last5_pr"] == [a + b for a, b in zip(st["g"]["last5_pts"], st["g"]["last5_reb"])]
     # too few games: not projected
     assert "g" not in model.states(logs.head(6), pos, 2026, model.priors(logs, pos))
 
@@ -82,10 +86,14 @@ def test_projection_is_minutes_times_a_rate_shrunk_toward_the_position():
 def test_walk_forward_and_team_ratings_run_on_the_logs():
     logs = _logs(60)
     bt = model.walk_forward(logs, {"g": "G", "c": "C"}, date(2025, 12, 15), date(2026, 2, 1))
-    assert set(bt.kind) == set(model.KINDS) and np.isfinite(bt.mu).all()
+    assert set(bt.kind) == set(model.ALL_KINDS) and np.isfinite(bt.mu).all()
     summary, dists = model.calibrate(bt)
     assert summary["pts"]["n"] > 0 and "z" in dists["pts"]
     assert summary["threes"]["n"] > 0 and dists["threes"] == {"poisson": True}
+    assert "z" in dists["pra"]
+    pra = bt[bt.kind == "pra"].set_index(["date", "player_id"]).actual.sort_index()
+    parts = bt[bt.kind.isin(["pts", "reb", "ast"])].groupby(["date", "player_id"]).actual.sum()
+    assert pra.tolist() == parts.tolist()
     games = espn.team_games(logs)
     r, hfa = model.ratings(games, date(2026, 3, 1))
     assert r["BOS"] > r["NY"]   # BOS won every game at home
@@ -179,11 +187,11 @@ def test_odds_plan_buys_props_only_for_games_tipping_off_soon():
         s.commit()
         plan = nba_pipeline.sync_plan(s, [soon, tomorrow], "missing", now)
         [g] = plan["games"]
-        assert g["game_id"] == "a" and g["need"] == ["reb", "ast", "threes"] and g["need_alt"] == ["reb", "ast", "threes"]
-        assert plan["credits"] == 1 + 3 + 3   # one for every moneyline, one per missing market, main and alternate
+        assert g["game_id"] == "a" and g["need"] == ["reb", "ast", "threes", "pra", "pr", "pa"] and g["need_alt"] == g["need"]
+        assert plan["credits"] == 1 + 6 + 6   # one for every moneyline, one per missing market, main and alternate
         # 'all' re-pulls every main market, but alternates are bought once
         [g] = nba_pipeline.sync_plan(s, [soon, tomorrow], "all", now)["games"]
-        assert g["need"] == ["pts", "reb", "ast", "threes"] and g["need_alt"] == ["reb", "ast", "threes"]
+        assert g["need"] == ["pts", "reb", "ast", "threes", "pra", "pr", "pa"] and g["need_alt"] == ["reb", "ast", "threes", "pra", "pr", "pa"]
         assert nba_pipeline.sync_plan(s, [soon], "none", now)["credits"] == 0
 
 
@@ -206,7 +214,7 @@ def test_refresh_odds_stores_moneylines_and_props(monkeypatch):
         s.query(NbaAltLine).delete()
         s.commit()
     res = nba_pipeline.refresh_odds("missing", log=lambda m: None, now=datetime(2026, 10, 20, 14))
-    kinds = ["pts", "reb", "ast", "threes"]
+    kinds = ["pts", "reb", "ast", "threes", "pra", "pr", "pa"]
     assert calls == [("e1", kinds, kinds)] and res["fetched"] == 1 and res["credits_after"] == 497
     with SessionLocal() as s:
         assert sorted(m for (m,) in s.query(NbaOddsLine.market)) == ["ml", "pts"]
