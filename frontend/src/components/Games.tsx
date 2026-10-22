@@ -5,6 +5,7 @@ import { favored } from "./Moneylines";
 import TeamLogo from "./TeamLogo";
 import { getLeague } from "../league";
 import { matchupColors, shadeVars } from "../teams";
+import { BookName } from "./BookBadge";
 
 interface Props {
   games: Game[];
@@ -48,7 +49,7 @@ function Tile({ g, picks, ml, injuries, onOpen }: { g: Game; picks: Pick[]; ml?:
         <span className="tile-label">Top prop</span>
         {top ? <>
           <span className="gt-prop-main"><b>{top.name}</b> <span className={`side-pill ${top.side === "Over" ? "over" : "under"}`}>{playLabel(top.kind, top.side, top.line)}</span></span>
-          <span className="mut">{KIND_LABEL[top.kind]} · {americanOdds(top.odds)} {top.book} · <span className="ev-text">{signedPct(top.ev)} EV</span></span>
+          <span className="mut">{KIND_LABEL[top.kind]} · {americanOdds(top.odds)} <BookName book={top.book} size={14} /> · <span className="ev-text">{signedPct(top.ev)} EV</span></span>
         </> : <span className="mut">No +EV props yet</span>}
       </span>
       <span className="gt-foot">

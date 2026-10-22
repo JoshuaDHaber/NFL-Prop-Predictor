@@ -4,6 +4,7 @@ import { api, type Kind, type LadderRow, type QuoteSide } from "../api";
 import { useBetSlip } from "../BetSlipContext";
 import { KIND_LABEL, isDouble, isYesNo, americanOdds, fmtProj, isNba, playLabel, signedPct, timeAgo, unit } from "../format";
 import { legId, type Leg } from "../slip";
+import { BookName } from "./BookBadge";
 
 export interface PlayerCtx { playerId: string; name: string; team: string; opp: string; home: boolean; gameId: string }
 
@@ -71,7 +72,7 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
           aria-label={`${inSlip ? "Remove" : "Add"} ${playLabel(kind, c.side, c.row.line)} at ${c.row.book}`}>{inSlip ? "✓" : "+"}</button>
         <span className="lc-main"><span className="odds">{americanOdds(c.q.odds)}</span>
           <span className={c.q.ev > 0 ? "pos" : "mut"}> {signedPct(c.q.ev)}</span><br />
-          <span className="mut">{c.row.book}</span></span>
+          <span className="mut"><BookName book={c.row.book} size={14} /></span></span>
       </td>
     );
   };

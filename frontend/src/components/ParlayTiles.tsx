@@ -5,6 +5,7 @@ import { getLeague } from "../league";
 import { pickToLeg, type Parlay, type ParlayLeg } from "../parlays";
 import { toAmerican } from "../slip";
 import Avatar from "./Avatar";
+import { BookName } from "./BookBadge";
 
 const STAKE = 10;
 
@@ -99,7 +100,7 @@ export default function ParlayTiles({ books, book, onBook, games, selectedGames,
     <>
       {onBook && <div className="seg parlay-books" role="group" aria-label="Sportsbook">
         {books.map((b) => (
-          <button key={b} className={b === book ? "on" : ""} aria-pressed={b === book} onClick={() => onBook(b)}>{b}</button>
+          <button key={b} className={b === book ? "on" : ""} aria-pressed={b === book} onClick={() => onBook(b)}><BookName book={b} size={18} /></button>
         ))}
       </div>}
 

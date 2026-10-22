@@ -3,6 +3,7 @@ import { useBetSlip } from "../BetSlipContext";
 import { americanOdds, kickoff, pct, signedPct } from "../format";
 import { legLink } from "../slip";
 import { matchupColors, shadeVars } from "../teams";
+import { BookName } from "./BookBadge";
 
 /** "LV by 3.0" from a home margin; "Pick'em" near zero. */
 export function favored(g: MoneylineGame, m: number, digits = 1) {
@@ -22,7 +23,7 @@ function SideRow({ s }: { s: MoneylineSide }) {
       <td data-label="Best price">
         {s.odds == null ? <span className="mut">no line</span> : <>
           {url ? <a className="link strong" href={url} target="_blank" rel="noopener noreferrer" title={`Open at ${s.book}`}>{americanOdds(s.odds)} ↗</a> : americanOdds(s.odds)}
-          <br /><span className="mut">{s.book}</span></>}
+          {s.book && <><br /><span className="mut"><BookName book={s.book} size={14} /></span></>}</>}
       </td>
       <td data-label="EV">{s.ev == null ? "–" : <span className={s.ev > 0 ? "ev-pill" : "mut"}>{signedPct(s.ev)}</span>}</td>
     </tr>
