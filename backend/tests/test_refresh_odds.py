@@ -244,3 +244,14 @@ def test_today_mode_re_pulls_main_lines_only_for_games_still_to_kick_off_today(c
     [g] = plan["games"]
     assert g["reason"] == "today" and g["alt_kinds"] == [] and g["credits"] == 11   # main markets only: alternates aren't re-bought
     assert [g["game_id"] for g in morning["games"]] == ["2026_99_AAA_BBB", "2026_99_CCC_DDD"]   # Monday's game waits
+
+
+def test_credit_floor_switches_to_the_spare_key_and_says_to_rotate(clean_and_stub, monkeypatch):
+    monkeypatch.setattr(pipeline.config, "ODDS_API_KEY_NFL_SECONDARY", lambda: "spare-key")
+    monkeypatch.setattr(pipeline.odds, "credits_remaining", lambda key: {"test-key": 80, "spare-key": 450}[key])
+    used = []
+    fetch = pipeline.odds.fetch_game_odds
+    monkeypatch.setattr(pipeline.odds, "fetch_game_odds", lambda key, *a, **k: used.append(key) or fetch(key, *a, **k))
+    res = pipeline.refresh_odds("missing", log=lambda m: None, credit_floor=75)
+    assert used == ["spare-key"] and res["fetched"] == 1 and res["skipped_for_credits"] == 0
+    assert res["rotate"] == ["ODDS_API_KEY"] and res["credits_before"] == 530 and res["credits_after"] == 480

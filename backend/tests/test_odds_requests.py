@@ -100,3 +100,14 @@ def test_a_sync_error_is_logged_without_the_key(monkeypatch):
     with SessionLocal() as s:
         rec = s.query(SyncRun).order_by(SyncRun.id.desc()).first()
         assert rec.status == "error" and "secret123" not in rec.error and "secret123" not in " ".join(rec.log)
+
+
+def test_the_nba_sync_switches_to_the_spare_key_at_the_floor(monkeypatch):
+    _slate(monkeypatch)
+    monkeypatch.setattr(nba_pipeline.config, "ODDS_API_KEY_NBA_SECONDARY", lambda: "spare456")
+    monkeypatch.setattr(nba_pipeline.nfl_odds, "credits_remaining", lambda key: {"secret123": 75, "spare456": 400}[key])
+    used = []
+    monkeypatch.setattr(nba_pipeline.nba_odds, "fetch_moneylines", lambda key: used.append(key) or ({}, "399"))
+    monkeypatch.setattr(nba_pipeline.nba_odds, "fetch_props", lambda key, *a: used.append(key) or (pd.DataFrame(columns=["player", "market", "alt", "side", "line", "odds", "book", "link", "event_link"]), "391"))
+    res = nba_pipeline.refresh_odds("missing", log=lambda m: None, credit_floor=75, now=datetime(2026, 10, 20, 14))
+    assert set(used) == {"spare456"} and res["rotate"] == ["ODDS_API_KEY_NBA"] and res["skipped_for_credits"] == 0

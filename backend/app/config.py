@@ -31,10 +31,21 @@ PROJECTIONS_ON_SERVER = lambda: os.environ.get("PROJECTIONS_ON_SERVER", "1") != 
 ODDS_API_KEY = lambda: os.environ.get("ODDS_API_KEY")  # read lazily so tests can set it
 # the NBA side has its own Odds API key, so its daily syncs never eat into the NFL key's credits
 ODDS_API_KEY_NBA = lambda: os.environ.get("ODDS_API_KEY_NBA")
+# spares: a sync switches to these once the key above reaches the credit floor (app/odds_keys.py)
+ODDS_API_KEY_NFL_SECONDARY = lambda: os.environ.get("ODDS_API_KEY_NFL_SECONDARY")
+ODDS_API_KEY_NBA_SECONDARY = lambda: os.environ.get("ODDS_API_KEY_NBA_SECONDARY")
+
+
+def odds_keys(league: str = "nfl") -> list[tuple[str, str]]:
+    """[(env var, key)] for a league's Odds API keys that are set, the one to spend first first."""
+    names = ("ODDS_API_KEY_NBA", "ODDS_API_KEY_NBA_SECONDARY") if league == "nba" else ("ODDS_API_KEY", "ODDS_API_KEY_NFL_SECONDARY")
+    return [(n, k) for n in names if (k := globals()[n]())]
+
+
 # ESPN responses for the NBA model (game logs, rosters, schedule); next to the database so they survive redeploys
 NBA_CACHE = os.environ.get("NBA_CACHE") or os.path.join(BASE_DIR, "data", "nba_cache")
 # Scheduled syncs (app/scheduler.py): on by default on Railway, off elsewhere so a laptop never spends credits by itself
 AUTO_SYNC = lambda: os.environ.get("AUTO_SYNC", "1" if os.environ.get("RAILWAY_ENVIRONMENT_NAME") else "0") == "1"
-# odds fetches stop before a key drops under this many credits; rotate ODDS_API_KEY when the admin page says so
+# odds fetches stop before a key drops under this many credits; a sync then switches to the spare key, and the admin page says which key to rotate
 ODDS_CREDIT_FLOOR = lambda: int(os.environ.get("ODDS_CREDIT_FLOOR", "75"))
 FRONTEND_DIST = os.path.join(os.path.dirname(BASE_DIR), "frontend", "dist")

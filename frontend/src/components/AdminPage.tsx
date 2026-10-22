@@ -87,19 +87,8 @@ export default function AdminPage({ embedded = false }: { embedded?: boolean }) 
     page(<>
       {embedded && signOut && <div className="admin-signout">{signOut}</div>}
 
-      {c.low && (
-        <div className="banner">
-          <b>Rotate the Odds API key.</b> The key ending {c.key_hint} has {c.remaining} credits left, at or under the floor of {c.floor},
-          so scheduled syncs have stopped fetching odds. In Railway, open the service's <b>Variables</b>, replace <code>ODDS_API_KEY</code> with
-          another key and deploy. The next sync uses the new key.
-        </div>
-      )}
-      {d.credits_nba?.low && (
-        <div className="banner">
-          <b>Rotate the NBA Odds API key.</b> The key ending {d.credits_nba.key_hint} has {d.credits_nba.remaining} credits left, at or under the floor
-          of {d.credits_nba.floor}, so NBA syncs have stopped fetching odds. Replace <code>ODDS_API_KEY_NBA</code> in Railway's <b>Variables</b> and deploy.
-        </div>
-      )}
+      <RotateBanner league="NFL" k={c} />
+      {d.credits_nba && <RotateBanner league="NBA" k={d.credits_nba} />}
       {!d.auto_sync.enabled && (
         <div className="banner">Scheduled syncs are <b>off</b> on this server. Set <code>AUTO_SYNC=1</code> to turn them on (they're on by default on Railway).</div>
       )}
@@ -175,13 +164,32 @@ export default function AdminPage({ embedded = false }: { embedded?: boolean }) 
   );
 }
 
+function RotateBanner({ league, k }: { league: string; k: CreditStatus }) {
+  const rotate = k.rotate ?? [];
+  if (!rotate.length) return null;
+  const names = rotate.map((n, i) => <span key={n}>{i > 0 && " and "}<code>{n}</code></span>);
+  return (
+    <div className="banner">
+      {k.low ? (
+        <><b>Rotate the {league} Odds API {rotate.length > 1 ? "keys" : "key"}.</b> {names} {rotate.length > 1 ? "are" : "is"} at or under the floor
+          of {k.floor} credits, so {league} syncs have stopped fetching odds.</>
+      ) : (
+        <><b>Rotate {names}.</b> It's at or under the floor of {k.floor} credits, so {league} syncs have switched
+          to <code>{k.key_name}</code> (key ending {k.key_hint}, {k.remaining ?? "?"} credits left).</>
+      )}
+      {" "}In Railway, open the service's <b>Variables</b>, replace {rotate.length > 1 ? "them" : "it"} with a fresh key and deploy. Syncs always
+      spend the first key until it reaches the floor, then its spare.
+    </div>
+  );
+}
+
 function CreditCard({ label, k, now }: { label: string; k: CreditStatus; now: number }) {
   return (
     <div className="card admin-card">
       <span className="mut">{label}</span>
       <div className={`big${k.low ? " under" : ""}`}>{k.remaining ?? "?"}</div>
       <span className="mut">
-        {k.error ?? `Key …${k.key_hint} · stops at ${k.floor}`}{k.checked_at && !k.error ? ` · checked ${timeAgo(k.checked_at, now)}` : ""}
+        {k.error ?? `${k.key_name ?? "Key"} …${k.key_hint} · stops at ${k.floor}`}{k.checked_at && !k.error ? ` · checked ${timeAgo(k.checked_at, now)}` : ""}
       </span>
     </div>
   );

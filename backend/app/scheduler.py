@@ -1,7 +1,7 @@
 """Sync jobs and the weekly schedule that runs them, so nobody has to press a button.
 
 One job runs at a time (model run and/or odds fetch), whether the schedule or the admin page started it. Every job
-is logged as a SyncRun. Odds fetches stop before the key drops under config.ODDS_CREDIT_FLOOR credits.
+is logged as a SyncRun. Odds fetches stop before a key drops under config.ODDS_CREDIT_FLOOR credits, switching to the spare key first.
 The schedule runs in a background thread of the web process: fine on a single always-on instance (Railway Hobby).
 """
 import threading
@@ -197,6 +197,8 @@ def _odds_summary(res: dict) -> str:
         bits.append(f"{res['failed']} failed (the Odds API errored; the next sync retries)")
     if res.get("skipped_for_credits"):
         bits.append(f"{res['skipped_for_credits']} skipped at the {config.ODDS_CREDIT_FLOOR()}-credit floor: rotate the key")
+    if res.get("rotate"):
+        bits.append(f"switched to the spare key at the floor: rotate {' and '.join(res['rotate'])}")
     return ", ".join(bits)
 
 
