@@ -8,11 +8,11 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
-import requests
 
 from . import config, grading
 from .db import AltLine, OddsHistory, OddsLine, Projection, Run, SessionLocal
 from .engine import data, model, odds
+from .odds_keys import KeyRing
 from .engine import correlation as cm
 from .engine import moneyline as mlm
 from .engine import redistribute as rd
@@ -343,13 +343,14 @@ def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[in
     later today; 'all' refetches everything for the week; 'none'
     skips. Costs one credit per market per game. progress(done, total) is called after each game.
 
-    With credit_floor set, the key's balance is checked first (free) and a game is only fetched if its cost leaves at
-    least that many credits, so a free key is never run dry. Returns what happened, for the sync log.
+    With credit_floor set, the keys' balances are checked first (free) and a game is only fetched if its cost leaves at
+    least that many credits, so a free key is never run dry; once ODDS_API_KEY can't afford a game, the sync switches to
+    ODDS_API_KEY_NFL_SECONDARY and out["rotate"] names the key to replace (app/odds_keys.py). Returns what happened, for the sync log.
     """
     out = dict(games=0, fetched=0, skipped_for_credits=0, credits_before=None, credits_after=None)
     if mode == "none":
         return out
-    key = config.ODDS_API_KEY()
+    keys = KeyRing("nfl", credit_floor, log)
     games = upcoming_games()
     with SessionLocal() as s:
         plan = sync_plan(s, games, mode)
@@ -357,18 +358,13 @@ def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[in
         if not plan["games"]:
             log("Odds already cover every game")
             return out
-        if not key:
+        if not keys:
             log("No ODDS_API_KEY set; skipping odds fetch")
             return out
-        remaining = None
         if credit_floor is not None:
-            try:
-                remaining = out["credits_before"] = out["credits_after"] = odds.credits_remaining(key)
-                log(f"Odds API key has {remaining} credits left (floor {credit_floor})")
-            except requests.RequestException as e:
-                # every paid response reports the balance too, so the floor still applies from the first one
-                log(f"  couldn't check the balance ({e}); going ahead, the floor applies from the first response")
-        events = {(e["away"], e["home"]): e["id"] for e in odds.list_events(key)}
+            keys.check()
+            out["credits_before"] = out["credits_after"] = keys.total()
+        events = {(e["away"], e["home"]): e["id"] for e in odds.list_events(keys.key)}
         todo = [(g, events.get((g["away"], g["home"]))) for g in plan["games"]]
         cost = sum(g["credits"] for g, e in todo if e)
         log(f"Fetching odds for {len(todo)} games (about {cost} API credits)...")
@@ -379,14 +375,15 @@ def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[in
             if not event_id:
                 log(f"  no sportsbook event yet for {g['label']}")
                 continue
-            if credit_floor is not None and remaining is not None and remaining - g["credits"] < credit_floor:
+            if not keys.afford(g["credits"]):
                 out["skipped_for_credits"] += 1
-                log(f"  skipped {g['label']}: {g['credits']} credits would leave {remaining - g['credits']}, under the floor of {credit_floor}")
+                log(f"  skipped {g['label']}: {g['credits']} credits would leave {keys.remaining - g['credits']}, under the floor of {credit_floor}")
                 continue
-            long, left = odds.fetch_game_odds(key, event_id, g["need_main"], g["alt_kinds"])
+            long, left = odds.fetch_game_odds(keys.key, event_id, g["need_main"], g["alt_kinds"])
             out["fetched"] += 1
             if left is not None:
-                remaining = out["credits_after"] = int(float(left))
+                keys.spent(left)
+                out["credits_after"] = keys.total()
             paired = odds.pair_with_links(long)
             is_alt = paired.alt.astype(bool)
             mains.append(paired[~is_alt].assign(game_id=g["game_id"]))
@@ -411,6 +408,8 @@ def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[in
             archive_quotes(alt_df, s, now, alt=True)
             s.commit()
         log(f"Stored {len(main_df)} main and {len(alt_df)} alternate quotes")
+    if keys.rotate:
+        out["rotate"] = keys.rotate
     return out
 
 

@@ -336,10 +336,12 @@ class MoneylineGame(BaseModel):
 
 
 class CreditStatus(BaseModel):
-    remaining: Optional[int] = None   # credits left on the current ODDS_API_KEY
+    remaining: Optional[int] = None   # credits left on the key syncs are spending (the first one over the floor)
     floor: int                        # odds fetches stop before the balance drops under this
-    low: bool = False                 # at or under the floor: time to rotate the key
+    low: bool = False                 # every key at or under the floor: syncs have stopped fetching odds
     key_hint: Optional[str] = None    # last 4 characters, to tell keys apart
+    key_name: Optional[str] = None    # its env var, e.g. ODDS_API_KEY_NFL_SECONDARY
+    rotate: list[str] = []            # env vars of keys at or under the floor, to replace
     checked_at: Optional[str] = None
     error: Optional[str] = None
 

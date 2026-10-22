@@ -540,18 +540,22 @@ _credits: dict = {}   # key -> (checked_at, remaining or error): the admin page 
 
 
 def _credit_status(league: str = "nfl") -> CreditStatus:
-    key, floor = (config.ODDS_API_KEY_NBA() if league == "nba" else config.ODDS_API_KEY()), config.ODDS_CREDIT_FLOOR()
-    if not key:
+    """The key syncs are spending (the first one over the floor, app/odds_keys.py) and the ones to rotate."""
+    keys, floor = config.odds_keys(league), config.ODDS_CREDIT_FLOOR()
+    if not keys:
         return CreditStatus(floor=floor, error=f"No {'ODDS_API_KEY_NBA' if league == 'nba' else 'ODDS_API_KEY'} set")
     now = time.time()
-    if key not in _credits or now - _credits[key][0] > 60 or _job["state"] == "running":
-        try:
-            _credits[key] = (now, odds.credits_remaining(key), None)
-        except Exception as e:
-            _credits[key] = (now, None, f"Couldn't check the balance: {e}")
+    for _, key in keys:
+        if key not in _credits or now - _credits[key][0] > 60 or _job["state"] == "running":
+            try:
+                _credits[key] = (now, odds.credits_remaining(key), None)
+            except Exception as e:
+                _credits[key] = (now, None, f"Couldn't check the balance: {e}")
+    spent = [name for name, key in keys if _credits[key][1] is not None and _credits[key][1] <= floor]
+    name, key = next(((n, k) for n, k in keys if n not in spent), keys[-1])
     checked, left, err = _credits[key]
-    return CreditStatus(remaining=left, floor=floor, key_hint=key[-4:], error=err, low=left is not None and left <= floor,
-                        checked_at=datetime.utcfromtimestamp(checked).isoformat())
+    return CreditStatus(remaining=left, floor=floor, key_hint=key[-4:], key_name=name, error=err, rotate=spent,
+                        low=len(spent) == len(keys), checked_at=datetime.utcfromtimestamp(checked).isoformat())
 
 
 def _run_out(r: SyncRun) -> dict:
