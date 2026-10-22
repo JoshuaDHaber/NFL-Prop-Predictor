@@ -191,6 +191,11 @@ function CreditCard({ label, k, now }: { label: string; k: CreditStatus; now: nu
       <span className="mut">
         {k.error ?? `${k.key_name ?? "Key"} …${k.key_hint} · stops at ${k.floor}`}{k.checked_at && !k.error ? ` · checked ${timeAgo(k.checked_at, now)}` : ""}
       </span>
+      {(k.others ?? []).map((o) => (
+        <span key={o.key_name} className="mut">
+          {o.key_name} …{o.key_hint}: {o.error ? "couldn't check" : `${o.remaining ?? "?"} left`}{o.remaining != null && o.remaining <= k.floor ? " (at the floor)" : ""}
+        </span>
+      ))}
     </div>
   );
 }
