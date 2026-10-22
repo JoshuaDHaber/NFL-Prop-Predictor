@@ -20,7 +20,8 @@ export interface Redistribution {
 
 /** The sync schedule's state for the admin page. Times are UTC without a zone suffix, like the rest of the API. */
 export interface AutoSync { enabled: boolean; next_at: string | null; next_label: string | null }
-export interface CreditStatus { remaining: number | null; floor: number; low: boolean; key_hint: string | null; key_name?: string | null; rotate?: string[]; checked_at: string | null; error: string | null }
+export interface KeyBalance { key_name: string; key_hint: string; remaining: number | null; error: string | null }
+export interface CreditStatus { remaining: number | null; floor: number; low: boolean; key_hint: string | null; key_name?: string | null; rotate?: string[]; others?: KeyBalance[]; checked_at: string | null; error: string | null }
 export interface SyncRun {
   id: number; slot: string; label: string; trigger: "schedule" | "catch-up" | "manual";
   scheduled_for: string | null; started_at: string; finished_at: string | null;

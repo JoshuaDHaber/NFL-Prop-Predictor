@@ -31,7 +31,7 @@ from .engine.ladder import build_ladder
 from .engine.picks import build_picks
 from .engine.search import rank_hits
 from .nba import routes as nba_routes
-from .schemas import (AdminState, Correlations, GradeReport, AltFetchResult, AutoSync, CreditStatus, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, InjuryReport, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut,
+from .schemas import (AdminState, Correlations, GradeReport, AltFetchResult, AutoSync, CreditStatus, KeyBalance, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, InjuryReport, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut,
                       RefreshRequest, RunInfo)
 
 @asynccontextmanager
@@ -554,7 +554,8 @@ def _credit_status(league: str = "nfl") -> CreditStatus:
     spent = [name for name, key in keys if _credits[key][1] is not None and _credits[key][1] <= floor]
     name, key = next(((n, k) for n, k in keys if n not in spent), keys[-1])
     checked, left, err = _credits[key]
-    return CreditStatus(remaining=left, floor=floor, key_hint=key[-4:], key_name=name, error=err, rotate=spent,
+    others = [KeyBalance(key_name=n, key_hint=k[-4:], remaining=_credits[k][1], error=_credits[k][2]) for n, k in keys if n != name]
+    return CreditStatus(remaining=left, floor=floor, key_hint=key[-4:], key_name=name, error=err, rotate=spent, others=others,
                         low=len(spent) == len(keys), checked_at=datetime.utcfromtimestamp(checked).isoformat())
 
 

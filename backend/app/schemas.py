@@ -335,6 +335,13 @@ class MoneylineGame(BaseModel):
     sides: list[MoneylineSide]     # away, home
 
 
+class KeyBalance(BaseModel):
+    key_name: str                     # env var, e.g. ODDS_API_KEY_NFL_SECONDARY
+    key_hint: str                     # last 4 characters
+    remaining: Optional[int] = None
+    error: Optional[str] = None
+
+
 class CreditStatus(BaseModel):
     remaining: Optional[int] = None   # credits left on the key syncs are spending (the first one over the floor)
     floor: int                        # odds fetches stop before the balance drops under this
@@ -342,6 +349,7 @@ class CreditStatus(BaseModel):
     key_hint: Optional[str] = None    # last 4 characters, to tell keys apart
     key_name: Optional[str] = None    # its env var, e.g. ODDS_API_KEY_NFL_SECONDARY
     rotate: list[str] = []            # env vars of keys at or under the floor, to replace
+    others: list[KeyBalance] = []     # the league's other keys (the spare, or the spent main key)
     checked_at: Optional[str] = None
     error: Optional[str] = None
 

@@ -100,3 +100,14 @@ def test_meta_shows_the_next_sync_only_when_the_schedule_is_on(monkeypatch):
         monkeypatch.setattr(scheduler, "start", lambda: False)
         auto = c.get("/api/meta").json()["auto_sync"]
     assert auto["enabled"] and auto["next_label"] in {s.label for s in scheduler.SLOTS}
+
+
+def test_admin_credits_show_the_spare_key_too(monkeypatch):
+    monkeypatch.setenv("ODDS_API_KEY", "main-key-aaaa")
+    monkeypatch.setenv("ODDS_API_KEY_NFL_SECONDARY", "spare-key-bbbb")
+    monkeypatch.setattr(main.odds, "credits_remaining", lambda key: {"main-key-aaaa": 300, "spare-key-bbbb": 480}[key])
+    main._credits.clear()
+    with TestClient(main.app) as local:
+        c = local.get("/api/admin").json()["credits"]
+    assert c["key_name"] == "ODDS_API_KEY" and c["remaining"] == 300 and c["rotate"] == []
+    assert c["others"] == [dict(key_name="ODDS_API_KEY_NFL_SECONDARY", key_hint="bbbb", remaining=480, error=None)]
