@@ -332,8 +332,9 @@ def test_only_the_admin_can_ask_for_a_sync_plan(monkeypatch):
 
 def test_a_finished_sync_drops_the_caches_the_new_data_outdates():
     main._pick_cache["stale"] = object()
+    main._priced_cache["stale"] = object()
     main._release_memory()
-    assert main._pick_cache == {}
+    assert main._pick_cache == {} and main._priced_cache == {}
 
 
 # ---------- progress and options of the weekly sync ----------

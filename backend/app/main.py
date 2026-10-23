@@ -13,6 +13,7 @@ import pandas as pd
 import re
 import socket
 import subprocess
+import threading
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,7 +30,7 @@ from .engine import injuries as injm
 from .engine import moneyline as mlm
 from .engine import td as tdm
 from .engine.ladder import build_ladder
-from .engine.picks import build_picks
+from .engine.picks import best_picks, build_picks
 from .engine.search import rank_hits
 from .nba import routes as nba_routes
 from .schemas import (AdminState, Correlations, GradeReport, AltFetchResult, AutoSync, CreditStatus, KeyBalance, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, InjuryReport, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut,
@@ -153,9 +154,23 @@ def game_label(gid: str) -> str:
 
 
 _pick_cache: dict = {}
+_priced_cache: dict = {}
+_priced_lock = threading.Lock()
 
 
 _dists = grading.dists
+
+
+def _priced(db: Session, run: Run, version: tuple, w: float) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(projections, every book's priced quotes): one pricing of the board serves every book filter. The Parlays tab
+    asks for each book at once, so the lock makes those requests wait for one pricing instead of each doing its own."""
+    key = (run.id, version, round(w, 3))
+    with _priced_lock:
+        if key not in _priced_cache:
+            _priced_cache.clear()   # only the newest odds and run are asked for
+            proj = proj_frame(db, run.id)
+            _priced_cache[key] = proj, build_picks(proj, current_lines(db), w, dists=_dists(run), best_only=False)
+        return _priced_cache[key]
 
 
 def all_picks(db: Session, run: Run, w: float, book: Optional[str] = None) -> pd.DataFrame:
@@ -165,10 +180,11 @@ def all_picks(db: Session, run: Run, w: float, book: Optional[str] = None) -> pd
     hide = books.hide_offshore(db)
     key = (run.id, version, round(w, 3), book, hide)
     if key not in _pick_cache:
-        if len(_pick_cache) > 20:
+        if len(_pick_cache) > 40:
             _pick_cache.clear()
-        proj, lines = proj_frame(db, run.id), current_lines(db)
-        picks = build_picks(proj, lines, w, only_book=books.pricing_books(book, lines.get("book", []), hide), dists=_dists(run))
+        proj, priced = _priced(db, run, version, w)
+        all_books = priced.book.unique() if not priced.empty else []
+        picks = best_picks(priced, books.pricing_books(book, all_books, hide)) if not priced.empty else priced.copy()
         if not picks.empty:
             l5 = dict(zip(zip(proj.player_id, proj.kind), proj.last5))
             picks["last5"] = [l5.get(k, []) for k in zip(picks.player_id, picks.kind)]
@@ -192,6 +208,7 @@ def _release_memory():
     _injury_report.cache_clear()
     _stats.cache_clear()   # game logs in the player drawer come from the stats files, which a sync just refreshed
     _pick_cache.clear()
+    _priced_cache.clear()
     nba_routes.clear_caches()
     gc.collect()
     try:
@@ -450,6 +467,7 @@ def fetch_alt_lines(player_id: str, db: Session = Depends(get_db)):
     except Exception as e:  # upstream API failure
         raise HTTPException(502, f"Odds API error: {e}")
     _pick_cache.clear()
+    _priced_cache.clear()
     return AltFetchResult(kinds=kinds, **res)
 
 
