@@ -71,3 +71,9 @@ def test_the_fitted_table_finds_stacks_and_game_script():
 
 def test_rare_pairs_get_no_correlation():
     assert cm.fit(backtest(n_games=cm.MIN_PAIRS - 1), DISTS)["pairs"] == {}
+
+
+def test_gathering_pairs_a_few_at_a_time_fits_the_same_table(monkeypatch):
+    whole = cm.fit(backtest(), DISTS)
+    monkeypatch.setattr(cm, "PAIR_BATCH", 5)   # a handful of keys per pass over the games
+    assert cm.fit(backtest(), DISTS) == whole

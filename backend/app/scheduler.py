@@ -22,6 +22,7 @@ from .nba import pipeline as nba_pipeline
 ET = ZoneInfo("America/New_York")
 CATCH_UP = timedelta(hours=3)   # a slot missed by less than this (a redeploy at the wrong moment) runs on startup
 LOG_LINES = 200                 # lines of job output kept per run
+MAX_ATTEMPTS = 2                # a slot whose runs keep getting cut off (out of memory?) stops retrying on startup
 
 
 @dataclass(frozen=True)
@@ -203,9 +204,22 @@ def _odds_summary(res: dict) -> str:
 
 
 # ---------- the schedule ----------
-def _already_ran(slot: Slot, at: datetime) -> bool:
+def mark_interrupted() -> int:
+    """Close out runs a restart cut off (out of memory, a redeploy): on a fresh process nothing is running."""
     with SessionLocal() as s:
-        return s.scalars(select(SyncRun.id).where(SyncRun.slot == slot.id, SyncRun.scheduled_for == at).limit(1)).first() is not None
+        rows = s.scalars(select(SyncRun).where(SyncRun.status == "running")).all()
+        for r in rows:
+            r.status, r.finished_at = "interrupted", datetime.utcnow()
+            r.summary = "Cut off by a server restart (out of memory or a redeploy)"
+        s.commit()
+        return len(rows)
+
+
+def _already_ran(slot: Slot, at: datetime) -> bool:
+    """True once the slot finished for that time, or was cut off MAX_ATTEMPTS times (retrying would just crash again)."""
+    with SessionLocal() as s:
+        statuses = s.scalars(select(SyncRun.status).where(SyncRun.slot == slot.id, SyncRun.scheduled_for == at)).all()
+    return any(st != "interrupted" for st in statuses) or len(statuses) >= MAX_ATTEMPTS
 
 
 def _fire(slot: Slot, at: datetime, trigger: str, stop: threading.Event) -> None:

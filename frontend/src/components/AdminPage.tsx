@@ -11,7 +11,7 @@ import ThemeToggle from "./ThemeToggle";
 const ODDS_TEXT: Record<string, string> = { none: "Model only", missing: "Model + missing odds", thin: "Model + thin top-up", all: "Model + all odds" };
 
 function Status({ s }: { s: SyncRun["status"] }) {
-  const text = { ok: "OK", partial: "Partial", error: "Error", skipped: "Skipped", running: "Running" }[s];
+  const text = { ok: "OK", partial: "Partial", error: "Error", skipped: "Skipped", running: "Running", interrupted: "Interrupted" }[s];
   return <span className={`st st-${s}`}>{text}</span>;
 }
 

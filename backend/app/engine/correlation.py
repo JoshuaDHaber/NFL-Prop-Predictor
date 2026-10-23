@@ -29,6 +29,8 @@ MIN_PAIRS = 40        # a key needs this many backtested pairs to get a correlat
 SHRINK_K = 20.0       # pseudo-pairs of zero correlation mixed in: rho * n / (n + K); 20 had the best held-out Brier
 HOLDOUT_SHARE = 0.35  # the latest share of backtest weeks held out to check the fitted table
 POS = {"FB": "RB"}
+REL = ("same", "team", "opp")
+PAIR_BATCH = 500_000    # pairs held in memory at once while fitting
 
 
 def leg_desc(kind: str, pos: str) -> str:
@@ -55,14 +57,73 @@ def _rows(bt: pd.DataFrame, dists: dict) -> pd.DataFrame:
     return d
 
 
-def _pairs(d: pd.DataFrame) -> pd.DataFrame:
-    """Every pair of rows in the same game (each pair once), with its key."""
-    d = d.assign(i=np.arange(len(d)))
-    cols = ["game", "i", "player_id", "team", "desc", "kind", "z", "hit"]
-    p = d[cols].merge(d[cols], on="game", suffixes=("_a", "_b"))
-    p = p[p.i_a < p.i_b]
-    rel = np.where(p.player_id_a == p.player_id_b, "same", np.where(p.team_a == p.team_b, "team", "opp"))
-    return p.assign(key=[pair_key(r, a, b) for r, a, b in zip(rel, p.desc_a, p.desc_b)])
+class _Pairs:
+    """Every pair of rows in the same game (each pair once), keyed by an integer code for its key and generated a game at a
+    time. Materialized as one merged frame of strings, the NBA backtest's ~15M pairs took over 2 GB on a 1 GB host."""
+    def __init__(self, d: pd.DataFrame):
+        d = d.sort_values("game", kind="stable")
+        self.descs = sorted(d.desc.unique())
+        self.n_desc = len(self.descs)
+        self.desc = d.desc.map({x: i for i, x in enumerate(self.descs)}).to_numpy(np.int64)
+        self.kind = d.kind.to_numpy()
+        self.player, self.team = pd.factorize(d.player_id)[0], pd.factorize(d.team)[0]
+        self.z, self.hit = d.z.to_numpy(float), d.hit.to_numpy(float)
+        g = d.game.to_numpy()
+        cuts = np.flatnonzero(g[1:] != g[:-1]) + 1
+        self.games = list(zip(np.r_[0, cuts], np.r_[cuts, len(d)]))
+        self._counts = None
+
+    def _game(self, lo: int, hi: int):
+        i, j = np.triu_indices(hi - lo, 1)
+        i, j = i + lo, j + lo
+        rel = np.where(self.player[i] == self.player[j], 0, np.where(self.team[i] == self.team[j], 1, 2))
+        a, b = np.minimum(self.desc[i], self.desc[j]), np.maximum(self.desc[i], self.desc[j])
+        return (rel * self.n_desc + a) * self.n_desc + b, i, j
+
+    def key(self, code: int) -> str:
+        rel, rest = divmod(int(code), self.n_desc ** 2)
+        a, b = divmod(rest, self.n_desc)
+        return pair_key(REL[rel], self.descs[a], self.descs[b])
+
+    def kinds(self, code: int) -> tuple:
+        """The two legs' markets: the first row of each desc carries it."""
+        a, b = divmod(int(code) % self.n_desc ** 2, self.n_desc)
+        return tuple(self.kind[np.argmax(self.desc == x)] for x in (a, b))
+
+    def counts(self) -> np.ndarray:
+        """Pairs per key code."""
+        if self._counts is None:
+            self._counts = np.zeros(len(REL) * self.n_desc ** 2, np.int64)
+            for lo, hi in self.games:
+                self._counts += np.bincount(self._game(lo, hi)[0], minlength=len(self._counts))
+        return self._counts
+
+    def groups(self, codes):
+        """(code, rows a, rows b) for each listed key, gathering about PAIR_BATCH pairs at a time."""
+        counts, batch, size = self.counts(), [], 0
+        for c in sorted(codes):
+            batch.append(c)
+            size += counts[c]
+            if size >= PAIR_BATCH:
+                yield from self._gather(batch)
+                batch, size = [], 0
+        if batch:
+            yield from self._gather(batch)
+
+    def _gather(self, codes):
+        want = np.zeros(len(self.counts()), bool)
+        want[codes] = True
+        parts = []
+        for lo, hi in self.games:
+            k, i, j = self._game(lo, hi)
+            m = want[k]
+            parts.append((k[m], i[m], j[m]))
+        k, i, j = (np.concatenate(x) for x in zip(*parts))
+        order = np.argsort(k, kind="stable")
+        k, i, j = k[order], i[order], j[order]
+        starts = np.flatnonzero(np.r_[True, k[1:] != k[:-1]]) if len(k) else np.array([], int)
+        for a, b in zip(starts, np.r_[starts[1:], len(k)]):
+            yield int(k[a]), i[a:b], j[a:b]
 
 
 def tetrachoric(x, y) -> float:
@@ -86,25 +147,23 @@ def _bvn(za, zb, r):
     return float(st.multivariate_normal(mean=[0, 0], cov=[[1, r], [r, 1]]).cdf([za, zb]))
 
 
-def _estimate(g: pd.DataFrame) -> float:
-    if g.z_a.notna().all() and g.z_b.notna().all():
-        rs = st.spearmanr(g.z_a, g.z_b).statistic
+def _estimate(za, zb, ha, hb) -> float:
+    if np.isfinite(za).all() and np.isfinite(zb).all():
+        rs = st.spearmanr(za, zb).statistic
         return float(2 * np.sin(np.pi * rs / 6)) if np.isfinite(rs) else 0.0
-    return tetrachoric(g.hit_a, g.hit_b)
+    return tetrachoric(ha, hb)
 
 
-def fit_table(pairs: pd.DataFrame, k: float = None) -> dict:
+def fit_table(pairs: _Pairs, k: float = None) -> dict:
     """key -> [shrunk latent correlation, pairs]"""
     k = SHRINK_K if k is None else k
     out = {}
-    for key, g in pairs.groupby("key"):
-        n = len(g)
-        if n < MIN_PAIRS:
-            continue
-        r = _estimate(g) * n / (n + k)
+    for code, i, j in pairs.groups(np.flatnonzero(pairs.counts() >= MIN_PAIRS)):
+        n = len(i)
+        r = _estimate(pairs.z[i], pairs.z[j], pairs.hit[i], pairs.hit[j]) * n / (n + k)
         if abs(r) >= 0.01:
-            out[key] = [round(r, 4), n]
-    return out
+            out[pairs.key(code)] = [round(r, 4), n]
+    return dict(sorted(out.items()))
 
 
 def joint_prob(probs, signs, rho) -> float:
@@ -146,17 +205,33 @@ def _scores(pred: np.ndarray, ind: np.ndarray, y: np.ndarray) -> dict:
                 brier_copula=float(np.mean((pred - y) ** 2)), brier_independent=float(np.mean((ind - y) ** 2)))
 
 
-def _check(pairs: pd.DataFrame, table: dict, rates: dict, d_test: pd.DataFrame) -> dict:
+def _grouped_scores(n: np.ndarray, hits: np.ndarray, pred: np.ndarray, ind: np.ndarray) -> dict:
+    """_scores for pairs grouped by prediction: n pairs per group, hits of them that both hit."""
+    total = n.sum()
+    if not total:
+        return dict(n=0)
+    brier = lambda p: float((n * p * p - 2 * p * hits + hits).sum() / total)   # sum of (p - y)^2 over a group's pairs
+    return dict(n=int(total), actual=float(hits.sum() / total), copula=float((n * pred).sum() / total),
+                independent=float((n * ind).sum() / total), brier_copula=brier(pred), brier_independent=brier(ind))
+
+
+def _check(pairs: _Pairs, table: dict, rates: dict, d_test: pd.DataFrame) -> dict:
     """Held-out weeks: the joint hit rate the copula and independence predict, against what happened. Each leg's chance is
     its market's base rate (the backtest has no lines). Pairs the table calls correlated (|rho| >= 0.15) are scored apart
-    by sign, where the two methods differ; triples are every quarterback with two of his receivers, all overs."""
+    by sign, where the two methods differ; triples are every quarterback with two of his receivers, all overs.
+    A pair's prediction depends only on its key, so pairs are scored a key at a time."""
     out = {}
-    rho = pairs.key.map(lambda k: table.get(k, [0.0])[0]).to_numpy()
-    pa, pb = pairs.kind_a.map(rates).to_numpy(), pairs.kind_b.map(rates).to_numpy()
-    y = (pairs.hit_a * pairs.hit_b).to_numpy()
-    for name, sel in (("positive", rho >= 0.15), ("negative", rho <= -0.15)):
-        cop = np.array([joint_prob([a, b], [1, 1], [[1, r], [r, 1]]) for a, b, r in zip(pa[sel], pb[sel], rho[sel])])
-        out[name] = _scores(cop, pa[sel] * pb[sel], y[sel])
+    codes = np.flatnonzero(pairs.counts())
+    rho = {c: table.get(pairs.key(c), [0.0])[0] for c in codes}
+    for name, sel in (("positive", lambda r: r >= 0.15), ("negative", lambda r: r <= -0.15)):
+        n, hits, cop, ind = [], [], [], []
+        for code, i, j in pairs.groups([c for c in codes if sel(rho[c])]):
+            pa, pb = (rates[x] for x in pairs.kinds(code))
+            n.append(len(i))
+            hits.append(float((pairs.hit[i] * pairs.hit[j]).sum()))
+            cop.append(joint_prob([pa, pb], [1, 1], [[1, rho[code]], [rho[code], 1]]))
+            ind.append(pa * pb)
+        out[name] = _grouped_scores(*(np.array(v, float) for v in (n, hits, cop, ind)))
     rows = []
     for _, g in d_test.groupby(["game", "team"]):
         qb, rec = g[g.kind == "pass"], g[g.kind == "rec"]
@@ -183,6 +258,10 @@ def fit(bt: pd.DataFrame, dists: dict) -> dict:
     split = weeks[int(len(weeks) * (1 - HOLDOUT_SHARE))] if len(weeks) > 3 else weeks[-1] + 1
     train, test = d[d.t < split], d[d.t >= split]
     rates = d.groupby("kind").hit.mean().to_dict()
-    check = _check(_pairs(test), fit_table(_pairs(train)), rates, test) if len(test) and len(train) else {}
-    table = fit_table(_pairs(d))
+    check = {}
+    if len(test) and len(train):
+        early = fit_table(_Pairs(train))   # one set of pairs alive at a time
+        check = _check(_Pairs(test), early, rates, test)
+    del train, test
+    table = fit_table(_Pairs(d))
     return dict(pairs=table, k=SHRINK_K, min_pairs=MIN_PAIRS, check=check, holdout_from=int(split))

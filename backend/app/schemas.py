@@ -362,7 +362,7 @@ class SyncRunOut(BaseModel):
     scheduled_for: Optional[str] = None
     started_at: str
     finished_at: Optional[str] = None
-    status: str                       # running | ok | partial | error | skipped
+    status: str                       # running | ok | partial | error | skipped | interrupted
     odds_mode: str
     full: bool
     season: Optional[int] = None

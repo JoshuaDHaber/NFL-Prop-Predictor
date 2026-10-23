@@ -69,6 +69,22 @@ def test_a_slot_never_runs_twice_for_the_same_time(monkeypatch):
         assert s.query(SyncRun).count() == 1
 
 
+def test_a_restart_marks_cut_off_runs_interrupted_and_catch_up_retries_them_once(monkeypatch):
+    monkeypatch.setattr(scheduler.pipeline, "refresh_odds", lambda mode, log=print, **kw: {})
+    slot, at = scheduler.BY_ID["sun-pregame"], datetime(2026, 10, 18, 15)
+    with SessionLocal() as s:   # the process died mid-run: the row never finished
+        s.add(SyncRun(slot=slot.id, trigger="schedule", scheduled_for=at, odds_mode=slot.odds)); s.commit()
+    assert scheduler._already_ran(slot, at)
+    assert scheduler.mark_interrupted() == 1
+    assert not scheduler._already_ran(slot, at)
+    scheduler._fire(slot, at, "catch-up", scheduler.threading.Event())
+    with SessionLocal() as s:
+        assert sorted(r.status for r in s.query(SyncRun)) == ["interrupted", "ok"]
+        s.query(SyncRun).filter(SyncRun.status == "ok").update({"status": "running"}); s.commit()
+    scheduler.mark_interrupted()   # cut off a second time: a third try would likely crash again
+    assert scheduler._already_ran(slot, at)
+
+
 def test_admin_page_needs_the_password(monkeypatch):
     monkeypatch.setenv("ADMIN_TOKEN", "s3cret")
     with TestClient(main.app, client=("203.0.113.9", 4000)) as remote:

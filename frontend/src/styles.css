@@ -340,7 +340,7 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
 .admin-table button.link:disabled { color: var(--mut); cursor: default; }
 .st { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 6px; background: var(--chip); color: var(--acc); }
 .st-ok { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
-.st-partial, .st-skipped { background: var(--warn-bg); color: var(--warn); }
+.st-partial, .st-skipped, .st-interrupted { background: var(--warn-bg); color: var(--warn); }
 .st-error { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
 .runlog { margin: 0; max-height: 320px; overflow: auto; font-size: 11px; line-height: 1.5; white-space: pre-wrap; color: var(--mut); }
 .admin-signin { max-width: 360px; margin-top: 20px; padding: 16px; display: flex; flex-direction: column; gap: 10px; overflow: visible; }

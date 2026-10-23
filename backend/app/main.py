@@ -40,6 +40,9 @@ async def lifespan(_: FastAPI):
         n = pipeline.seed_odds_from_csv(CSV_SEED, s)
         if n:
             print(f"Seeded {n} odds lines from {CSV_SEED}")
+    n = scheduler.mark_interrupted()
+    if n:
+        print(f"Marked {n} sync run(s) a restart cut off as interrupted")
     scheduler.after_job = _release_memory
     if scheduler.start():
         print("Scheduled syncs are on (AUTO_SYNC)")
@@ -180,7 +183,7 @@ _job = scheduler._job
 
 
 def _release_memory():
-    """Hand a finished job's memory back to the OS (matters on a 512 MB host) and drop caches the new data outdates."""
+    """Hand a finished job's memory back to the OS (matters on a 1 GB host) and drop caches the new data outdates."""
     import gc
     _injury_report.cache_clear()
     _stats.cache_clear()   # game logs in the player drawer come from the stats files, which a sync just refreshed
