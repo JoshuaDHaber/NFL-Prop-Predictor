@@ -59,7 +59,7 @@ def _rows(bt: pd.DataFrame, dists: dict) -> pd.DataFrame:
 
 class _Pairs:
     """Every pair of rows in the same game (each pair once), keyed by an integer code for its key and generated a game at a
-    time. Materialized as one merged frame of strings, the NBA backtest's ~15M pairs took over 2 GB on a 512 MB host."""
+    time. Materialized as one merged frame of strings, the NBA backtest's ~15M pairs took over 2 GB on a 1 GB host."""
     def __init__(self, d: pd.DataFrame):
         d = d.sort_values("game", kind="stable")
         self.descs = sorted(d.desc.unique())

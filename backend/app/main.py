@@ -183,7 +183,7 @@ _job = scheduler._job
 
 
 def _release_memory():
-    """Hand a finished job's memory back to the OS (matters on a 512 MB host) and drop caches the new data outdates."""
+    """Hand a finished job's memory back to the OS (matters on a 1 GB host) and drop caches the new data outdates."""
     import gc
     _injury_report.cache_clear()
     _stats.cache_clear()   # game logs in the player drawer come from the stats files, which a sync just refreshed
