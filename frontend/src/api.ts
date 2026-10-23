@@ -31,7 +31,9 @@ export interface SyncRun {
 }
 export interface SyncRunDetail extends SyncRun { log: string[] }
 export interface ScheduleSlot { id: string; label: string; league?: "nfl" | "nba"; when: string; odds_mode: string; full: boolean; why: string; next_at: string; last_run: SyncRun | null }
-export interface AdminState { auto_sync: AutoSync; timezone: string; credits: CreditStatus; credits_nba?: CreditStatus | null; slots: ScheduleSlot[]; runs: SyncRun[]; job: JobStatus; can_run_projections: boolean }
+export interface AdminState { auto_sync: AutoSync; timezone: string; credits: CreditStatus; credits_nba?: CreditStatus | null; slots: ScheduleSlot[]; runs: SyncRun[]; job: JobStatus; can_run_projections: boolean;
+  /** Offshore books (licensed in no US state) are kept off every list and price. */
+  hide_offshore: boolean }
 
 export interface BacktestStat {
   n: number; mae_model: number; mae_naive: number; bias: number; metric?: "mae" | "brier"; calibration?: CalibrationBin[];
@@ -182,11 +184,20 @@ export interface Filters { kind: Kind | "all"; side: "all" | "Over" | "Under"; g
   /** NBA only: one Eastern game date ("YYYY-MM-DD"), or every date when unset. */
   date?: string }
 
+/** Books legal where the bettor is (legalBooks.ts), or null for every book. Set by main.tsx, which resets the query caches
+ *  whenever it changes, so every list of books and every "best price" below only ever covers these. */
+let allowed: string[] | null = null;
+export const setAllowedBooks = (books: string[] | null) => { allowed = books; };
+const keepBooks = (books: string[]) => (allowed ? books.filter((b) => allowed!.includes(b)) : books);
+/** "all" means every allowed book (a comma list the backend understands); a book that isn't allowed falls back to the same.
+ *  "none" matches no book, for a state with no legal sportsbook. */
+const bookParam = (book: string) => (!allowed || (book !== "all" && allowed.includes(book)) ? book : allowed.join(",") || "none");
+
 export const api = {
-  meta: () => get<Meta>(lg("meta")),
-  nbaMeta: () => get<NbaMeta>("nba/meta"),
+  meta: () => get<Meta>(lg("meta")).then((m) => ({ ...m, books: keepBooks(m.books) })),
+  nbaMeta: () => get<NbaMeta>("nba/meta").then((m) => ({ ...m, books: keepBooks(m.books) })),
   picks: (f: Filters, limit = 300) =>
-    get<Pick[]>(lg("picks"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, side: f.side, game_id: f.game, gameday: f.date, book: f.book, q: f.q, min_ev: f.minEv, market_weight: f.marketWeight,
+    get<Pick[]>(lg("picks"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, side: f.side, game_id: f.game, gameday: f.date, book: bookParam(f.book), q: f.q, min_ev: f.minEv, market_weight: f.marketWeight,
       include_flagged: f.flagged, limit }),
   projections: (f: Filters) => get<Projection[]>(lg("projections"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, game_id: f.game, gameday: f.date, q: f.q }),
   /** Every market for every projected player, anytime TD included (the player compare tab). */
@@ -197,7 +208,7 @@ export const api = {
   nbaProjections: () => get<Projection[]>("nba/projections"),
   searchPlayers: (q: string) => get<PlayerHit[]>(lg("player-search"), { q }),
   player: (id: string, marketWeight: number) => get<PlayerDetail>(lg(`players/${id}`), { market_weight: marketWeight }),
-  moneylines: (book: string, marketWeight: number) => get<MoneylineGame[]>(lg("moneylines"), { book, market_weight: marketWeight }),
+  moneylines: (book: string, marketWeight: number) => get<MoneylineGame[]>(lg("moneylines"), { book: bookParam(book), market_weight: marketWeight }),
   injuries: () => get<InjuryReport>(lg("injuries")),
   grades: () => get<GradeReport>("grades"),
   correlations: () => get<Correlations>("correlations"),
@@ -205,7 +216,8 @@ export const api = {
   nbaGrades: () => get<GradeReport>("nba/grades"),
   /** oddsRange hides prices outside -N..+N (American); 0 shows everything. */
   // by the market, not the league on screen: a betslip can hold legs from both
-  lines: (id: string, kind: Kind, oddsRange = 300) => get<Ladder>(`${NBA_KIND_SET.has(kind) ? "nba/" : ""}players/${id}/lines`, { kind, odds_range: oddsRange }),
+  lines: (id: string, kind: Kind, oddsRange = 300) => get<Ladder>(`${NBA_KIND_SET.has(kind) ? "nba/" : ""}players/${id}/lines`, { kind, odds_range: oddsRange })
+    .then((l) => ({ ...l, quotes: l.quotes.filter((q) => !allowed || allowed.includes(q.book)) })),
   fetchAlt: async (id: string): Promise<AltFetchResult> => {
     const res = await request(`/api/players/${id}/alt-lines`, { method: "POST" });
     if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail);
@@ -220,6 +232,11 @@ export const api = {
   adminRun: (id: number) => get<SyncRunDetail>(`admin/runs/${id}`),
   runSlotNow: async (slot: string): Promise<JobStatus> => {
     const res = await request(`/api/admin/run/${slot}`, { method: "POST" });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail);
+    return res.json();
+  },
+  setHideOffshore: async (hide: boolean): Promise<{ hide_offshore: boolean }> => {
+    const res = await request("/api/admin/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hide_offshore: hide }) });
     if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail);
     return res.json();
   },

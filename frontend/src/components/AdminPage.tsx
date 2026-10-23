@@ -54,6 +54,8 @@ export default function AdminPage({ embedded = false }: { embedded?: boolean }) 
     refetchInterval: (q) => (q.state.data?.job.state === "running" ? 2000 : 30_000),
   });
   const runNow = useMutation({ mutationFn: api.runSlotNow, onSuccess: () => qc.invalidateQueries({ queryKey: ["admin"] }) });
+  // every list of books and every price changes with it: refetch the whole site's data, not just this page
+  const hideOffshore = useMutation({ mutationFn: api.setHideOffshore, onSuccess: () => qc.resetQueries() });
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
 
   const signOut = token && <button className="link" onClick={() => { setToken(""); qc.removeQueries({ queryKey: ["admin"] }); }}>Sign out</button>;
@@ -103,6 +105,15 @@ export default function AdminPage({ embedded = false }: { embedded?: boolean }) 
         </div>
         <CreditCard label="Odds API credits (NFL)" k={c} now={now} />
         {d.credits_nba && <CreditCard label="Odds API credits (NBA)" k={d.credits_nba} now={now} />}
+        <div className="card admin-card">
+          <span className="mut">Offshore books</span>
+          <label className="admin-toggle">
+            <input type="checkbox" checked={d.hide_offshore} disabled={hideOffshore.isPending} onChange={(e) => hideOffshore.mutate(e.target.checked)} />
+            <span className="big">{d.hide_offshore ? "Hidden" : "Shown"}</span>
+          </label>
+          <span className="mut">Bovada, BetOnline.ag, BetUS, MyBookie.ag, LowVig.ag. Hidden, they still count toward the market consensus.</span>
+          {hideOffshore.error && <span className="err">{(hideOffshore.error as Error).message}</span>}
+        </div>
         <div className="card admin-card">
           <span className="mut">Now</span>
           {running ? (

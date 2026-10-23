@@ -24,6 +24,11 @@ STALE_MIN_GAP = {"recs": 1.5, "ptd": 0.9, "pts": 4.0, "reb": 2.0, "ast": 2.0, "t
                  "stl": 0.9, "blk": 0.9}
 
 
+def book_set(only_book: str = None):
+    """A book filter ("DraftKings" or "BetMGM,DraftKings,FanDuel") as a set; None keeps every book."""
+    return {b.strip() for b in only_book.split(",") if b.strip()} if only_book else None
+
+
 def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 0.35, only_book: str = None,
                 dists: dict = None) -> pd.DataFrame:
     """All priced Over/Under candidates. flagged (hidden by default) = model and market disagree by >40-67%, usually a
@@ -31,7 +36,8 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
     receiver in his first game out (redistribute.teammates_out). It isn't a flag: those receivers average a few yards
     over projection, but from a few big games; they beat it no more often than anyone (42.6% vs 42.7%), so their
     Unders hit as often as any.
-    only_book keeps just that sportsbook's quotes in the output; the market consensus still uses every book.
+    only_book keeps just that sportsbook's quotes in the output (or several, comma-separated: the books legal in the
+    bettor's state); the market consensus still uses every book.
     dists: per-kind error tables from the backtest (model.fit_dist); without one, the older gamma curve is used., best book per player/market/side, sorted by EV (no EV filter)."""
     if proj.empty or lines.empty:
         return pd.DataFrame(columns=PICK_COLUMNS)
@@ -56,6 +62,7 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
         lines.loc[yes_only, "nv_o"] = odds.implied(lines.loc[yes_only, "over_odds"]) / (1 + hold)
     cons = lines.groupby(["key", "market"]).agg(line=("line", "median"), nv_o=("nv_o", "mean"), books=("book", "nunique"))
 
+    keep = book_set(only_book)
     out = []
     for r in lines.itertuples():
         p = pm.get((r.key, r.market))
@@ -64,7 +71,7 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
         c = cons.loc[(r.key, r.market)]
         if abs(r.line - c.line) > max(STALE_MIN_GAP.get(r.market, 8.0), 0.3 * c.line):
             continue  # alternate / stale line far from the market consensus
-        if only_book and r.book != only_book:
+        if keep and r.book not in keep:
             continue
         var = p.sd ** 2
         wx = getattr(p, "wx", 1.0)

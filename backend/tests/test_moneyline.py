@@ -94,6 +94,8 @@ def test_pricing_blends_toward_the_market_and_takes_the_best_price():
 def test_a_book_filter_keeps_that_books_price_but_the_whole_markets_consensus():
     every, one = mlm.price(GAMES, ml_lines()), mlm.price(GAMES, ml_lines(), only_book="DraftKings")
     assert one[0]["sides"][0]["odds"] == -200 and one[0]["sides"][0]["p_mkt"] == every[0]["sides"][0]["p_mkt"]
+    several = mlm.price(GAMES, ml_lines(), only_book="DraftKings,FanDuel")
+    assert (several[0]["sides"][0]["odds"], several[0]["sides"][0]["book"]) == (-190, "FanDuel")
 
 
 def test_a_game_without_prices_still_shows_the_models_chance():

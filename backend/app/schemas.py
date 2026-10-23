@@ -399,6 +399,11 @@ class AdminState(BaseModel):
     runs: list[SyncRunOut]
     job: JobStatus
     can_run_projections: bool
+    hide_offshore: bool = False
+
+
+class SiteSettings(BaseModel):
+    hide_offshore: bool
 
 
 class NbaRunInfo(BaseModel):

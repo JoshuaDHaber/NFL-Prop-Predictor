@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import config
+from .. import books, config
 from ..db import NbaAltLine, NbaOddsLine, NbaProjection, NbaRun, SessionLocal, current_lines
 from ..engine import moneyline as mlm
 from ..engine import odds
@@ -66,7 +66,7 @@ def meta(request: Request, db: Session = Depends(get_db)):
         backtest={k: BacktestStat(**v) for k, v in (run.backtest or {}).items()} if run else {},
         odds={m: OddsInfo(fetched_at=t.isoformat(), lines=int(counts.get(m, 0))) for m, t in fetched.items()},
         games=games, has_odds_key=bool(config.ODDS_API_KEY_NBA()), auto_sync=auto_sync(), can_write=is_admin(request),
-        books=sorted(b for (b,) in db.execute(select(NbaOddsLine.book).distinct()).all()))
+        books=books.shown((b for (b,) in db.execute(select(NbaOddsLine.book).distinct()).all()), books.hide_offshore(db)))
 
 
 def _proj_frame(db: Session, run_id: int) -> pd.DataFrame:
@@ -84,12 +84,13 @@ _pick_cache: dict = {}
 def all_picks(db: Session, run: NbaRun, w: float, book: Optional[str] = None) -> pd.DataFrame:
     version = tuple(sorted(db.execute(select(NbaOddsLine.market, func.max(NbaOddsLine.fetched_at)).group_by(NbaOddsLine.market)).all()))
     live = frozenset(g["game_id"] for g in _upcoming(run))   # a game that tips off leaves the board
-    key = (run.id, version, round(w, 3), book, live)
+    hide = books.hide_offshore(db)
+    key = (run.id, version, round(w, 3), book, live, hide)
     if key not in _pick_cache:
         if len(_pick_cache) > 20:
             _pick_cache.clear()
-        proj = _proj_frame(db, run.id)
-        picks = build_picks(proj, current_lines(db, NbaOddsLine), w, only_book=book, dists=_dists(run))
+        proj, lines = _proj_frame(db, run.id), current_lines(db, NbaOddsLine)
+        picks = build_picks(proj, lines, w, only_book=books.pricing_books(book, lines.get("book", []), hide), dists=_dists(run))
         if not picks.empty:
             l5 = dict(zip(zip(proj.player_id, proj.kind), proj.last5))
             picks["last5"] = [l5.get(k, []) for k in zip(picks.player_id, picks.kind)]
@@ -171,7 +172,8 @@ def moneylines(book: Optional[str] = None, market_weight: float = Query(0.35, ge
         return []
     live = {g["game_id"] for g in _upcoming(run)}
     games = {gid: g for gid, g in run.teams.items() if gid in live}
-    return mlm.price(games, current_lines(db, NbaOddsLine), market_weight, book, names=nba_odds.TEAM_NAMES,
+    lines = current_lines(db, NbaOddsLine)
+    return mlm.price(games, lines, market_weight, books.pricing_books(book, lines.get("book", []), books.hide_offshore(db)), names=nba_odds.TEAM_NAMES,
                      min_market_weight=model.ML_MIN_MARKET_WEIGHT)
 
 
@@ -273,6 +275,8 @@ def player_lines(player_id: str, kind: NbaKind, odds_range: int = Query(300, ge=
                                 book=r.book, over_link=r.over_link, under_link=r.under_link, event_link=r.event_link,
                                 game_id=r.game_id, alt=True) for r in alts], columns=list(main.columns))
     quotes = pd.concat([f for f in (main, alt_df) if not f.empty] or [main], ignore_index=True)
+    if books.hide_offshore(db):
+        quotes = quotes[~quotes.book.isin(books.OFFSHORE)]
     fetched = max((r.fetched_at for r in alts), default=None)
     return LadderOut(kind=kind, mu=p.mu, sd=p.sd, game_id=p.game_id, alt_fetched_at=fetched.isoformat() if fetched else None,
                      quotes=build_ladder(p.mu, p.sd, quotes, odds_range, kind, _dists(run).get(kind)))

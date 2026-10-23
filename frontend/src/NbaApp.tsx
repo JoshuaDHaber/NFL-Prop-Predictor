@@ -8,6 +8,7 @@ import Games from "./components/Games";
 import GradesCard from "./components/GradesCard";
 import { GameInjuries } from "./components/Injuries";
 import LeagueSwitch from "./components/LeagueSwitch";
+import StateBooks from "./components/StateBooks";
 import NbaGameOverview from "./components/NbaGameOverview";
 import ParlayTiles from "./components/ParlayTiles";
 import PicksTable from "./components/PicksTable";
@@ -133,7 +134,7 @@ export default function NbaApp() {
             {m.auto_sync?.enabled && m.auto_sync.next_at && ` · next update ${localWhen(m.auto_sync.next_at)}`}
           </div>
         </div>
-        <div className="head-actions"><LeagueSwitch /></div>
+        <div className="head-actions"><StateBooks /><LeagueSwitch /></div>
       </header>
 
       {!m.run && <div className="banner">No NBA projections yet. They appear after the next scheduled sync{m.auto_sync?.next_at ? ` (${localWhen(m.auto_sync.next_at)})` : ""}.</div>}

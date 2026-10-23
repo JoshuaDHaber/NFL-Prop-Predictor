@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { detectState } from "./geoState";
 import { slipFromHash, type Leg } from "./slip";
 
 interface SlipCtx {
@@ -10,6 +11,9 @@ interface SlipCtx {
   clear: () => void;
   state: string;
   setState: (s: string) => void;
+  /** Show every sportsbook, not just the ones legal in `state`. */
+  allBooks: boolean;
+  setAllBooks: (b: boolean) => void;
   open: boolean;
   setOpen: (o: boolean) => void;
 }
@@ -17,12 +21,14 @@ interface SlipCtx {
 const Ctx = createContext<SlipCtx | null>(null);
 const KEY = "nfl-props-slip-v1";
 
-function load(): { legs: Leg[]; state: string; shared?: boolean } {
+function load(): { legs: Leg[]; state: string; allBooks?: boolean; shared?: boolean } {
   // a slip shared from another device arrives in the URL hash; it replaces the saved slip, then the hash is removed
   const shared = slipFromHash(window.location.hash);
   if (shared) {
     try { window.history.replaceState(null, "", window.location.pathname + window.location.search); } catch { /* ignore */ }
-    return { ...shared, shared: true };
+    let allBooks = false;
+    try { allBooks = !!JSON.parse(localStorage.getItem(KEY) ?? "{}").allBooks; } catch { /* storage blocked */ }
+    return { ...shared, allBooks, shared: true };
   }
   try {
     const raw = localStorage.getItem(KEY);
@@ -35,11 +41,20 @@ export function BetSlipProvider({ children }: { children: ReactNode }) {
   const [init] = useState(load);
   const [legs, setLegs] = useState<Leg[]>(init.legs);
   const [state, setState] = useState(init.state ?? "");
+  const [allBooks, setAllBooks] = useState(!!init.allBooks);
   const [open, setOpen] = useState(!!init.shared);
 
   useEffect(() => {
-    try { localStorage.setItem(KEY, JSON.stringify({ legs, state })); } catch { /* ignore */ }
-  }, [legs, state]);
+    try { localStorage.setItem(KEY, JSON.stringify({ legs, state, allBooks })); } catch { /* ignore */ }
+  }, [legs, state, allBooks]);
+
+  // the bettor may have moved since the state was saved: re-check on load, but only if location is already allowed
+  // (asking happens from the header or the slip, never unprompted)
+  useEffect(() => {
+    navigator.permissions?.query({ name: "geolocation" }).then((p) => {
+      if (p.state === "granted") detectState().then((r) => { if ("state" in r) setState(r.state); });
+    }).catch(() => { /* no Permissions API */ });
+  }, []);
 
   const toggle = useCallback((leg: Leg) =>
     setLegs((ls) => (ls.some((l) => l.id === leg.id) ? ls.filter((l) => l.id !== leg.id) : [...ls, leg])), []);
@@ -50,8 +65,8 @@ export function BetSlipProvider({ children }: { children: ReactNode }) {
   const clear = useCallback(() => setLegs([]), []);
   const has = useCallback((id: string) => legs.some((l) => l.id === id), [legs]);
 
-  const value = useMemo(() => ({ legs, has, toggle, remove, replace, clear, state, setState, open, setOpen }),
-    [legs, has, toggle, remove, replace, clear, state, open]);
+  const value = useMemo(() => ({ legs, has, toggle, remove, replace, clear, state, setState, allBooks, setAllBooks, open, setOpen }),
+    [legs, has, toggle, remove, replace, clear, state, allBooks, open]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

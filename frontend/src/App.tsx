@@ -17,6 +17,7 @@ import { BASE } from "./env";
 import { isYesNo, KIND_LABEL, americanOdds, fmtProj, fmtSd, marketLabel, projCaption, matchup, playLabel, signedPct, timeAgo } from "./format";
 import ThemeToggle from "./components/ThemeToggle";
 import LeagueSwitch from "./components/LeagueSwitch";
+import StateBooks from "./components/StateBooks";
 import { useLeague } from "./LeagueContext";
 import TopTiles, { type Tile } from "./components/TopTiles";
 import { importOrReload } from "./staleChunk";
@@ -150,6 +151,7 @@ function PublicApp() {
           </div>
         </div>
         <div className="head-actions">
+          <StateBooks />
           <LeagueSwitch />
         </div>
       </header>
