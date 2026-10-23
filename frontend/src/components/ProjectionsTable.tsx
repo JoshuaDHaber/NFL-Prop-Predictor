@@ -1,5 +1,6 @@
 import type { GameWeather, Projection } from "../api";
 import { isYesNo, KIND_LABEL, effText, fmtProj, fmtSd, matchup, signed } from "../format";
+import { useIncremental } from "../useIncremental";
 import { useSort } from "../useSort";
 import Avatar from "./Avatar";
 import SortBar from "./SortBar";
@@ -10,6 +11,7 @@ export const THIN_TITLE = "Only a game or two of history (a rookie, or back from
 
 export default function ProjectionsTable({ rows, onSelect, weather = {}, nba = false }: { rows: Projection[]; onSelect: (p: Projection) => void; weather?: Record<string, GameWeather | null | undefined>; nba?: boolean }) {
   const { sorted, toggle, arrow } = useSort(rows, "mu");
+  const { visible, more, showMore, sentinel } = useIncremental(sorted);
   const th = (key: string, label: string, title?: string) => (
     <th scope="col" onClick={() => toggle(key)} title={title} className="sortable">{label}{arrow(key)}</th>
   );
@@ -27,7 +29,7 @@ export default function ProjectionsTable({ rows, onSelect, weather = {}, nba = f
           </tr>
         </thead>
         <tbody>
-          {sorted.map((p) => (
+          {visible.map((p) => (
             <tr key={`${p.player_id}-${p.kind}`} className="clickable" onClick={() => onSelect(p)} tabIndex={0}
               onKeyDown={(e) => e.key === "Enter" && onSelect(p)}>
               <td>
@@ -49,6 +51,11 @@ export default function ProjectionsTable({ rows, onSelect, weather = {}, nba = f
         </tbody>
       </table>
     </div>
+    {more && (
+      <div ref={sentinel} className="more-rows">
+        <button className="primary outline" onClick={showMore}>Show more ({visible.length.toLocaleString()} of {sorted.length.toLocaleString()})</button>
+      </div>
+    )}
     </>
   );
 }
