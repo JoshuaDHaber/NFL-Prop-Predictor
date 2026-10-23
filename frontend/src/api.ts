@@ -25,7 +25,7 @@ export interface CreditStatus { remaining: number | null; floor: number; low: bo
 export interface SyncRun {
   id: number; slot: string; label: string; trigger: "schedule" | "catch-up" | "manual";
   scheduled_for: string | null; started_at: string; finished_at: string | null;
-  status: "running" | "ok" | "partial" | "error" | "skipped";
+  status: "running" | "ok" | "partial" | "error" | "skipped" | "interrupted";
   odds_mode: string; full: boolean; season: number | null; week: number | null;
   games_fetched: number; credits_before: number | null; credits_after: number | null; summary: string; error: string | null;
 }

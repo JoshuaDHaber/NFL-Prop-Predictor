@@ -197,7 +197,7 @@ class SyncRun(Base):
     scheduled_for: Mapped[datetime] = mapped_column(DateTime, nullable=True, index=True)  # UTC slot time it ran for
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     finished_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
-    status: Mapped[str] = mapped_column(String(12), default="running")  # running | ok | partial | error | skipped
+    status: Mapped[str] = mapped_column(String(12), default="running")  # running | ok | partial | error | skipped | interrupted
     odds_mode: Mapped[str] = mapped_column(String(8))
     full: Mapped[bool] = mapped_column(Boolean, default=False)
     season: Mapped[int] = mapped_column(Integer, nullable=True)

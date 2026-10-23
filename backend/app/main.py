@@ -40,6 +40,9 @@ async def lifespan(_: FastAPI):
         n = pipeline.seed_odds_from_csv(CSV_SEED, s)
         if n:
             print(f"Seeded {n} odds lines from {CSV_SEED}")
+    n = scheduler.mark_interrupted()
+    if n:
+        print(f"Marked {n} sync run(s) a restart cut off as interrupted")
     scheduler.after_job = _release_memory
     if scheduler.start():
         print("Scheduled syncs are on (AUTO_SYNC)")
