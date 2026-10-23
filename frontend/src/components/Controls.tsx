@@ -1,99 +1,105 @@
 import type { Filters, Game, Kind } from "../api";
-import { isDouble, isYesNo, playLabel, KIND_SHORT, MARKET_TABS, NBA_MARKET_TABS, SUB_LABEL, groupOf, kickoff, pct, signedPct } from "../format";
+import { IconAdjustmentsHorizontal, IconX } from "@tabler/icons-react";
+import { isDouble, isYesNo, kickoff, playLabel, KIND_LABEL, MARKET_TABS, NBA_MARKET_TABS, pct, signedPct } from "../format";
 import { getLeague } from "../league";
-
-const ICON: Record<Kind | "all", string> = { all: "📊", rush: "🏃", rec: "🙌", recs: "🧤", pass: "🎯", rr: "⚡", td: "🏈", ptd: "🎯", lng: "🚀", rlng: "💨", ftd: "🥇",
-  pts: "🏀", reb: "🔁", ast: "🤝", threes: "🎯", pra: "➕", pr: "➕", pa: "➕", stl: "🖐️", blk: "🧱", dd: "✌️", tpl: "🤟" };
+import { DEFAULT_FILTERS } from "../route";
+import { MarketIcon } from "./icons";
+import Info from "./Info";
+import Menu, { MenuItem } from "./Menu";
 
 interface Props {
   filters: Filters;
   onChange: (f: Filters) => void;
   games: Game[];
-  books: string[];
   showPickControls: boolean;
 }
 
-export default function Controls({ filters, onChange, games, books, showPickControls }: Props) {
+/** The market's name in the bar and its chip: "All markets", "Receiving yds". */
+const marketName = (k: Kind | "all", picks: boolean) => (k === "all" ? (picks ? "All markets" : "All projections") : KIND_LABEL[k]);
+
+/** Best props and Projections filters in one bar (market, side, game, search, and the finer settings behind Filters), with
+ *  whatever differs from the defaults repeated below as chips that clear it. */
+export default function Controls({ filters, onChange, games, showPickControls: picks }: Props) {
   const set = (patch: Partial<Filters>) => onChange({ ...filters, ...patch });
-  const group = groupOf(filters.kind);   // receiving, passing, NBA combo and defense markets sit under one sub tab each
   const nba = getLeague() === "nba";
+  const sideName = (s: Filters["side"]) => (s === "all" ? "Overs and unders" : isYesNo(filters.kind) ? playLabel(filters.kind as Kind, s, 0.5) : `${s}s`);
+  const game = games.find((g) => g.game_id === filters.game);
+  const finer = picks ? [filters.minEv !== DEFAULT_FILTERS.minEv, filters.marketWeight !== DEFAULT_FILTERS.marketWeight, filters.flagged].filter(Boolean).length : 0;
+  const chips: [string, Partial<Filters>][] = [
+    ...(filters.kind !== "all" ? [[marketName(filters.kind, picks), { kind: "all" }] as [string, Partial<Filters>]] : []),
+    ...(picks && filters.side !== "all" ? [[sideName(filters.side), { side: "all" }] as [string, Partial<Filters>]] : []),
+    ...(game ? [[game.label, { game: "all" }] as [string, Partial<Filters>]] : []),
+    ...(filters.q.trim() ? [[`"${filters.q.trim()}"`, { q: "" }] as [string, Partial<Filters>]] : []),
+    ...(picks && filters.minEv !== DEFAULT_FILTERS.minEv ? [[`Min EV ${signedPct(filters.minEv)}`, { minEv: DEFAULT_FILTERS.minEv }] as [string, Partial<Filters>]] : []),
+    ...(picks && filters.marketWeight !== DEFAULT_FILTERS.marketWeight ? [[`Trust market ${pct(filters.marketWeight, 0)}`, { marketWeight: DEFAULT_FILTERS.marketWeight }] as [string, Partial<Filters>]] : []),
+    ...(picks && filters.flagged ? [["Large gaps shown", { flagged: false }] as [string, Partial<Filters>]] : []),
+  ];
   return (
     <section className="controls" aria-label="Filters">
-      <div className="seg" role="tablist" aria-label="Market">
-        {(nba ? NBA_MARKET_TABS : MARKET_TABS).map((k) => {
-          if (typeof k === "object") {
-            const on = group === k;
-            return (
-              <button key={k.label} role="tab" aria-selected={on} className={on ? "on" : ""} onClick={() => !on && set({ kind: k.kinds[0] })}>
-                <span className="ico" aria-hidden>{k.icon}</span>{k.label}
-              </button>
-            );
-          }
-          return (
-            <button key={k} role="tab" aria-selected={filters.kind === k} className={filters.kind === k ? "on" : ""} onClick={() => set({ kind: k })}>
-              <span className="ico" aria-hidden>{ICON[k]}</span>{k === "all" ? (showPickControls ? "All over/unders" : "All projections") : KIND_SHORT[k]}
-            </button>
-          );
-        })}
-      </div>
-      {group && (
-        <div className="seg sub" role="tablist" aria-label={`${group.label} market`}>
-          {group.kinds.map((k) => (
-            <button key={k} role="tab" aria-selected={filters.kind === k} className={filters.kind === k ? "on" : ""} onClick={() => set({ kind: k })}>
-              <span className="ico" aria-hidden>{ICON[k]}</span>{SUB_LABEL[k] ?? KIND_SHORT[k]}
-            </button>
+      <div className="filter-bar">
+        <Menu align="start" ariaLabel={`Market: ${marketName(filters.kind, picks)}`} label={<><MarketIcon k={filters.kind} />{marketName(filters.kind, picks)}</>}>
+          {(close) => (nba ? NBA_MARKET_TABS : MARKET_TABS).map((k) => typeof k === "object" ? (
+            <div key={k.label} className="menu-group">
+              <div className="menu-group-h">{k.label}</div>
+              {k.kinds.map((kk) => (
+                <MenuItem key={kk} on={filters.kind === kk} onClick={() => { close(); set({ kind: kk }); }}>
+                  <span className="with-icon"><MarketIcon k={kk} />{KIND_LABEL[kk]}</span>
+                </MenuItem>
+              ))}
+            </div>
+          ) : (
+            <MenuItem key={k} on={filters.kind === k} onClick={() => { close(); set({ kind: k }); }}>
+              <span className="with-icon"><MarketIcon k={k} />{marketName(k, picks)}</span>
+            </MenuItem>
           ))}
-        </div>
-      )}
-      {showPickControls && (
-        <div className="seg" role="tablist" aria-label="Over or under">
-          {(["all", "Over", "Under"] as const).map((s) => (
-            <button key={s} role="tab" aria-selected={filters.side === s} className={filters.side === s ? "on" : ""}
-              onClick={() => set({ side: s })}>
-              {s === "all" ? "Overs & unders" : isYesNo(filters.kind) ? playLabel(filters.kind, s, 0.5) : `${s}s`}
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="games" role="tablist" aria-label="Game">
-        <button role="tab" aria-selected={filters.game === "all"} className={`game${filters.game === "all" ? " on" : ""}`} onClick={() => set({ game: "all" })}>
-          <b>All games</b><small>{games.length} {nba ? "on the slate" : "this week"}</small>
-        </button>
-        {games.map((g) => (
-          <button key={g.game_id} role="tab" aria-selected={filters.game === g.game_id} className={`game${filters.game === g.game_id ? " on" : ""}`}
-            onClick={() => set({ game: g.game_id })}>
-            <b>{g.label}</b><small>{kickoff(g.gameday, g.gametime)}</small>
-          </button>
-        ))}
-      </div>
-      <div className="row">
-        {showPickControls && (
-          <select value={filters.book} onChange={(e) => set({ book: e.target.value })} aria-label="Sportsbook">
-            <option value="all">All sportsbooks</option>
-            {books.map((b) => <option key={b} value={b}>{b}</option>)}
-          </select>
+        </Menu>
+        {picks && (
+          <Menu align="start" ariaLabel={`Side: ${sideName(filters.side)}`} label={sideName(filters.side)}>
+            {(close) => (["all", "Over", "Under"] as const).map((s) => (
+              <MenuItem key={s} on={filters.side === s} onClick={() => { close(); set({ side: s }); }}>{sideName(s)}</MenuItem>
+            ))}
+          </Menu>
         )}
-        <input type="search" placeholder="Search player" value={filters.q} onChange={(e) => set({ q: e.target.value })}
-          aria-label="Search player" />
-        {showPickControls && (
-          <>
-            <label className="slider" title="Minimum expected value per $1 staked. Slide below 0 to see the closest plays that are not yet positive">
-              <span>Min EV <b>{signedPct(filters.minEv)}</b></span>
-              <input type="range" min={-0.1} max={0.2} step={0.01} value={filters.minEv}
-                onChange={(e) => set({ minEv: Number(e.target.value) })} />
-            </label>
-            <label className="slider" title="How much to blend the market's no-vig probability into the model's">
-              <span>Trust market <b>{pct(filters.marketWeight, 0)}</b></span>
-              <input type="range" min={0} max={1} step={0.05} value={filters.marketWeight}
-                onChange={(e) => set({ marketWeight: Number(e.target.value) })} />
-            </label>
-            <label className="check" title="Show plays where the model and market disagree by 40%+ (usually model blind spots)">
-              <input type="checkbox" checked={filters.flagged} onChange={(e) => set({ flagged: e.target.checked })} />
-              Show large gaps
-            </label>
-          </>
+        <Menu align="start" ariaLabel={`Game: ${game?.label ?? "all games"}`} label={game?.label ?? <>All games <span className="pill-count">{games.length}</span></>}>
+          {(close) => <>
+            <MenuItem on={!game} onClick={() => { close(); set({ game: "all" }); }}>All games <span className="mut">{games.length} {nba ? "on the slate" : "this week"}</span></MenuItem>
+            {games.map((g) => (
+              <MenuItem key={g.game_id} on={filters.game === g.game_id} onClick={() => { close(); set({ game: g.game_id }); }}>
+                {g.label} <span className="mut">{kickoff(g.gameday, g.gametime)}</span>
+              </MenuItem>
+            ))}
+          </>}
+        </Menu>
+        <input type="search" placeholder="Search player" value={filters.q} onChange={(e) => set({ q: e.target.value })} aria-label="Search player" />
+        {picks && (
+          <Menu align="end" ariaLabel="More filters" label={<><IconAdjustmentsHorizontal size={15} stroke={1.75} aria-hidden className="icon" />Filters{finer > 0 && <span className="count-badge">{finer}</span>}</>}>
+            {() => (
+              <div className="filter-pop">
+                <label className="slider">
+                  <span>Min EV <b>{signedPct(filters.minEv)}</b> <Info term="minEv" /></span>
+                  <input type="range" min={-0.1} max={0.2} step={0.01} value={filters.minEv} onChange={(e) => set({ minEv: Number(e.target.value) })} />
+                </label>
+                <label className="slider">
+                  <span>Trust market <b>{pct(filters.marketWeight, 0)}</b> <Info term="trust" /></span>
+                  <input type="range" min={0} max={1} step={0.05} value={filters.marketWeight} onChange={(e) => set({ marketWeight: Number(e.target.value) })} />
+                </label>
+                <label className="check">
+                  <input type="checkbox" checked={filters.flagged} onChange={(e) => set({ flagged: e.target.checked })} />
+                  Show large gaps <Info term="gaps" />
+                </label>
+              </div>
+            )}
+          </Menu>
         )}
       </div>
+      {chips.length > 0 && (
+        <div className="active-filters" aria-label="Active filters">
+          {chips.map(([label, reset]) => (
+            <button key={label} className="chip-x" onClick={() => set(reset)} aria-label={`Clear ${label}`}>{label}<IconX size={13} stroke={2} aria-hidden /></button>
+          ))}
+          {chips.length > 1 && <button className="link" onClick={() => onChange({ ...DEFAULT_FILTERS, book: filters.book })}>Clear all</button>}
+        </div>
+      )}
       {filters.kind === "td" && (
         <p className="td-note">
           <b>Anytime TD:</b> books post a single “Yes” price with a large margin, and this model doesn't see red-zone usage, so it

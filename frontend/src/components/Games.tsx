@@ -1,11 +1,14 @@
+import type { ReactNode } from "react";
 import type { Game, InjuryReport, MoneylineGame, Pick } from "../api";
-import { KIND_LABEL, americanOdds, kickoff, pct, playLabel, signedPct, weatherShort, weatherText, notableWeather } from "../format";
+import { KIND_LABEL, americanOdds, kickoff, pct, signedPct, weatherShort, weatherText, notableWeather } from "../format";
 import { gameStatusCounts } from "./Injuries";
 import { favored } from "./Moneylines";
 import TeamLogo from "./TeamLogo";
 import { getLeague } from "../league";
 import { matchupColors, shadeVars } from "../teams";
 import { BookName } from "./BookBadge";
+import { InjuryIcon, WeatherIcon } from "./icons";
+import SidePill from "./SidePill";
 
 interface Props {
   games: Game[];
@@ -16,12 +19,12 @@ interface Props {
   onOpen: (gameId: string) => void;
 }
 
-/** "Dome", "💨 19 mph", "72°F": the one weather fact worth a glance on a tile. */
-function weatherBit(g: Game): string | null {
+/** "Dome", "19 mph" (with a wind icon), "72°F": the one weather fact worth a glance on a tile. */
+function weatherBit(g: Game): ReactNode {
   const w = g.weather;
   if (!w) return null;
   if (w.indoor) return weatherText(w);
-  if (notableWeather(w)) return weatherShort(w);
+  if (notableWeather(w)) { const { icon, text } = weatherShort(w); return <span className="with-icon"><WeatherIcon name={icon} />{text}</span>; }
   return w.temp != null ? `${Math.round(w.temp)}°F` : null;
 }
 
@@ -48,13 +51,13 @@ function Tile({ g, picks, ml, injuries, onOpen }: { g: Game; picks: Pick[]; ml?:
       <span className="gt-prop">
         <span className="tile-label">Top prop</span>
         {top ? <>
-          <span className="gt-prop-main"><b>{top.name}</b> <span className={`side-pill ${top.side === "Over" ? "over" : "under"}`}>{playLabel(top.kind, top.side, top.line)}</span></span>
+          <span className="gt-prop-main"><b>{top.name}</b> <SidePill kind={top.kind} side={top.side} line={top.line} /></span>
           <span className="mut">{KIND_LABEL[top.kind]} · {americanOdds(top.odds)} <BookName book={top.book} size={14} /> · <span className="ev-text">{signedPct(top.ev)} EV</span></span>
         </> : <span className="mut">No +EV props yet</span>}
       </span>
       <span className="gt-foot">
         <span>{picks.length ? `${picks.length} +EV prop${picks.length === 1 ? "" : "s"}` : ""}</span>
-        <span>{inj == null ? "" : injText ? `🩹 ${injText}` : getLeague() === "nba" ? "No injuries listed" : "No game statuses yet"}</span>
+        <span>{inj == null ? "" : injText ? <span className="with-icon"><InjuryIcon size={14} stroke={1.75} aria-hidden />{injText}</span> : getLeague() === "nba" ? "No injuries listed" : "No game statuses yet"}</span>
       </span>
       <span className="gt-go">Game overview →</span>
     </button>

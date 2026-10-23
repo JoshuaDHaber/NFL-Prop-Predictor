@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
+import { MoonIcon, SunIcon, SystemIcon } from "./icons";
 
 type Theme = "auto" | "light" | "dark";
 const KEY = "theme";
-const OPTIONS: [Theme, string, string][] = [["light", "☀️", "Light"], ["auto", "💻", "Default"], ["dark", "🌙", "Dark"]];
+const ORDER: Theme[] = ["auto", "light", "dark"];
+const LOOK: Record<Theme, [typeof SunIcon, string]> = { auto: [SystemIcon, "System theme"], light: [SunIcon, "Light theme"], dark: [MoonIcon, "Dark theme"] };
 
 function stored(): Theme {
   try { const v = localStorage.getItem(KEY); if (v === "light" || v === "dark") return v; } catch { /* storage blocked */ }
   return "auto";
 }
 
-/** Corner switch between light, dark and the system default; the choice is remembered in this browser. */
+/** One button that steps through the system default, light and dark; the choice is remembered in this browser. */
 export default function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>(stored);
   useEffect(() => {
@@ -17,13 +19,11 @@ export default function ThemeToggle() {
     if (theme === "auto") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", theme);
     try { if (theme === "auto") localStorage.removeItem(KEY); else localStorage.setItem(KEY, theme); } catch { /* storage blocked */ }
   }, [theme]);
+  const next = ORDER[(ORDER.indexOf(theme) + 1) % ORDER.length];
+  const [Glyph, label] = LOOK[theme];
   return (
-    <div className="seg small theme-toggle" role="group" aria-label="Color theme">
-      {OPTIONS.map(([t, icon, label]) => (
-        <button key={t} className={theme === t ? "on" : ""} aria-pressed={theme === t} title={label} aria-label={label} onClick={() => setTheme(t)}>
-          <span className="ico" aria-hidden>{icon}</span>
-        </button>
-      ))}
-    </div>
+    <button className="icon-btn" onClick={() => setTheme(next)} title={`${label}. Switch to ${LOOK[next][1].toLowerCase()}`} aria-label={`${label}. Switch to ${LOOK[next][1].toLowerCase()}`}>
+      <Glyph size={16} stroke={1.75} aria-hidden />
+    </button>
   );
 }

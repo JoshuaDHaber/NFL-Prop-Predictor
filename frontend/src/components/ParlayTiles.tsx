@@ -1,11 +1,14 @@
 import type { Game } from "../api";
 import { useBetSlip } from "../BetSlipContext";
-import { americanOdds, kickoff, pct, playLabel, signedPct, KIND_LABEL } from "../format";
+import { americanOdds, pct, signedPct, KIND_LABEL } from "../format";
 import { getLeague } from "../league";
 import { pickToLeg, type Parlay, type ParlayLeg } from "../parlays";
 import { toAmerican } from "../slip";
 import Avatar from "./Avatar";
-import { BookName } from "./BookBadge";
+import GamePills from "./GamePills";
+import { Star } from "./icons";
+import Info from "./Info";
+import SidePill from "./SidePill";
 
 const STAKE = 10;
 
@@ -19,23 +22,23 @@ function ParlayCard({ p, lead }: { p: Parlay; lead: boolean }) {
   return (
     <article className={`parlay${lead ? " lead" : ""}`}>
       <header>
-        <span className="tile-label">{lead ? "★ " : ""}{p.title}</span>
+        <span className="tile-label">{lead && <Star />}{p.title}</span>
         <span className="mut">{p.legs.length} legs</span>
       </header>
       <div className="parlay-odds">{americanOdds(p.american)}<small>{p.sameGame ? "legs multiplied" : "combined odds"}</small></div>
       <dl className="parlay-stats">
-        <div><dt>Hit chance</dt><dd>{pct(p.prob, 0)}</dd></div>
+        <div><dt>Hit chance <Info term="hit" /></dt><dd>{pct(p.prob, 0)}</dd></div>
         {p.sameGame
           // a same-game parlay is paid at the book's own price, not the legs multiplied, so an EV here would be made up
-          ? <div><dt>Fair odds</dt><dd>{americanOdds(toAmerican(1 / Math.max(p.prob, 1e-6)))}</dd></div>
-          : <div><dt>Model EV</dt><dd className={p.ev >= 0 ? "pos" : "under"}>{signedPct(p.ev)}</dd></div>}
+          ? <div><dt>Fair odds <Info term="fair" /></dt><dd>{americanOdds(toAmerican(1 / Math.max(p.prob, 1e-6)))}</dd></div>
+          : <div><dt>Model EV <Info term="modelEv" /></dt><dd className={p.ev >= 0 ? "pos" : "under"}>{signedPct(p.ev)}</dd></div>}
         <div><dt>${STAKE} pays{p.sameGame ? ", legs multiplied" : ""}</dt><dd>${(STAKE * p.decimal).toFixed(2)}</dd></div>
       </dl>
       <ul className="parlay-legs">
         {p.legs.map((l) => (
           <li key={`${l.player_id}-${l.kind}-${l.side}-${l.line}`}>
             <Avatar name={l.name} size={26} />
-            <span className="leg-main"><b>{l.name}</b> <span className={`side-pill ${l.side === "Over" ? "over" : "under"}`}>{playLabel(l.kind, l.side, l.line)}</span>
+            <span className="leg-main"><b>{l.name}</b> <SidePill kind={l.kind} side={l.side} line={l.line} />
               {l.alt && <span className="alt">alt</span>}
               <small>{`${KIND_LABEL[l.kind]} · `}{pct(l.prob, 0)} · {l.team} {l.home ? "vs" : "@"} {l.opp}</small></span>
             <span className="leg-odds">{americanOdds(l.odds)}</span>
@@ -61,7 +64,7 @@ function AltProps({ props }: { props: ParlayLeg[] }) {
           return (
             <li key={leg.id}>
               <Avatar name={l.name} size={26} />
-              <span className="leg-main"><b>{l.name}</b> <span className="side-pill over">{playLabel(l.kind, l.side, l.line)}</span>{l.alt && <span className="alt">alt</span>}
+              <span className="leg-main"><b>{l.name}</b> <SidePill kind={l.kind} side={l.side} line={l.line} />{l.alt && <span className="alt">alt</span>}
                 <small>{KIND_LABEL[l.kind]} · {l.team} {l.home ? "vs" : "@"} {l.opp}</small></span>
               <span className="leg-odds">{americanOdds(l.odds)}<small>{pct(l.prob, 0)} chance</small></span>
               <button className={`add ${on ? "on" : ""}`} onClick={() => slip.toggle(leg)} aria-label={on ? "Remove from slip" : "Add to slip"} aria-pressed={on}>{on ? "✓" : "+"}</button>
@@ -83,9 +86,7 @@ function ladderRows(ladders: Parlay[], nba: boolean): { key: string; label: stri
 }
 
 interface Props {
-  books: string[]; book: string | null;
-  /** Omit to hide the sportsbook picker (the game page picks one book for the whole page). */
-  onBook?: (b: string) => void;
+  book: string | null;
   games: Game[]; selectedGames: string[];
   /** Omit to hide the game picker (a single game's page builds from that game only). */
   onGames?: (ids: string[]) => void;
@@ -93,34 +94,12 @@ interface Props {
 }
 
 /** Recommended parlays at one sportsbook: tiles of high-probability plays, then ladder-style tiles, each with the combined odds. */
-export default function ParlayTiles({ books, book, onBook, games, selectedGames, onGames, parlays, tdParlays, ladders, altProps, laddersLoading }: Props) {
+export default function ParlayTiles({ book, games, selectedGames, onGames, parlays, tdParlays, ladders, altProps, laddersLoading }: Props) {
   const nba = getLeague() === "nba";
   const ladderMarkets = nba ? "points, rebounds, assists, threes, combos, steals and blocks" : "rushing and receiving";
   return (
     <>
-      {onBook && <div className="seg parlay-books" role="group" aria-label="Sportsbook">
-        {books.map((b) => (
-          <button key={b} className={b === book ? "on" : ""} aria-pressed={b === book} onClick={() => onBook(b)}><BookName book={b} size={18} /></button>
-        ))}
-      </div>}
-
-      {onGames && <>
-      <div className="games" role="group" aria-label="Games to build from">
-        <button aria-pressed={!selectedGames.length} className={`game${!selectedGames.length ? " on" : ""}`} onClick={() => onGames([])}>
-          <b>All games</b><small>{games.length} {nba ? "on the slate" : "this week"}</small>
-        </button>
-        {games.map((g) => {
-          const on = selectedGames.includes(g.game_id);
-          return (
-            <button key={g.game_id} aria-pressed={on} className={`game${on ? " on" : ""}`}
-              onClick={() => onGames(on ? selectedGames.filter((id) => id !== g.game_id) : [...selectedGames, g.game_id])}>
-              <b>{g.label}</b><small>{kickoff(g.gameday, g.gametime)}</small>
-            </button>
-          );
-        })}
-      </div>
-      <p className="mut parlay-scope">{selectedGames.length ? `Building from ${selectedGames.length} selected game${selectedGames.length > 1 ? "s" : ""}. Tap a game to add or remove it.` : "Building from every game. Tap games to pick which ones to build from."}</p>
-      </>}
+      {onGames && <GamePills games={games} selected={selectedGames} onChange={onGames} multi label="Games to build from" />}
 
       <h2 className="parlay-h">Likely plays</h2>
       {parlays.length

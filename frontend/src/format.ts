@@ -18,19 +18,20 @@ export const DOUBLE_NEED: Partial<Record<Kind, number>> = { dd: 2, tpl: 3 };
 export const isDouble = (kind?: Kind | "all") => kind === "dd" || kind === "tpl";
 
 /** Grouped markets: one sub tab each, with a pill per market inside. */
-export interface MarketGroup { label: string; icon: string; kinds: Kind[] }
+/** icon: the market whose icon stands for the group (components/icons.tsx). */
+export interface MarketGroup { label: string; icon: Kind; kinds: Kind[] }
 export const PROJ_GROUPS: MarketGroup[] = [
-  { label: "Rushing", icon: "🏃", kinds: ["rush", "rlng"] },
-  { label: "Receiving", icon: "🙌", kinds: ["rec", "recs", "lng"] },
-  { label: "Passing", icon: "🎯", kinds: ["pass", "ptd"] },
-  { label: "Touchdowns", icon: "🏈", kinds: ["td", "ftd"] },
+  { label: "Rushing", icon: "rush", kinds: ["rush", "rlng"] },
+  { label: "Receiving", icon: "rec", kinds: ["rec", "recs", "lng"] },
+  { label: "Passing", icon: "pass", kinds: ["pass", "ptd"] },
+  { label: "Touchdowns", icon: "td", kinds: ["td", "ftd"] },
 ];
 /** The market picker's top row (props and projections alike): single markets, and the groups above. */
 export const MARKET_TABS: (Kind | "all" | MarketGroup)[] = ["all", ...PROJ_GROUPS.slice(0, 3), "rr", PROJ_GROUPS[3]];
 /** The NBA's combo markets, under one tab. */
-export const NBA_COMBOS: MarketGroup = { label: "Combos", icon: "➕", kinds: ["pra", "pr", "pa", "dd", "tpl"] };
+export const NBA_COMBOS: MarketGroup = { label: "Combos", icon: "pra", kinds: ["pra", "pr", "pa", "dd", "tpl"] };
 /** Steals and blocks, under one tab. */
-export const NBA_DEFENSE: MarketGroup = { label: "Defense", icon: "🛡️", kinds: ["stl", "blk"] };
+export const NBA_DEFENSE: MarketGroup = { label: "Defense", icon: "stl", kinds: ["stl", "blk"] };
 /** The NBA market picker's top row. */
 export const NBA_MARKET_TABS: (Kind | "all" | MarketGroup)[] = ["all", "pts", "reb", "ast", "threes", NBA_COMBOS, NBA_DEFENSE];
 /** The group a market belongs to, if any. */
@@ -136,13 +137,14 @@ export function notableWeather(w: GameWeather | null | undefined): boolean {
   return (w.wind ?? 0) >= 12 || (w.temp ?? 60) <= 40 || (w.precip_prob ?? 0) >= 60 || (w.snow ?? 0) > 0.05;
 }
 
-/** The one condition that stands out, with an icon: "💨 19 mph", "❄️ snow", "🌧️ 70% rain", "🥶 31°F". */
-export function weatherShort(w: GameWeather): string {
-  if ((w.snow ?? 0) > 0.05) return "❄️ snow";
-  if ((w.wind ?? 0) >= 12) return `💨 ${Math.round(w.wind!)} mph`;
-  if ((w.precip_prob ?? 0) >= 60) return `🌧️ ${Math.round(w.precip_prob!)}% rain`;
-  if ((w.temp ?? 60) <= 40) return `🥶 ${Math.round(w.temp!)}°F`;
-  return `💨 ${Math.round(w.wind ?? 0)} mph`;
+export type WxIcon = "wind" | "snow" | "rain" | "cold";
+/** The one condition that stands out, and its icon: wind "19 mph", snow "snow", rain "70% rain", cold "31°F". */
+export function weatherShort(w: GameWeather): { icon: WxIcon; text: string } {
+  if ((w.snow ?? 0) > 0.05) return { icon: "snow", text: "snow" };
+  if ((w.wind ?? 0) >= 12) return { icon: "wind", text: `${Math.round(w.wind!)} mph` };
+  if ((w.precip_prob ?? 0) >= 60) return { icon: "rain", text: `${Math.round(w.precip_prob!)}% rain` };
+  if ((w.temp ?? 60) <= 40) return { icon: "cold", text: `${Math.round(w.temp!)}°F` };
+  return { icon: "wind", text: `${Math.round(w.wind ?? 0)} mph` };
 }
 
 /** The weather adjustment as a percentage ("-22%"), or null when it is (effectively) none. */
@@ -153,14 +155,19 @@ const POINTS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "S
 /** Compass point for a bearing: 300 -> "WNW". */
 export const compassPoint = (deg: number) => POINTS[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
 
-/** An icon for a sky description; clear skies at night kickoffs (7 pm ET or later) get a moon. */
-export function skyIcon(sky: string | null | undefined, gametime = ""): string {
+export type SkyIcon = "storm" | "snow" | "rain" | "fog" | "cloud" | "partly" | "moon" | "sun";
+/** The icon for a sky description; clear skies at night kickoffs (7 pm ET or later) get a moon. */
+export function skyIcon(sky: string | null | undefined, gametime = ""): SkyIcon {
   const s = (sky ?? "").toLowerCase();
-  if (s.includes("thunder")) return "⛈️";
-  if (s.includes("snow") || s.includes("flurr")) return "🌨️";
-  if (/rain|shower|drizzle/.test(s)) return "🌧️";
-  if (s.includes("fog")) return "🌫️";
-  if (s.includes("overcast") || /^(mostly )?cloudy/.test(s)) return "☁️";
-  if (s.includes("partly")) return "⛅";
-  return parseInt(gametime, 10) >= 19 ? "🌙" : "☀️";
+  if (s.includes("thunder")) return "storm";
+  if (s.includes("snow") || s.includes("flurr")) return "snow";
+  if (/rain|shower|drizzle/.test(s)) return "rain";
+  if (s.includes("fog")) return "fog";
+  if (s.includes("overcast") || /^(mostly )?cloudy/.test(s)) return "cloud";
+  if (s.includes("partly")) return "partly";
+  return parseInt(gametime, 10) >= 19 ? "moon" : "sun";
 }
+
+/** Smooth scrolling, unless the reader asked their device for less motion. */
+export const scrollBehavior = (): ScrollBehavior =>
+  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";

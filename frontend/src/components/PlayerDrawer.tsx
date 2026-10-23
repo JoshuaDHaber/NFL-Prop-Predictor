@@ -5,6 +5,8 @@ import { api, type Kind } from "../api";
 import { DOUBLE_NEED, isDouble, isYesNo, KIND_LABEL, KIND_SHORT, effText, fmtProj, fmtSd, isCount, isNba, matchup, unit, volLabel, weatherText, wxEffect } from "../format";
 import Avatar from "./Avatar";
 import LineLadder, { ODDS_RANGE } from "./LineLadder";
+import Sheet from "./Sheet";
+import Skeleton from "./Skeleton";
 
 interface Props { playerId: string; initialKind: Kind; marketWeight: number; book: string; onBookChange: (b: string) => void; onClose: () => void }
 
@@ -33,10 +35,8 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
   const lines = isTd ? [] : [...new Set((ladder.data?.quotes ?? []).filter((q) => !q.alt && (book === "all" || q.book === book)).map((q) => q.line))];
 
   return (
-    <div className="overlay" onClick={onClose}>
-      <aside className="drawer" role="dialog" aria-label="Player detail" onClick={(e) => e.stopPropagation()}>
-        <button className="close" onClick={onClose} aria-label="Close">×</button>
-        {isLoading && <p>Loading…</p>}
+    <Sheet label="Player detail" onClose={onClose}>
+        {isLoading && <Skeleton kind="panel" />}
         {error && <p className="err">Couldn't load this player.</p>}
         {data && proj && (
           <>
@@ -116,7 +116,6 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
             )}
           </>
         )}
-      </aside>
-    </div>
+    </Sheet>
   );
 }

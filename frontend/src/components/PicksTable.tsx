@@ -8,6 +8,8 @@ import SortBar from "./SortBar";
 import Spark from "./Spark";
 import WeatherChip from "./WeatherChip";
 import { BookName } from "./BookBadge";
+import Info, { type Term } from "./Info";
+import SidePill from "./SidePill";
 
 const GROUP_KEY = "picks-one-per-player";
 const storedGrouped = () => { try { return localStorage.getItem(GROUP_KEY) !== "0"; } catch { return true; } };
@@ -20,8 +22,8 @@ export default function PicksTable({ picks, onSelect, weather = {}, empty, limit
   const rows: GroupedPick[] = useMemo(() => grouped ? onePerPlayer(picks) : picks.map((p) => ({ ...p, related: [] })), [picks, grouped]);
   const shown = useMemo(() => (limit && !showAll ? rows.slice(0, limit) : rows), [rows, limit, showAll]);
   const { sorted, toggle, arrow } = useSort(shown, "ev");
-  const th = (key: string, label: string, title?: string) => (
-    <th scope="col" onClick={() => toggle(key)} title={title} aria-sort="none" className="sortable">{label}{arrow(key)}</th>
+  const th = (key: string, label: string, term?: Term) => (
+    <th scope="col" onClick={() => toggle(key)} aria-sort="none" className="sortable">{label}{arrow(key)}{term && <> <Info term={term} /></>}</th>
   );
   if (!picks.length) return <div className="card empty">{empty ?? <>No plays clear the current filters. Try lowering Min EV (it can go below 0) to see the closest ones.</>}</div>;
   return (
@@ -36,8 +38,8 @@ export default function PicksTable({ picks, onSelect, weather = {}, empty, limit
         <thead>
           <tr>
             {th("name", "Player")}<th scope="col">Market</th><th scope="col">Pick</th>
-            {th("mu", "Proj")}{th("edge_yds", "Edge", "Projection minus line in yards (catches for receptions), in the pick direction; for anytime TD, model chance minus market chance in percentage points")}
-            {th("prob", "Win prob")}{th("ev", "EV")}{th("kelly", "¼ Kelly", "Quarter-Kelly stake, % of bankroll")}
+            {th("mu", "Proj", "proj")}{th("edge_yds", "Edge", "edge")}
+            {th("prob", "Win prob", "winProb")}{th("ev", "EV", "ev")}{th("kelly", "¼ Kelly", "kelly")}
             <th scope="col">Last 5</th>
           </tr>
         </thead>
@@ -61,7 +63,7 @@ export default function PicksTable({ picks, onSelect, weather = {}, empty, limit
               </td>
               <td className="c-market">{KIND_LABEL[p.kind]}</td>
               <td>
-                <span className={`side-pill ${p.side === "Over" ? "over" : "under"}`}>{playLabel(p.kind, p.side, p.line)}</span><br /><span className="mut">{americanOdds(p.odds)} · <BookName book={p.book} size={14} /></span>
+                <SidePill kind={p.kind} side={p.side} line={p.line} /><br /><span className="mut">{americanOdds(p.odds)} · <BookName book={p.book} size={14} /></span>
               </td>
               <td data-label="Proj">{fmtProj(p.kind, p.mu)}{!isYesNo(p.kind) && <><br /><span className="mut">{fmtSd(p.kind, p.sd)}</span></>}</td>
               <td data-label="Edge">{fmtEdge(p.kind, p.edge_yds)}</td>

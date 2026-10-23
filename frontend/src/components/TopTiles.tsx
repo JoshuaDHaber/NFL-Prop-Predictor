@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Avatar from "./Avatar";
+import { Star } from "./icons";
 
 export interface Tile { key: string; label: string; name: string; meta: string; value: ReactNode; caption: string; onClick?: () => void }
 
@@ -12,7 +13,7 @@ export default function TopTiles({ tiles }: { tiles: Tile[] }) {
         const Tag = t.onClick ? "button" : "div";
         return (
           <Tag key={t.key} className={`tile${i === 0 ? " lead" : ""}`} onClick={t.onClick}>
-            <span className="tile-label">{i === 0 ? "★ " : ""}{t.label}</span>
+            <span className="tile-label">{i === 0 && <Star />}{t.label}</span>
             <span className="tile-who"><Avatar name={t.name} size={38} /><span><b>{t.name}</b><small>{t.meta}</small></span></span>
             <span className="tile-value">{t.value}</span>
             <span className="tile-cap">{t.caption}</span>

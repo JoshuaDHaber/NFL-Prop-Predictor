@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
+import BookSelect from "./BookSelect";
 import { useMemo, useState } from "react";
 import { api, type Game, type Kind, type WeatherFit } from "../api";
-import { KIND_SHORT, MARKET_TABS, SUB_LABEL, groupOf } from "../format";
+import { KIND_SHORT, MARKET_TABS, SUB_LABEL, groupOf, scrollBehavior } from "../format";
 import { PARLAY_FILTERS, useParlayBoard } from "../useParlayBoard";
 import GameWeather from "./GameWeather";
 import GamePlayerSearch from "./GamePlayerSearch";
@@ -10,6 +11,7 @@ import { MoneylineCard } from "./Moneylines";
 import ParlayTiles from "./ParlayTiles";
 import PicksTable from "./PicksTable";
 import ProjectionsTable from "./ProjectionsTable";
+import Skeleton from "./Skeleton";
 
 interface Props {
   game: Game;
@@ -72,19 +74,13 @@ export default function GameOverview({ game, books, book, onBook, marketWeight, 
   const board = useParlayBoard(books, chosen, true, book === "all" ? undefined : book);
 
   const ml = moneylines.data?.find((g) => g.game_id === id);
-  const jump = (el: string) => document.getElementById(el)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const jump = (el: string) => document.getElementById(el)?.scrollIntoView({ behavior: scrollBehavior(), block: "start" });
 
   return (
     <div className="stack go">
       <div className="go-head">
         <button className="link go-back" onClick={onBack}>← All games</button>
-        <label className="go-book">
-          <span className="mut">Sportsbook</span>
-          <select value={book} onChange={(e) => onBook(e.target.value)} aria-label="Sportsbook for this page">
-            {books.map((b) => <option key={b} value={b}>{b}</option>)}
-            <option value="all">All books (best price)</option>
-          </select>
-        </label>
+        <BookSelect books={books} book={book} onChange={onBook} allLabel="All books (best price)" ariaLabel="Sportsbook for this page" />
         <nav className="go-jump" aria-label="Jump to section">
           {SECTIONS.map(([el, label]) => <button key={el} onClick={() => jump(el)}>{label}</button>)}
         </nav>
@@ -100,28 +96,28 @@ export default function GameOverview({ game, books, book, onBook, marketWeight, 
       <section id="go-props" className="go-sec">
         <h2 className="parlay-h">Best props <small>positive EV for this game{book !== "all" ? ` at ${book}` : ""}</small></h2>
         <KindSeg value={propKind} onChange={setPropKind} />
-        {picks.isLoading ? <p className="mut">Balancing the equation…</p> : <>
+        {picks.isLoading ? <Skeleton kind="rows" /> : <>
           <PicksTable key={propKind} picks={picks.data ?? []} limit={PROPS_SHOWN} weather={{ [id]: game.weather }} empty="No positive-EV props for this game yet. Books post props mid-week; the scheduled syncs pick them up." onSelect={(p) => onSelect(p.player_id, p.kind)} />
         </>}
       </section>
 
       <section id="go-parlays" className="go-sec">
         <h2 className="parlay-h">Parlays <small>built from this game only{board.book ? `, every leg at ${board.book}` : ""}</small></h2>
-        {board.loading ? <p className="mut">Building parlays…</p> :
-          <ParlayTiles books={books} book={board.book} games={[game]} selectedGames={chosen} parlays={board.parlays}
+        {board.loading ? <Skeleton kind="cards" /> :
+          <ParlayTiles book={board.book} games={[game]} selectedGames={chosen} parlays={board.parlays}
             tdParlays={board.tdParlays} ladders={board.ladders} altProps={board.altProps} laddersLoading={board.laddersLoading} />}
       </section>
 
       <section id="go-proj" className="go-sec">
         <h2 className="parlay-h">Projections</h2>
         <KindSeg value={projKind} onChange={setProjKind} />
-        {projections.isLoading ? <p className="mut">Loading…</p> :
+        {projections.isLoading ? <Skeleton kind="rows" /> :
           <ProjectionsTable rows={projections.data ?? []} weather={{ [id]: game.weather }} onSelect={(p) => onSelect(p.player_id, p.kind)} />}
       </section>
 
       <section id="go-inj" className="go-sec">
         <h2 className="parlay-h">Injuries <label className="check go-reserve"><input type="checkbox" checked={showReserve} onChange={(e) => setShowReserve(e.target.checked)} /> Show IR / PUP</label></h2>
-        {injuries.isLoading ? <p className="mut">Loading the injury report…</p> : injuries.error || !injuries.data ? <p className="err">Couldn't load the injury report.</p> :
+        {injuries.isLoading ? <Skeleton kind="cards" count={2} /> : injuries.error || !injuries.data ? <p className="err">Couldn't load the injury report.</p> :
           <GameInjuries game={game} report={injuries.data} showReserve={showReserve} onSelect={onSelect} />}
       </section>
     </div>

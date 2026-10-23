@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Game, InjuredPlayer, InjuryReport, Kind } from "../api";
 import { kickoff, timeAgo } from "../format";
 import { getLeague } from "../league";
+import GamePills from "./GamePills";
 
 interface Props {
   report: InjuryReport;
@@ -121,11 +122,8 @@ export default function Injuries({ report, games, onSelect }: Props) {
   return (
     <div className="stack">
       <section className="controls" aria-label="Injury filters">
+        <GamePills games={games} selected={game === "all" ? [] : [game]} onChange={(ids) => setGame(ids[0] ?? "all")} label="Game" />
         <div className="row">
-          <select value={game} onChange={(e) => setGame(e.target.value)} aria-label="Game">
-            <option value="all">All games</option>
-            {games.map((g) => <option key={g.game_id} value={g.game_id}>{g.label}</option>)}
-          </select>
           <div className="seg small">
             {SIDES.map(([k, label]) => <button key={k} className={side === k ? "on" : ""} onClick={() => setSide(k)}>{label}</button>)}
           </div>

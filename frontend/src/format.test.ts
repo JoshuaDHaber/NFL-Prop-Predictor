@@ -67,9 +67,9 @@ describe("weather", () => {
   });
   it("flags only weather that matters, with the condition that stands out", () => {
     expect(notableWeather(w({ temp: 70, wind: 6 }))).toBe(false);
-    expect(weatherShort(w({}))).toBe("💨 19 mph");
-    expect(weatherShort(w({ wind: 5, snow: 0.4 }))).toBe("❄️ snow");
-    expect(weatherShort(w({ wind: 5 }))).toBe("🥶 38°F");
+    expect(weatherShort(w({}))).toEqual({ icon: "wind", text: "19 mph" });
+    expect(weatherShort(w({ wind: 5, snow: 0.4 }))).toEqual({ icon: "snow", text: "snow" });
+    expect(weatherShort(w({ wind: 5 }))).toEqual({ icon: "cold", text: "38°F" });
   });
   it("shows the adjustment as a percentage, and nothing when there is none", () => {
     expect(wxEffect(0.782)).toBe("−22%");
@@ -87,11 +87,11 @@ describe("game weather panel", () => {
     expect(compassPoint(-90)).toBe("W");
   });
   it("picks a sky icon, with a moon for clear night games", () => {
-    expect(skyIcon("Rain showers")).toBe("🌧️");
-    expect(skyIcon("Partly cloudy")).toBe("⛅");
-    expect(skyIcon("Mostly Cloudy")).toBe("☁️");
-    expect(skyIcon("Clear", "20:20")).toBe("🌙");
-    expect(skyIcon("Mostly Sunny", "13:00")).toBe("☀️");
+    expect(skyIcon("Rain showers")).toBe("rain");
+    expect(skyIcon("Partly cloudy")).toBe("partly");
+    expect(skyIcon("Mostly Cloudy")).toBe("cloud");
+    expect(skyIcon("Clear", "20:20")).toBe("moon");
+    expect(skyIcon("Mostly Sunny", "13:00")).toBe("sun");
   });
 });
 
