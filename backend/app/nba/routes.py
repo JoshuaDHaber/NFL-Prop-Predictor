@@ -1,4 +1,5 @@
 """/api/nba/*: the NBA side of the app, in the same response shapes as the NFL routes so the UI can share components."""
+import threading
 import time
 from datetime import datetime
 from functools import lru_cache
@@ -15,7 +16,7 @@ from ..db import NbaAltLine, NbaOddsLine, NbaProjection, NbaRun, SessionLocal, c
 from ..engine import moneyline as mlm
 from ..engine import odds
 from ..engine.ladder import build_ladder
-from ..engine.picks import build_picks
+from ..engine.picks import best_picks, build_picks
 from ..engine.search import rank_hits
 from ..schemas import (AutoSync, BacktestStat, Correlations, Game, GameLogEntry, GradeReport, InjuredPlayer, InjuryReport, LadderOut,
                        MoneylineGame, NbaMeta, NbaRunInfo, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut)
@@ -79,6 +80,20 @@ def _dists(run: NbaRun) -> dict:
 
 
 _pick_cache: dict = {}
+_priced_cache: dict = {}
+_priced_lock = threading.Lock()
+
+
+def _priced(db: Session, run: NbaRun, version: tuple, w: float) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(projections, every book's priced quotes): one pricing of the board serves every book filter. The Parlays tab
+    asks for each book at once, so the lock makes those requests wait for one pricing instead of each doing its own."""
+    key = (run.id, version, round(w, 3))
+    with _priced_lock:
+        if key not in _priced_cache:
+            _priced_cache.clear()   # only the newest odds and run are asked for
+            proj = _proj_frame(db, run.id)
+            _priced_cache[key] = proj, build_picks(proj, current_lines(db, NbaOddsLine), w, dists=_dists(run), best_only=False)
+        return _priced_cache[key]
 
 
 def all_picks(db: Session, run: NbaRun, w: float, book: Optional[str] = None) -> pd.DataFrame:
@@ -87,10 +102,11 @@ def all_picks(db: Session, run: NbaRun, w: float, book: Optional[str] = None) ->
     hide = books.hide_offshore(db)
     key = (run.id, version, round(w, 3), book, live, hide)
     if key not in _pick_cache:
-        if len(_pick_cache) > 20:
+        if len(_pick_cache) > 40:
             _pick_cache.clear()
-        proj, lines = _proj_frame(db, run.id), current_lines(db, NbaOddsLine)
-        picks = build_picks(proj, lines, w, only_book=books.pricing_books(book, lines.get("book", []), hide), dists=_dists(run))
+        proj, priced = _priced(db, run, version, w)
+        all_books = priced.book.unique() if not priced.empty else []
+        picks = best_picks(priced, books.pricing_books(book, all_books, hide)) if not priced.empty else priced.copy()
         if not picks.empty:
             l5 = dict(zip(zip(proj.player_id, proj.kind), proj.last5))
             picks["last5"] = [l5.get(k, []) for k in zip(picks.player_id, picks.kind)]
@@ -284,4 +300,5 @@ def player_lines(player_id: str, kind: NbaKind, odds_range: int = Query(300, ge=
 
 def clear_caches():
     _pick_cache.clear()
+    _priced_cache.clear()
     _injuries.cache_clear()

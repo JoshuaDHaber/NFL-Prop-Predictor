@@ -30,7 +30,7 @@ def book_set(only_book: str = None):
 
 
 def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 0.35, only_book: str = None,
-                dists: dict = None) -> pd.DataFrame:
+                dists: dict = None, best_only: bool = True) -> pd.DataFrame:
     """All priced Over/Under candidates. flagged (hidden by default) = model and market disagree by >40-67%, usually a
     model blind spot; `flag` names the reason ("large gap"). teammate_out is context only: a same-position rotation
     receiver in his first game out (redistribute.teammates_out). It isn't a flag: those receivers average a few yards
@@ -38,7 +38,9 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
     Unders hit as often as any.
     only_book keeps just that sportsbook's quotes in the output (or several, comma-separated: the books legal in the
     bettor's state); the market consensus still uses every book.
-    dists: per-kind error tables from the backtest (model.fit_dist); without one, the older gamma curve is used., best book per player/market/side, sorted by EV (no EV filter)."""
+    dists: per-kind error tables from the backtest (model.fit_dist); without one, the older gamma curve is used., best book per player/market/side, sorted by EV (no EV filter).
+    best_only=False keeps every book's quote (still sorted by EV); best_picks() then narrows it to the best one, so one
+    pricing can serve every book filter."""
     if proj.empty or lines.empty:
         return pd.DataFrame(columns=PICK_COLUMNS)
     lines = lines.copy()
@@ -64,6 +66,16 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
 
     keep = book_set(only_book)
     out = []
+    chances = {}   # (player, market, line) -> (p_over, p_under): most books post the same lines
+
+    def chance(p, market, line):
+        k = (p.key, market, line)
+        if k not in chances:
+            chances[k] = (prob_over_under_dist(p.mu, line, dists[market]) if dists and market in dists
+                          else prob_over_under(p.mu, line, p.sd ** 2))
+        return chances[k]
+
+
     for r in lines.itertuples():
         p = pm.get((r.key, r.market))
         if p is None or pd.isna(r.line):
@@ -73,21 +85,17 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
             continue  # alternate / stale line far from the market consensus
         if keep and r.book not in keep:
             continue
-        var = p.sd ** 2
         wx = getattr(p, "wx", 1.0)
         wx = 1.0 if wx is None or pd.isna(wx) else float(wx)
         is_td = r.market in YES_NO
         if is_td:
             po, pu = p.mu, 1 - p.mu  # mu already is the chance (of any TD, or of the game's first)
-        elif dists and r.market in dists:
-            po, pu = prob_over_under_dist(p.mu, r.line, dists[r.market])
         else:
-            po, pu = prob_over_under(p.mu, r.line, var)
+            po, pu = chance(p, r.market, r.line)
         mk_over = c.nv_o
         if not is_td and pd.notna(mk_over) and abs(c.line - r.line) > 1e-9:
             # shift the consensus probability to this book's line using the model's own slope
-            po_c = (prob_over_under_dist(p.mu, c.line, dists[r.market]) if dists and r.market in dists
-                    else prob_over_under(p.mu, c.line, var))[0]
+            po_c = chance(p, r.market, c.line)[0]
             mk_over = float(np.clip(c.nv_o + (po - po_c), 0.02, 0.98))
         for side, odd, p_side, mk in (("Over", r.over_odds, po, mk_over), ("Under", r.under_odds, pu, 1 - mk_over)):
             if pd.isna(odd):
@@ -115,4 +123,13 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
     df = pd.DataFrame(out, columns=PICK_COLUMNS)
     if df.empty:
         return df
-    return df.sort_values("ev", ascending=False).drop_duplicates(["name", "kind", "side"]).reset_index(drop=True)
+    df = df.sort_values("ev", ascending=False, kind="stable")
+    return best_picks(df) if best_only else df.reset_index(drop=True)
+
+
+def best_picks(priced: pd.DataFrame, only_book: str = None) -> pd.DataFrame:
+    """The best book per player/market/side from build_picks(..., best_only=False), within only_book's books."""
+    keep = book_set(only_book)
+    if keep:
+        priced = priced[priced.book.isin(keep)]
+    return priced.drop_duplicates(["name", "kind", "side"]).reset_index(drop=True)

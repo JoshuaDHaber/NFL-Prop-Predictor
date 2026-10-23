@@ -16,6 +16,7 @@ import subprocess
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
@@ -130,6 +131,8 @@ def lan_ip() -> Optional[str]:
 
 
 app.add_middleware(CORSMiddleware, allow_origins=config.CORS_ORIGINS(), allow_methods=["*"], allow_headers=["*"])
+# the boards are large JSON (the NBA projections run ~2 MB, each book's picks ~0.5 MB) and compress about tenfold
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 CSV_SEED = os.path.join(config.BASE_DIR, ".cache", "odds_latest.csv")
 

@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from . import config, grading
-from .db import AltLine, OddsHistory, OddsLine, Projection, Run, SessionLocal
+from .db import AltLine, OddsHistory, OddsLine, Projection, Run, SessionLocal, clear_lines_cache
 from .engine import data, model, odds
 from .odds_keys import KeyRing
 from .engine import correlation as cm
@@ -259,6 +259,7 @@ def store_lines(df: pd.DataFrame, session, table=OddsLine) -> int:
             session.query(table).filter(table.market == market, table.game_id == game_id,
                                         table.fetched_at < t).delete()
     session.commit()
+    clear_lines_cache()
     return len(df)
 
 
