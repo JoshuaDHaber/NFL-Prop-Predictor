@@ -1,6 +1,7 @@
 """SQLAlchemy models. SQLite locally; swap DATABASE_URL for Postgres in deployment."""
 import json
 import os
+import weakref
 from datetime import datetime
 
 from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, create_engine, event
@@ -387,16 +388,34 @@ def current_lines(session, table=None):
     Newest per market AND game, so lines fetched for different games at different times (Thursday's game first,
     the Sunday slate later) all stay visible. Rows from before game_id existed are grouped per market."""
     import pandas as pd
-    from sqlalchemy import select
-    rows = session.scalars(select(table or OddsLine)).all()
+    from sqlalchemy import func, select
+    table = table or OddsLine
+    # every board, ladder and parlay request reads this; it only changes on an odds sync, so it's rebuilt when the
+    # table's rows do (store_lines also clears it). Kept per engine, so separate databases (tests) never share one.
+    version = tuple(session.execute(select(func.count(), func.min(table.id), func.max(table.id), func.max(table.fetched_at),
+                                           func.sum(table.line))).one())
+    per_engine = _LINES_CACHE.setdefault(session.get_bind(), {})
+    hit = per_engine.get(table.__tablename__)
+    if hit and hit[0] == version:
+        return hit[1]
+    rows = session.scalars(select(table)).all()
     newest = {}
     for r in rows:
         k = (r.market, r.game_id)
         if k not in newest or r.fetched_at > newest[k]:
             newest[k] = r.fetched_at
     keep = [r for r in rows if r.fetched_at == newest[(r.market, r.game_id)]]
-    return pd.DataFrame([dict(player=r.player, market=r.market, line=r.line, over_odds=r.over_odds,
-                              under_odds=r.under_odds, book=r.book, over_link=r.over_link, under_link=r.under_link,
-                              event_link=r.event_link, game_id=r.game_id) for r in keep],
-                        columns=["player", "market", "line", "over_odds", "under_odds", "book", "over_link",
-                                 "under_link", "event_link", "game_id"])
+    df = pd.DataFrame([dict(player=r.player, market=r.market, line=r.line, over_odds=r.over_odds,
+                            under_odds=r.under_odds, book=r.book, over_link=r.over_link, under_link=r.under_link,
+                            event_link=r.event_link, game_id=r.game_id) for r in keep],
+                      columns=["player", "market", "line", "over_odds", "under_odds", "book", "over_link",
+                               "under_link", "event_link", "game_id"])
+    per_engine[table.__tablename__] = (version, df)
+    return df   # shared between requests: callers filter or copy it, never change it in place
+
+
+_LINES_CACHE = weakref.WeakKeyDictionary()   # engine -> {table name: (version, current lines)}
+
+
+def clear_lines_cache():
+    _LINES_CACHE.clear()

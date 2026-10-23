@@ -5,6 +5,7 @@ CSV columns: player,market,line,over_odds,under_odds,book   (market: rush or rec
 import os
 import re
 import time
+from functools import lru_cache
 import numpy as np
 import pandas as pd
 import requests
@@ -34,6 +35,7 @@ TEAM_NAMES = {
 }
 
 
+@lru_cache(maxsize=20000)   # called on every quote of every request; a slate has only a few hundred names
 def norm(name):
     n = re.sub(r"[.'’]", "", str(name).lower())
     n = re.sub(r"\b(jr|sr|ii|iii|iv|v)\b", "", n)
