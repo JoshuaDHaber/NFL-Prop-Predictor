@@ -1,4 +1,6 @@
 import type { Game, WeatherFit } from "../api";
+import { IconAlertTriangle } from "@tabler/icons-react";
+import { SkyGlyph } from "./icons";
 import { compassPoint, kickoff, skyIcon, timeAgo, wxEffect } from "../format";
 
 /** Wind rose: the arrow shows where the wind is blowing to, with the speed in the middle. */
@@ -82,7 +84,7 @@ export default function GameWeather({ game, fit }: { game: Game; fit?: WeatherFi
       <section className="card gw" aria-label="Game weather">
         {head}
         <div className="gw-indoor">
-          <span className="gw-big-ico" aria-hidden>🌤️</span>
+          <span className="gw-big-ico"><SkyGlyph name="partly" /></span>
           <div>
             <div className="gw-title">Open-air stadium · forecast not available yet</div>
             <p className="mut">Forecasts reach about a week to 16 days ahead and are fetched on each sync.</p>
@@ -99,7 +101,7 @@ export default function GameWeather({ game, fit }: { game: Game; fit?: WeatherFi
       {head}
       <div className="gw-body">
         <div className="gw-now">
-          <span className="gw-big-ico" aria-hidden>{skyIcon(w.sky, game.gametime)}</span>
+          <span className="gw-big-ico"><SkyGlyph name={skyIcon(w.sky, game.gametime)} /></span>
           <div>
             <div className="gw-temp">{Math.round(w.temp)}°F</div>
             <div className="mut">{w.sky ?? "Outdoors"}</div>
@@ -108,7 +110,7 @@ export default function GameWeather({ game, fit }: { game: Game; fit?: WeatherFi
         <Compass dir={w.wind_dir} speed={w.wind} />
         <dl className="gw-stats">
           <div><dt>Wind</dt><dd>{Math.round(w.wind)} mph{w.wind_dir != null && <> from the {compassPoint(w.wind_dir)}</>}</dd></div>
-          <div><dt>Gusts</dt><dd>{w.gust != null ? `${Math.round(w.gust)} mph` : "–"}{gusty && " ⚠︎"}</dd></div>
+          <div><dt>Gusts</dt><dd>{w.gust != null ? `${Math.round(w.gust)} mph` : "–"}{gusty && <IconAlertTriangle size={14} stroke={1.75} className="icon gust-warn" aria-label="gusty" />}</dd></div>
           {w.precip_prob != null || w.precip == null
             ? <div><dt>Rain chance</dt><dd>{w.precip_prob != null ? `${Math.round(w.precip_prob)}%` : "–"}</dd></div>
             : <div><dt>Rain</dt><dd>{w.precip < 0.01 ? "None" : `${w.precip.toFixed(2)}"`}</dd></div>}

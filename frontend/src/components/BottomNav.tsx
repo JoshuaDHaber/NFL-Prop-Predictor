@@ -1,0 +1,42 @@
+import { IconChartDots, IconChartLine, IconDots, IconFirstAidKit, IconLayoutGrid, IconListDetails, IconReceipt, IconScale, IconSettings,
+  IconStack2, type Icon } from "@tabler/icons-react";
+import { useBetSlip } from "../BetSlipContext";
+import Menu, { MenuItem } from "./Menu";
+
+const ICON: Record<string, Icon> = { games: IconLayoutGrid, picks: IconListDetails, parlays: IconStack2, projections: IconChartLine,
+  injuries: IconFirstAidKit, compare: IconScale, model: IconChartDots, check: IconChartDots, admin: IconSettings };
+const SHORT: Record<string, string> = { picks: "Props" };
+/** Sections that get their own slot; the rest go under More (five slots in all, with the slip). */
+const SLOTS = 3;
+
+/** Phones: the main sections and the bet slip along the bottom, where a thumb reaches. */
+export default function BottomNav<T extends string>({ tabs, tab, onTab }: { tabs: [T, string][]; tab?: T; onTab?: (t: T) => void }) {
+  const { legs, setOpen } = useBetSlip();
+  const main = tabs.slice(0, SLOTS);
+  const rest = tabs.slice(SLOTS);
+  const inRest = rest.find(([k]) => k === tab);
+  const item = (k: T, label: string) => {
+    const I = ICON[k] ?? IconDots;
+    return (
+      <button key={k} className={`bnav-item${tab === k ? " on" : ""}`} aria-current={tab === k ? "page" : undefined} onClick={() => onTab?.(k)}>
+        <I size={22} stroke={1.75} aria-hidden /><span>{SHORT[k] ?? label}</span>
+      </button>
+    );
+  };
+  return (
+    <nav className="bnav" aria-label="Sections">
+      {main.map(([k, label]) => item(k, label))}
+      <button className="bnav-item" onClick={() => setOpen(true)} aria-label={`Betslip, ${legs.length} selections`}>
+        <span className="bnav-ico"><IconReceipt size={22} stroke={1.75} aria-hidden />{legs.length > 0 && <span className="bnav-badge">{legs.length}</span>}</span>
+        <span>Slip</span>
+      </button>
+      <Menu placement="up" align="end" buttonClass={`bnav-item${inRest ? " on" : ""}`} caret={false}
+        label={<><IconDots size={22} stroke={1.75} aria-hidden /><span>{inRest ? SHORT[inRest[0]] ?? inRest[1] : "More"}</span></>}>
+        {(close) => rest.map(([k, label]) => {
+          const I = ICON[k] ?? IconDots;
+          return <MenuItem key={k} on={tab === k} onClick={() => { close(); onTab?.(k); }}><span className="with-icon"><I size={18} stroke={1.75} aria-hidden />{label}</span></MenuItem>;
+        })}
+      </Menu>
+    </nav>
+  );
+}

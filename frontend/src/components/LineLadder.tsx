@@ -5,6 +5,7 @@ import { useBetSlip } from "../BetSlipContext";
 import { KIND_LABEL, isDouble, isYesNo, americanOdds, fmtProj, isNba, playLabel, signedPct, timeAgo, unit } from "../format";
 import { legId, type Leg } from "../slip";
 import { BookName } from "./BookBadge";
+import Skeleton from "./Skeleton";
 
 export interface PlayerCtx { playerId: string; name: string; team: string; opp: string; home: boolean; gameId: string }
 
@@ -89,7 +90,7 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
           {!onlyBook && <label className="check"><input type="checkbox" checked={allBooks} onChange={(e) => setAllBooks(e.target.checked)} /> All books</label>}
         </div>
       </div>
-      {ladder.isLoading && <p className="mut">Loading lines…</p>}
+      {ladder.isLoading && <Skeleton kind="rows" count={4} />}
       {ladder.error && <p className="err">Couldn't load lines.</p>}
       {ladder.data && (
         <>

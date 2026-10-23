@@ -1,32 +1,46 @@
 import { useQuery } from "@tanstack/react-query";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { api, type BacktestStat, type Filters, type Game, type InjuryReport, type Kind } from "./api";
-import Logo from "./components/Logo";
+import BookSelect from "./components/BookSelect";
+import GamePills from "./components/GamePills";
+import Freshness from "./components/Freshness";
+import HowToRead from "./components/HowToRead";
+import PageHead from "./components/PageHead";
+import ResponsibleGaming from "./components/ResponsibleGaming";
+import TopBar from "./components/TopBar";
 import BetSlip from "./components/BetSlip";
 import Controls from "./components/Controls";
 import Games from "./components/Games";
 import GradesCard from "./components/GradesCard";
 import { GameInjuries } from "./components/Injuries";
-import LeagueSwitch from "./components/LeagueSwitch";
-import StateBooks from "./components/StateBooks";
 import NbaGameOverview from "./components/NbaGameOverview";
 import ParlayTiles from "./components/ParlayTiles";
 import PicksTable from "./components/PicksTable";
 import PlayerCompare from "./components/PlayerCompare";
 import ProjectionsTable from "./components/ProjectionsTable";
-import ThemeToggle from "./components/ThemeToggle";
 import TopTiles, { type Tile } from "./components/TopTiles";
 import { KIND_LABEL, NBA_KINDS, easternToday, isYesNo, americanOdds, fmtProj, fmtSd, matchup, playLabel, projCaption, signedPct, timeAgo } from "./format";
 import { importOrReload } from "./staleChunk";
 import { localWhen } from "./sync";
+import { filterParams, filtersFromUrl, param, setParams, useSection } from "./route";
 import { useDebounced } from "./useDebounced";
 import { useParlayBoard } from "./useParlayBoard";
+import Skeleton from "./components/Skeleton";
 
 const PlayerDrawer = lazy(() => importOrReload(() => import("./components/PlayerDrawer")));
+const AdminPage = lazy(() => importOrReload(() => import("./components/AdminPage")));
 
-type Tab = "games" | "picks" | "parlays" | "injuries" | "projections" | "compare" | "check";
+type Tab = "games" | "picks" | "parlays" | "injuries" | "projections" | "compare" | "check" | "admin";
 const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["injuries", "Injuries"], ["projections", "Projections"], ["compare", "Compare"],
-  ["check", "Model check"]];
+  ["check", "Model check"], ["admin", "Admin"]];
+/** Sections under the top bar's More menu. */
+const MORE: Tab[] = ["injuries", "compare", "check", "admin"];
+/** Each section's path under /nba: /nba/props, /nba/parlays, ... (Games is the front page). */
+const SLUGS: Record<Tab, string> = { games: "", picks: "props", parlays: "parlays", injuries: "injuries", projections: "projections", compare: "compare",
+  check: "model", admin: "admin" };
+/** Each section's page title (Best props and Parlays add their sportsbook picker). */
+const TITLE: Record<Tab, string> = { games: "Games", picks: "Best props", parlays: "Parlays", injuries: "Injury report", projections: "Projections",
+  compare: "Compare players", check: "Model check", admin: "Admin" };
 const gameFromHash = () => new URLSearchParams(window.location.hash.slice(1)).get("game");
 const GAME_BOOK_KEY = "gameBook";
 const PREFERRED_GAME_BOOK = "FanDuel";
@@ -36,11 +50,11 @@ const day = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefine
 
 /** The NBA side: the next two game dates' moneylines, points/rebounds/assists props and projections, and injuries. */
 export default function NbaApp() {
-  const [tab, setTab] = useState<Tab>("games");
+  const [tab, goSection] = useSection<Tab>(SLUGS, "nba", "games");
   const [gameId, setGameId] = useState<string | null>(gameFromHash);
   const pushedGame = useRef(false);
   useEffect(() => {
-    const sync = () => { const id = gameFromHash(); pushedGame.current = !!id; setGameId(id); if (id) setTab("games"); };
+    const sync = () => { const id = gameFromHash(); pushedGame.current = !!id; setGameId(id); };
     window.addEventListener("popstate", sync);
     return () => window.removeEventListener("popstate", sync);
   }, []);
@@ -52,13 +66,13 @@ export default function NbaApp() {
     setGameId(id);
     window.scrollTo({ top: 0 });
   };
-  const goTab = (t: Tab) => { openGame(null); setTab(t); };
-  const [filters, setFilters] = useState<Filters>({ kind: "all", side: "all", game: "all", book: "all", q: "", minEv: 0.03, marketWeight: 0.35, flagged: false });
+  const goTab = (t: Tab) => { pushedGame.current = false; setGameId(null); goSection(t); window.scrollTo({ top: 0 }); };
+  const [filters, setFilters] = useState<Filters>(filtersFromUrl);
   const [selected, setSelected] = useState<{ id: string; kind: Kind } | null>(null);
   const [gameBook, setGameBookState] = useState<string>(() => storedGameBook() ?? PREFERRED_GAME_BOOK);
   const setGameBook = (b: string) => { setGameBookState(b); try { localStorage.setItem(GAME_BOOK_KEY, b); } catch { /* not remembered */ } };
   // which game date to show: null follows today (or the next date with games), "all" shows both
-  const [datePick, setDatePick] = useState<string | null>(null);
+  const [datePick, setDatePick] = useState<string | null>(() => param("date"));
 
   // the drawer and ladder read ["meta"] from the cache, so the NBA meta lives under the same key (this league has its own cache)
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.nbaMeta });
@@ -77,10 +91,20 @@ export default function NbaApp() {
   const datedFilters = useMemo(() => ({ ...filters, date: date === "all" ? undefined : date }), [filters, date]);
   const debounced = useDebounced(datedFilters, 250);
   const onSlate = tab === "games" && !gameOpen;
-  const [parlayGames, setParlayGames] = useState<string[]>([]);
+  const [parlayGames, setParlayGames] = useState<string[]>(() => (tab === "parlays" && param("games")?.split(",").filter(Boolean)) || []);
   const chosenGames = useMemo(() => parlayGames.filter((id) => dateGames.some((g) => g.game_id === id)), [parlayGames, dateGames]);
   const board = useParlayBoard(meta.data?.books ?? [], chosenGames, tab === "parlays" && !gameOpen, undefined,
     date === "all" ? undefined : dateGames.map((g) => g.game_id));
+  // a shared parlays link names its book
+  useEffect(() => { const b = param("book"); if (tab === "parlays" && b) board.setBook(b); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // keep the query string in step with what's on screen, so the URL always reopens this view
+  useEffect(() => {
+    if (gameId) return;
+    const dated = { date: datePick && datePick !== today ? datePick : null };
+    setParams(tab === "picks" || tab === "projections" ? { ...filterParams(filters, tab === "picks"), ...dated }
+      : tab === "parlays" ? { book: board.book, games: parlayGames.join(",") || null, ...dated }
+      : tab === "games" || tab === "injuries" ? dated : {});
+  }, [tab, gameId, filters, board.book, parlayGames, datePick, today]);
   const picks = useQuery({ queryKey: ["picks", debounced], queryFn: () => api.picks(debounced), enabled: tab === "picks", placeholderData: (p) => p });
   const slatePicks = useQuery({ queryKey: ["slate-picks", debounced.book, debounced.marketWeight],
     queryFn: () => api.picks({ ...debounced, kind: "all", side: "all", game: "all", q: "", minEv: 0, flagged: false, date: undefined }, 1000), enabled: onSlate });
@@ -89,10 +113,10 @@ export default function NbaApp() {
   const injuries = useQuery({ queryKey: ["injuries"], queryFn: api.injuries, enabled: tab === "injuries" || onSlate, refetchInterval: 15 * 60_000 });
   const projections = useQuery({ queryKey: ["projections", debounced], queryFn: () => api.projections(debounced), enabled: tab === "projections", placeholderData: (p) => p });
 
-  if (meta.isLoading) return <div className="wrap"><p className="mut">Reaching equilibrium…</p></div>;
+  if (meta.isLoading) return <div className="wrap"><Skeleton kind="page" /></div>;
   if (meta.error || !meta.data) return (
     <div className="wrap">
-      <header><h1><Logo /> <span>The Haber <span className="grad">Process</span></span></h1><div className="head-actions"><LeagueSwitch /></div></header>
+      <TopBar />
       <p className="err">The reaction stalled: can't reach the NBA API right now. Try again in a minute.</p>
     </div>
   );
@@ -124,18 +148,12 @@ export default function NbaApp() {
 
   return (
     <div className="wrap">
-      <ThemeToggle />
-      <header>
-        <div>
-          <h1><Logo /> <span>The Haber <span className="grad">Process</span></span></h1>
-          <div className="sub">
-            {m.run ? `${seasonLabel} · ${m.run.slate.map(day).join(" & ")} · projections ${timeAgo(m.run.created_at)}` : "No projections yet"}
-            {latestOdds && ` · odds ${timeAgo(latestOdds)}`}
-            {m.auto_sync?.enabled && m.auto_sync.next_at && ` · next update ${localWhen(m.auto_sync.next_at)}`}
-          </div>
-        </div>
-        <div className="head-actions"><StateBooks /><LeagueSwitch /></div>
-      </header>
+      <TopBar tabs={TABS} more={MORE} tab={tab} onTab={goTab} />
+      <p className="statusline">
+        {m.run ? `${seasonLabel} · ${m.run.slate.map(day).join(" & ")} · projections ${timeAgo(m.run.created_at)}` : "No projections yet"}
+        {latestOdds && <> · <Freshness at={latestOdds} /></>}
+        {m.auto_sync?.enabled && m.auto_sync.next_at && ` · next update ${localWhen(m.auto_sync.next_at)}`}
+      </p>
 
       {!m.run && <div className="banner">No NBA projections yet. They appear after the next scheduled sync{m.auto_sync?.next_at ? ` (${localWhen(m.auto_sync.next_at)})` : ""}.</div>}
       {m.run && !hasLines && (tab === "games" || tab === "picks" || tab === "parlays") && (
@@ -146,36 +164,37 @@ export default function NbaApp() {
         <div className="banner">Player props aren't loaded yet. They're fetched the day of each game (10 AM, 2 PM and 6 PM ET syncs).</div>
       )}
 
-      <nav className="tabs" role="tablist" aria-label="Sections">
-        {TABS.map(([k, label]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => goTab(k)}>{label}</button>)}
-      </nav>
 
       {openedGame ? (
         <NbaGameOverview key={openedGame.game_id} game={openedGame} books={m.books} book={pageBook} onBook={setGameBook} marketWeight={debounced.marketWeight}
           onBack={() => (pushedGame.current ? window.history.back() : openGame(null))} onSelect={select} />
       ) : <>
-        {dates.length > 1 && tab !== "compare" && tab !== "check" && (
-          <div className="date-filter">
+        <PageHead
+          title={tab === "picks" ? <>Best props at <BookSelect inline books={m.books} book={filters.book} allLabel="every book" onChange={(b) => setFilters({ ...filters, book: b })} /></>
+            : tab === "parlays" && board.book ? <>Parlays at <BookSelect inline books={m.books} book={board.book} onChange={board.setBook} /></>
+            : TITLE[tab]}
+          aside={dates.length > 1 && tab !== "compare" && tab !== "check" && (
             <select value={date} onChange={(e) => pickDate(e.target.value)} aria-label="Game date">
               {dates.map((d) => <option key={d} value={d}>{d === today ? `Today, ${day(d)}` : day(d)}</option>)}
               <option value="all">All dates</option>
             </select>
-          </div>
-        )}
+          )} />
         <TopTiles tiles={tiles} />
         {tab === "games" && <Games games={dateGames} picks={slatePicks.data ?? []} moneylines={moneylines.data ?? []} injuries={injuries.data} onOpen={openGame} />}
-        {(tab === "picks" || tab === "projections") && <Controls filters={filters} onChange={setFilters} games={dateGames} books={m.books} showPickControls={tab === "picks"} />}
-        {tab === "picks" && (picks.isLoading ? <p className="mut">Balancing the equation…</p> :
+        {(tab === "picks" || tab === "projections") && <Controls filters={filters} onChange={setFilters} games={dateGames} showPickControls={tab === "picks"} />}
+      {tab === "picks" && <HowToRead />}
+        {tab === "picks" && (picks.isLoading ? <Skeleton kind="rows" /> :
           <PicksTable picks={picks.data ?? []} onSelect={(p) => select(p.player_id, p.kind)} />)}
-        {tab === "parlays" && (board.loading ? <p className="mut">Building parlays…</p> :
-          <ParlayTiles books={m.books} book={board.book} onBook={board.setBook} games={dateGames} selectedGames={chosenGames} onGames={setParlayGames} parlays={board.parlays}
+        {tab === "parlays" && (board.loading ? <Skeleton kind="cards" /> :
+          <ParlayTiles book={board.book} games={dateGames} selectedGames={chosenGames} onGames={setParlayGames} parlays={board.parlays}
             tdParlays={board.tdParlays} ladders={board.ladders} altProps={board.altProps} laddersLoading={board.laddersLoading} />)}
-        {tab === "injuries" && (injuries.isLoading ? <p className="mut">Loading the injury report…</p> : injuries.error || !injuries.data ? <p className="err">Couldn't load the injury report.</p> :
+        {tab === "injuries" && (injuries.isLoading ? <Skeleton kind="cards" count={2} /> : injuries.error || !injuries.data ? <p className="err">Couldn't load the injury report.</p> :
           <NbaInjuries report={injuries.data} games={dateGames} onSelect={select} />)}
-        {tab === "projections" && (projections.isLoading ? <p className="mut">Loading…</p> :
+        {tab === "projections" && (projections.isLoading ? <Skeleton kind="rows" /> :
           <ProjectionsTable nba rows={projections.data ?? []} onSelect={(p) => select(p.player_id, p.kind)} />)}
         {tab === "compare" && <PlayerCompare onSelect={select} />}
         {tab === "check" && <div className="stack"><GradesCard nba /><NbaBacktest backtest={m.backtest} /></div>}
+        {tab === "admin" && <Suspense fallback={<Skeleton kind="cards" />}><AdminPage embedded /></Suspense>}
       </>}
 
       <footer>
@@ -184,6 +203,7 @@ export default function NbaApp() {
         reaching 10, calibrated on past games. Win probabilities come from the backtest's own errors (threes, steals and blocks: Poisson counts), blended with the market's no-vig price. Team win chances come from
         point-margin ratings and lean heavily on the moneyline market. Teammates' injuries don't move a player's projection yet. Not betting advice.
         <span className="signoff">Bread from air, picks from stats. Built by JD Haber.</span>
+        <ResponsibleGaming />
       </footer>
 
       {selected && (
@@ -204,12 +224,7 @@ function NbaInjuries({ report, games, onSelect }: { report: InjuryReport; games:
   return (
     <div className="stack">
       <section className="controls" aria-label="Injury filters">
-        <div className="row">
-          <select value={game} onChange={(e) => setGame(e.target.value)} aria-label="Game">
-            <option value="all">All games</option>
-            {games.map((g) => <option key={g.game_id} value={g.game_id}>{g.label}</option>)}
-          </select>
-        </div>
+        <GamePills games={games} selected={game === "all" ? [] : [game]} onChange={(ids) => setGame(ids[0] ?? "all")} label="Game" />
         <p className="td-note nba-note">
           <b>Out</b> players aren't projected. <b>Day-to-day</b> players are, and are often decided close to tip-off.
           {report.fetched_at && <> Checked {timeAgo(report.fetched_at)} (ESPN).</>} Players with projections link to them.

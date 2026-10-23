@@ -4,6 +4,8 @@ import { api } from "../api";
 import { useBetSlip } from "../BetSlipContext";
 import { detectState } from "../geoState";
 import BookBadge from "./BookBadge";
+import Sheet from "./Sheet";
+import SidePill from "./SidePill";
 import { isYesNo, KIND_SHORT, americanOdds, pct, playLabel, signedPct } from "../format";
 import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, combinedLink, legLink, slipLinksText, linkStatus, openProgress, parlay, rebook, sameGame, slipHitChance, toAmerican, toWin, type BookOption } from "../slip";
 
@@ -12,6 +14,7 @@ let locatedOnce = false;
 
 export default function BetSlip() {
   const { legs, remove, replace, clear, state, setState, open, setOpen } = useBetSlip();
+  const close = () => setOpen(false);
   const [stakes, setStakes] = useState<Record<string, number>>({});
   const [copied, setCopied] = useState<"link" | null>(null);
   const [target, setTarget] = useState<string | null>(null);
@@ -135,9 +138,7 @@ export default function BetSlip() {
         Betslip <span className="count">{legs.length}</span>
       </button>
       {open && (
-        <div className="overlay slip-overlay" onClick={() => setOpen(false)}>
-          <aside className="drawer" role="dialog" aria-label="Betslip" onClick={(e) => e.stopPropagation()}>
-            <button className="close" onClick={() => setOpen(false)} aria-label="Close">×</button>
+        <Sheet label="Betslip" overlayClass="slip-overlay" onClose={close}>
             <h2>Betslip</h2>
             {!legs.length && <p className="mut">Nothing here yet. Open a player and tap + on a line to add it.</p>}
 
@@ -182,7 +183,7 @@ export default function BetSlip() {
                   const alts = alternativesAtBook(ladderFor(l), l, target);
                   return (
                     <div className="suggest-leg" key={l.id}>
-                      <div><b>{l.name}</b> <span className={l.side === "Over" ? "over" : "under"}>{playLabel(l.kind, l.side, l.line)}</span> {!isYesNo(l.kind) && <span className="mut">{KIND_SHORT[l.kind]}</span>}</div>
+                      <div><b>{l.name}</b> <SidePill kind={l.kind} side={l.side} line={l.line} /> {!isYesNo(l.kind) && <span className="mut">{KIND_SHORT[l.kind]}</span>}</div>
                       {alts.length ? (
                         <div className="chips">
                           {alts.map((o) => (
@@ -222,7 +223,7 @@ export default function BetSlip() {
                       <div className="slip-leg" key={l.id}>
                         <div>
                           <b>{l.name}</b> <span className="mut">{l.team} {l.home ? "vs" : "@"} {l.opp}</span><br />
-                          <span className={l.side === "Over" ? "over" : "under"}>{playLabel(l.kind, l.side, l.line)}</span> {!isYesNo(l.kind) && KIND_SHORT[l.kind]}
+                          <SidePill kind={l.kind} side={l.side} line={l.line} /> {!isYesNo(l.kind) && KIND_SHORT[l.kind]}
                           {l.alt && <span className="alt">alt</span>}<br />
                           <label className="bookpick">
                             <BookBadge book={l.book} size={20} />
@@ -289,8 +290,7 @@ export default function BetSlip() {
             <p className="mut slip-disclaimer">
               This app doesn't place bets: you sign in and confirm at the sportsbook. Check the line and price first.
             </p>
-          </aside>
-        </div>
+        </Sheet>
       )}
     </>
   );

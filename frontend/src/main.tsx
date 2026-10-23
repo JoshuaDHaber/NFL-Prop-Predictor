@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import { setAllowedBooks } from "./api";
+import { leagueFromPath, leaguePath } from "./route";
 import { BetSlipProvider, useBetSlip } from "./BetSlipContext";
 import { allowedBooks } from "./legalBooks";
 import { LeagueContext } from "./LeagueContext";
@@ -28,11 +29,20 @@ function Root() {
   }, [booksKey]);
   const setLeague = (l: League) => {
     storeLeague(l);
-    // a game page belongs to one league: switching lands on the other league's slate
-    if (window.location.hash) window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    // each league has its own sections and games: switching lands on the other league's front page
+    window.history.pushState(null, "", leaguePath(l));
     window.scrollTo({ top: 0 });
     setLeagueState(l);
   };
+  // back and forward can cross between /nba/... and the NFL's pages
+  useEffect(() => {
+    const sync = () => {
+      const l = leagueFromPath();
+      if (l && l !== getLeague()) { storeLeague(l); setLeagueState(l); }
+    };
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, []);
   return (
     <LeagueContext.Provider value={{ league, setLeague }}>
       <QueryClientProvider client={clients[league]} key={league}>

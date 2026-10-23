@@ -7,6 +7,7 @@ import { timeAgo } from "../format";
 import { elapsedSeconds, localWhen, progressLine, untilText } from "../sync";
 import Logo from "./Logo";
 import ThemeToggle from "./ThemeToggle";
+import Skeleton from "./Skeleton";
 
 const ODDS_TEXT: Record<string, string> = { none: "Model only", missing: "Model + missing odds", thin: "Model + thin top-up", all: "Model + all odds" };
 
@@ -22,7 +23,7 @@ function credits(r: SyncRun): string {
 
 function RunLog({ id }: { id: number }) {
   const q = useQuery({ queryKey: ["admin-run", id], queryFn: () => api.adminRun(id) });
-  if (q.isLoading) return <p className="mut">Loading log…</p>;
+  if (q.isLoading) return <Skeleton kind="rows" count={4} />;
   if (q.error || !q.data) return <p className="err">{(q.error as Error)?.message ?? "No log"}</p>;
   return <pre className="runlog">{q.data.log.join("\n") || "(no output)"}{q.data.error ? `\n\n${q.data.error}` : ""}</pre>;
 }
@@ -65,15 +66,15 @@ export default function AdminPage({ embedded = false }: { embedded?: boolean }) 
         <h1><Logo /> Sync <span className="grad">admin</span></h1>
         <div className="sub"><a href={BASE}>← Back to the site</a></div>
       </div>
-      {signOut}
+      <div className="head-actions">{signOut}<ThemeToggle /></div>
     </header>
   );
   const page = (children: React.ReactNode, cls = "") => embedded
     ? <div className={`admin-page ${cls}`}>{children}</div>
-    : <div className={`wrap admin-page ${cls}`}><ThemeToggle />{header}{children}</div>;
+    : <div className={`wrap admin-page ${cls}`}>{header}{children}</div>;
   const status = (state.error as { status?: number } | null)?.status;
   if (status === 403 || status === 429) return page(<SignIn wrong={!!token} />);
-  if (state.isLoading) return page(<p className="mut">Loading…</p>);
+  if (state.isLoading) return page(<Skeleton kind="cards" />);
   if (state.error || !state.data) return page(<p className="err">{(state.error as Error)?.message}</p>);
 
   const d = state.data;
