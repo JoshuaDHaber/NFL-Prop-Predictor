@@ -100,6 +100,7 @@ button.primary:disabled { opacity: .55; cursor: default; }
 .chip-btn:hover { border-color: var(--acc); }
 .open-msg { padding-top: 8px; }
 button.primary.outline { background: transparent; color: var(--acc); border: 1px solid var(--acc); } a.link { text-decoration: none; }
+.more-rows { display: flex; justify-content: center; margin: 14px 0 4px; }
 .book-note { background: var(--chip); color: var(--ink); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px; font-size: 12px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
 .banner a { color: inherit; text-decoration: underline; }
 .head-actions { display: flex; align-items: flex-start; gap: 14px; }
