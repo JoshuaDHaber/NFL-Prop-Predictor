@@ -1,8 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
-import { BetSlipProvider } from "./BetSlipContext";
+import { setAllowedBooks } from "./api";
+import { BetSlipProvider, useBetSlip } from "./BetSlipContext";
+import { allowedBooks } from "./legalBooks";
 import { LeagueContext } from "./LeagueContext";
 import { getLeague, setLeague as storeLeague, type League } from "./league";
 import "./styles.css";
@@ -13,6 +15,17 @@ const clients: Record<League, QueryClient> = { nfl: newClient(), nba: newClient(
 
 function Root() {
   const [league, setLeagueState] = useState<League>(getLeague);
+  // only the sportsbooks legal where the bettor is: set before any query runs, and every cached query is refetched when it changes
+  const { state, allBooks } = useBetSlip();
+  const allowed = allowedBooks(state, allBooks);
+  setAllowedBooks(allowed);
+  const booksKey = allowed?.join() ?? "*";
+  const lastBooks = useRef(booksKey);
+  useEffect(() => {
+    if (lastBooks.current === booksKey) return;
+    lastBooks.current = booksKey;
+    Object.values(clients).forEach((c) => c.resetQueries());
+  }, [booksKey]);
   const setLeague = (l: League) => {
     storeLeague(l);
     // a game page belongs to one league: switching lands on the other league's slate

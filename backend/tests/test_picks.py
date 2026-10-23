@@ -68,6 +68,9 @@ def test_book_filter_keeps_only_that_books_quotes_but_prices_against_all():
     assert set(only_a.book) == {"A"} and len(only_a) == 2
     assert set(build_picks(proj(mu=90), ln).book) == {"A", "B"}  # unfiltered: best price per side comes from either book
     assert build_picks(proj(mu=90), ln, only_book="Nowhere").empty
+    # several books (the ones legal in the bettor's state), comma-separated
+    assert set(build_picks(proj(mu=90), ln, only_book="A,Nowhere").book) == {"A"}
+    assert set(build_picks(proj(mu=90), ln, only_book="A,B").book) == {"A", "B"}
     # the market view still comes from both books, so it is identical with or without the filter
     full = build_picks(proj(mu=90), ln).query("side == 'Over'").iloc[0]
     assert only_a.query("side == 'Over'").iloc[0].p_mkt == pytest.approx(full.p_mkt)

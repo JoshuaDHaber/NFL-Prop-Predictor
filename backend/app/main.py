@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import config, grading, pipeline, scheduler
+from . import books, config, grading, pipeline, scheduler
 from .db import AltLine, OddsLine, Projection, Run, SessionLocal, SyncRun, current_lines, proj_frame
 from .engine import data, model, odds
 from .engine import injuries as injm
@@ -32,7 +32,7 @@ from .engine.picks import build_picks
 from .engine.search import rank_hits
 from .nba import routes as nba_routes
 from .schemas import (AdminState, Correlations, GradeReport, AltFetchResult, AutoSync, CreditStatus, KeyBalance, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, InjuryReport, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut,
-                      RefreshRequest, RunInfo)
+                      RefreshRequest, RunInfo, SiteSettings)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -159,12 +159,13 @@ def all_picks(db: Session, run: Run, w: float, book: Optional[str] = None) -> pd
     """Priced picks for (run, current odds, market weight); memoized because pricing loops over every line."""
     version = tuple(sorted(db.execute(select(OddsLine.market, func.max(OddsLine.fetched_at))
                                       .group_by(OddsLine.market)).all()))
-    key = (run.id, version, round(w, 3), book)
+    hide = books.hide_offshore(db)
+    key = (run.id, version, round(w, 3), book, hide)
     if key not in _pick_cache:
         if len(_pick_cache) > 20:
             _pick_cache.clear()
-        proj = proj_frame(db, run.id)
-        picks = build_picks(proj, current_lines(db), w, only_book=book, dists=_dists(run))
+        proj, lines = proj_frame(db, run.id), current_lines(db)
+        picks = build_picks(proj, lines, w, only_book=books.pricing_books(book, lines.get("book", []), hide), dists=_dists(run))
         if not picks.empty:
             l5 = dict(zip(zip(proj.player_id, proj.kind), proj.last5))
             picks["last5"] = [l5.get(k, []) for k in zip(picks.player_id, picks.kind)]
@@ -222,7 +223,7 @@ def build_meta(db: Session, lan_url: Optional[str] = None) -> Meta:
                                                   created_at=run.created_at.isoformat(), excluded=run.excluded),
                 backtest=backtest, odds=_odds_info(db), games=games, has_odds_key=bool(config.ODDS_API_KEY()),
                 job=JobStatus(**_job), lan_url=lan_url, auto_sync=_auto_sync(),
-                books=sorted(b for (b,) in db.execute(select(OddsLine.book).distinct()).all()))
+                books=books.shown((b for (b,) in db.execute(select(OddsLine.book).distinct()).all()), books.hide_offshore(db)))
 
 
 def _lan_url(request: Request) -> Optional[str]:
@@ -317,7 +318,8 @@ def moneylines(book: Optional[str] = None, market_weight: float = Query(0.35, ge
 def build_moneylines(db: Session, run: Optional[Run], market_weight: float = 0.35, book: Optional[str] = None) -> list[dict]:
     if not run or not run.teams:
         return []
-    return mlm.price(run.teams, current_lines(db), market_weight, book)
+    lines = current_lines(db)
+    return mlm.price(run.teams, lines, market_weight, books.pricing_books(book, lines.get("book", []), books.hide_offshore(db)))
 
 
 @app.get("/api/injuries", response_model=InjuryReport)
@@ -419,6 +421,8 @@ def build_ladder_out(db: Session, p: Projection, odds_range: int = 0) -> LadderO
                                 event_link=r.event_link, alt=True) for r in alts if odds.norm(r.player) == key],
                           columns=list(main.columns))
     quotes = pd.concat([f for f in (main, alt_df) if not f.empty] or [main], ignore_index=True)
+    if books.hide_offshore(db):
+        quotes = quotes[~quotes.book.isin(books.OFFSHORE)]
     fetched = max((r.fetched_at for r in alts), default=None)
     return LadderOut(kind=kind, mu=p.mu, sd=p.sd, game_id=p.game_id, alt_fetched_at=fetched.isoformat() if fetched else None,
                      # thin-history projections aren't priced (model.THIN_GAMES), so they get no ladder
@@ -583,7 +587,14 @@ def admin_state(limit: int = Query(60, ge=1, le=500), db: Session = Depends(get_
     return AdminState(auto_sync=_auto_sync(None), timezone="America/New_York", credits=_credit_status(),
                       credits_nba=_credit_status("nba"), slots=slots,
                       runs=[SyncRunOut(**_run_out(r)) for r in runs], job=JobStatus(**_job),
-                      can_run_projections=config.PROJECTIONS_ON_SERVER())
+                      can_run_projections=config.PROJECTIONS_ON_SERVER(), hide_offshore=books.hide_offshore(db))
+
+
+@app.post("/api/admin/settings", response_model=SiteSettings, dependencies=[Depends(require_admin)])
+def admin_settings(body: SiteSettings, db: Session = Depends(get_db)):
+    """Site-wide options: hide_offshore keeps books licensed in no US state off every list and price."""
+    books.set_hide_offshore(db, body.hide_offshore)
+    return SiteSettings(hide_offshore=books.hide_offshore(db))
 
 
 @app.get("/api/admin/runs/{run_id}", response_model=SyncRunDetail, dependencies=[Depends(require_admin)])

@@ -13,6 +13,7 @@ import pandas as pd
 from scipy.stats import norm
 
 from . import odds
+from .picks import book_set
 
 HALFLIFE = 10.0          # weeks
 RIDGE = 2.0              # pseudo-games pulling every rating toward zero (an average team)
@@ -162,7 +163,7 @@ def price(games: dict, lines: pd.DataFrame, market_weight: float = 0.35, only_bo
                         odds=None, book=None, ev=None, kelly=None, link=None, event_link=None)
             pool = q[q.over_odds.notna()] if not q.empty else q
             if only_book:
-                pool = pool[pool.book == only_book]
+                pool = pool[pool.book.isin(book_set(only_book))]
             if not pool.empty:
                 best = pool.loc[pool.over_odds.idxmax()]
                 dec = float(odds.american_to_dec(best.over_odds))

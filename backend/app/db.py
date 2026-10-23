@@ -188,6 +188,13 @@ class NbaAltLine(Base):
     event_link: Mapped[str] = mapped_column(String(500), nullable=True)
 
 
+class Setting(Base):
+    """A site-wide option set from the admin page (app/books.py's hide_offshore)."""
+    __tablename__ = "settings"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSON, nullable=True)
+
+
 class SyncRun(Base):
     """One sync (model run and/or odds fetch), scheduled or started by hand: the admin page's run log."""
     __tablename__ = "sync_runs"

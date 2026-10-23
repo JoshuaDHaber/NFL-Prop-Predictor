@@ -433,3 +433,32 @@ def test_correlations_are_empty_until_a_run_has_fitted_them():
     assert build_correlations(None).pairs == {}
     run = Run(season=2026, week=6, variance={"_correlation": {"pairs": {"team|pass:QB|rec:WR": [0.36, 1306]}, "check": {}}})
     assert build_correlations(run).pairs == {"team|pass:QB|rec:WR": 0.36}
+
+
+# ---------- hiding the offshore books (admin page) ----------
+def test_hidden_offshore_books_leave_every_list_and_price(client, monkeypatch):
+    with SessionLocal() as s:
+        bov = OddsLine(fetched_at=datetime(2026, 10, 3, 12), player="Alpha Back", market="rush", line=60.5, over_odds=+150,
+                       under_odds=-200, book="Bovada", game_id="2026_04_BBB_AAA")
+        s.add(bov)
+        s.commit()
+    try:
+        over = lambda: next(p for p in client.get("/api/picks", params={"min_ev": -1}).json() if p["name"] == "Alpha Back" and p["side"] == "Over")
+        assert over()["book"] == "Bovada" and "Bovada" in client.get("/api/meta").json()["books"]
+
+        assert client.post("/api/admin/settings", json={"hide_offshore": True}).json() == {"hide_offshore": True}
+        assert client.get("/api/admin").json()["hide_offshore"] is True
+        assert "Bovada" not in client.get("/api/meta").json()["books"]
+        assert over()["book"] == "X" and over()["books"] == 2   # the consensus still counts Bovada's quote
+        assert client.get("/api/picks", params={"book": "Bovada", "min_ev": -1}).json() == []
+        assert {q["book"] for q in client.get("/api/players/p0/lines", params={"kind": "rush", "odds_range": 0}).json()["quotes"]} == {"X"}
+
+        with TestClient(main.app, client=("203.0.113.31", 4000)) as remote:   # only the admin can change it
+            monkeypatch.setenv("ADMIN_TOKEN", "pw-for-tests")
+            assert remote.post("/api/admin/settings", json={"hide_offshore": False}).status_code == 403
+        main._FAILS.clear()
+    finally:
+        client.post("/api/admin/settings", json={"hide_offshore": False})
+        with SessionLocal() as s:
+            s.delete(s.merge(bov))
+            s.commit()

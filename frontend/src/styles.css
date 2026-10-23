@@ -110,6 +110,8 @@ button.primary.outline { background: transparent; color: var(--acc); border: 1px
 .book-note { background: var(--chip); color: var(--ink); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px; font-size: 12px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
 .banner a { color: inherit; text-decoration: underline; }
 .head-actions { display: flex; align-items: flex-start; gap: 14px; }
+.admin-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; } .admin-toggle input { width: 18px; height: 18px; accent-color: var(--acc); }
+.state-books { font-size: 12px; text-align: right; max-width: 260px; padding-top: 8px; } .state-books .mut { margin-top: 2px; }
 table.calib td.good { color: var(--good); font-weight: 600; }
 table.calib { width: 100%; margin-top: 8px; font-size: 12px; } table.calib th, table.calib td { padding: 3px 6px; text-align: right; } table.calib th:first-child, table.calib td:first-child { text-align: left; }
 .td-note { margin: 0; padding: 8px 12px; border-radius: 8px; background: var(--chip); font-size: 12px; max-width: 80ch; }
