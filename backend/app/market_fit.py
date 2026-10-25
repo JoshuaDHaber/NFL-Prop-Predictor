@@ -285,7 +285,7 @@ def add_moves(session, sport: str, picks: pd.DataFrame, proj: pd.DataFrame, dist
             if v:
                 steams[(gid, key, market)] = int(v)
     keys = picks.name.map(odds.norm)
-    open_line, move, st = out.open_line.to_numpy(), out.move.to_numpy(), out.steam.to_numpy()
+    open_line, move, st = (out[c].to_numpy(copy=True) for c in ("open_line", "move", "steam"))   # (writable under copy-on-write)
     for i, (gid, key, kind, side, line, mu, sd, p_mkt) in enumerate(zip(picks.game_id, keys, picks.kind, picks.side, picks.line,
                                                                         picks.mu, picks.sd, picks.p_mkt)):
         sign = 1 if side == "Over" else -1
