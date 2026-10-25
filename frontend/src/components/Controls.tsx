@@ -31,7 +31,7 @@ export default function Controls({ filters, onChange, games, showPickControls: p
     ...(game ? [[game.label, { game: "all" }] as [string, Partial<Filters>]] : []),
     ...(filters.q.trim() ? [[`"${filters.q.trim()}"`, { q: "" }] as [string, Partial<Filters>]] : []),
     ...(picks && filters.minEv !== DEFAULT_FILTERS.minEv ? [[`Min EV ${signedPct(filters.minEv)}`, { minEv: DEFAULT_FILTERS.minEv }] as [string, Partial<Filters>]] : []),
-    ...(picks && filters.marketWeight !== DEFAULT_FILTERS.marketWeight ? [[`Trust market ${pct(filters.marketWeight, 0)}`, { marketWeight: DEFAULT_FILTERS.marketWeight }] as [string, Partial<Filters>]] : []),
+    ...(picks && filters.marketWeight !== null ? [[`Trust market ${pct(filters.marketWeight, 0)}`, { marketWeight: null }] as [string, Partial<Filters>]] : []),
     ...(picks && filters.flagged ? [["Large gaps shown", { flagged: false }] as [string, Partial<Filters>]] : []),
   ];
   return (
@@ -80,8 +80,13 @@ export default function Controls({ filters, onChange, games, showPickControls: p
                   <input type="range" min={-0.1} max={0.2} step={0.01} value={filters.minEv} onChange={(e) => set({ minEv: Number(e.target.value) })} />
                 </label>
                 <label className="slider">
-                  <span>Trust market <b>{pct(filters.marketWeight, 0)}</b> <Info term="trust" /></span>
-                  <input type="range" min={0} max={1} step={0.05} value={filters.marketWeight} onChange={(e) => set({ marketWeight: Number(e.target.value) })} />
+                  <span>Trust market <b>{filters.marketWeight === null ? "Fitted" : pct(filters.marketWeight, 0)}</b> <Info term="trust" /></span>
+                  <input type="range" min={0} max={1} step={0.05} value={filters.marketWeight ?? 0.35} aria-valuetext={filters.marketWeight === null ? "Fitted per market" : undefined}
+                    onChange={(e) => set({ marketWeight: Number(e.target.value) })} />
+                </label>
+                <label className="check">
+                  <input type="checkbox" checked={filters.marketWeight === null} onChange={(e) => set({ marketWeight: e.target.checked ? null : 0.35 })} />
+                  Fitted per market and time to kickoff <Info term="fitted" />
                 </label>
                 <label className="check">
                   <input type="checkbox" checked={filters.flagged} onChange={(e) => set({ flagged: e.target.checked })} />

@@ -50,7 +50,7 @@ export function useSection<T extends string>(slugs: Record<T, string>, league: L
   return [section, go] as const;
 }
 
-export const DEFAULT_FILTERS: Filters = { kind: "all", side: "all", game: "all", book: "all", q: "", minEv: 0.03, marketWeight: 0.35, flagged: false };
+export const DEFAULT_FILTERS: Filters = { kind: "all", side: "all", game: "all", book: "all", q: "", minEv: 0.03, marketWeight: null, flagged: false };
 
 /** A shared link's Best props / Projections filters: ?market=rec&side=Over&game=<id>&book=DraftKings&q=name. */
 export function filtersFromUrl(): Filters {

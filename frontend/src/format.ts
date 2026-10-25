@@ -171,3 +171,6 @@ export function skyIcon(sky: string | null | undefined, gametime = ""): SkyIcon 
 /** Smooth scrolling, unless the reader asked their device for less motion. */
 export const scrollBehavior = (): ScrollBehavior =>
   typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+
+/** A change in chance as signed percentage points: 0.031 -> "+3 pts". */
+export const signedPts = (d: number) => { const r = Math.round(d * 100); return `${r > 0 ? "+" : r < 0 ? "−" : ""}${Math.abs(r)} pts`; };

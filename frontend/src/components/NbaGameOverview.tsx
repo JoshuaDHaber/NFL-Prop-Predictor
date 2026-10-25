@@ -19,7 +19,7 @@ interface Props {
   /** The page's sportsbook ("all" = best price anywhere): props and the moneyline follow it. */
   book: string;
   onBook: (book: string) => void;
-  marketWeight: number;
+  marketWeight: number | null;
   onBack: () => void;
   onSelect: (id: string, kind: Kind) => void;
 }

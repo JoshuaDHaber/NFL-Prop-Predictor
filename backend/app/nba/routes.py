@@ -11,14 +11,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import books, config, standings
+from .. import books, config, market_fit, standings
 from ..db import NbaAltLine, NbaOddsLine, NbaProjection, NbaRun, SessionLocal, current_lines
 from ..engine import moneyline as mlm
 from ..engine import odds
-from ..engine.ladder import build_ladder
+from ..engine.ladder import build_ladder, ladder_curve
+from ..engine.market import weight_for
 from ..engine.picks import best_picks, build_picks
 from ..engine.search import rank_hits
-from ..schemas import (AutoSync, BacktestStat, Correlations, Game, GameLogEntry, GradeReport, InjuredPlayer, InjuryReport, LadderOut,
+from ..schemas import (AutoSync, BacktestStat, Correlations, Game, GameLogEntry, GradeReport, HistoryPoint, InjuredPlayer, InjuryReport, LadderOut,
                        MoneylineGame, NbaMeta, NbaRunInfo, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut)
 from . import espn, grading, model
 from . import odds as nba_odds
@@ -87,23 +88,30 @@ _priced_cache: dict = {}
 _priced_lock = threading.Lock()
 
 
-def _priced(db: Session, run: NbaRun, version: tuple, w: float) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _wkey(w: Optional[float]):
+    return None if w is None else round(w, 3)
+
+
+def _priced(db: Session, run: NbaRun, version: tuple, w: Optional[float]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """(projections, every book's priced quotes): one pricing of the board serves every book filter. The Parlays tab
-    asks for each book at once, so the lock makes those requests wait for one pricing instead of each doing its own."""
-    key = (run.id, version, round(w, 3))
+    asks for each book at once, so the lock makes those requests wait for one pricing instead of each doing its own.
+    w=None prices with the fitted market weights (app/market_fit.py)."""
+    key = (run.id, version, _wkey(w), market_fit.fit_state(db, "nba").get("fitted_at"))
     with _priced_lock:
         if key not in _priced_cache:
             _priced_cache.clear()   # only the newest odds and run are asked for
             proj = _proj_frame(db, run.id)
-            _priced_cache[key] = proj, build_picks(proj, current_lines(db, NbaOddsLine), w, dists=_dists(run), best_only=False)
+            priced = build_picks(proj, current_lines(db, NbaOddsLine), w, dists=_dists(run), best_only=False,
+                                 book_weights=market_fit.book_weights(db, "nba"), fitted=market_fit.market_weights(db, "nba"))
+            _priced_cache[key] = proj, market_fit.add_moves(db, "nba", priced, proj, _dists(run))
         return _priced_cache[key]
 
 
-def all_picks(db: Session, run: NbaRun, w: float, book: Optional[str] = None) -> pd.DataFrame:
+def all_picks(db: Session, run: NbaRun, w: Optional[float], book: Optional[str] = None) -> pd.DataFrame:
     version = tuple(sorted(db.execute(select(NbaOddsLine.market, func.max(NbaOddsLine.fetched_at)).group_by(NbaOddsLine.market)).all()))
     live = frozenset(g["game_id"] for g in _upcoming(run))   # a game that tips off leaves the board
     hide = books.hide_offshore(db)
-    key = (run.id, version, round(w, 3), book, live, hide)
+    key = (run.id, version, _wkey(w), book, live, hide, market_fit.fit_state(db, "nba").get("fitted_at"))
     if key not in _pick_cache:
         if len(_pick_cache) > 40:
             _pick_cache.clear()
@@ -142,7 +150,7 @@ def projections(kind: Optional[NbaKind] = None, game_id: Optional[str] = None, g
 @router.get("/picks", response_model=list[PickOut])
 def picks(kind: Optional[NbaKind] = None, side: Optional[Literal["Over", "Under"]] = None, game_id: Optional[str] = None,
           gameday: Optional[str] = None, q: Optional[str] = None, book: Optional[str] = None, min_ev: float = Query(0.03, ge=-1, le=1),
-          market_weight: float = Query(0.35, ge=0, le=1), include_flagged: bool = False,
+          market_weight: Optional[float] = Query(None, ge=0, le=1), include_flagged: bool = False,
           limit: int = Query(200, ge=1, le=1000), db: Session = Depends(get_db)):
     run = latest_run(db)
     if not run:
@@ -179,12 +187,12 @@ def build_correlations(run: Optional[NbaRun]) -> Correlations:
 
 @router.get("/grades", response_model=GradeReport)
 def grades(season: Optional[int] = None, db: Session = Depends(get_db)):
-    """How the NBA board did once graded (app/nba/grading.py)."""
-    return grading.report(db, season)
+    """How the NBA board did once graded (app/nba/grading.py), against the close too, and the fitted weights."""
+    return dict(grading.report(db, season), market_fit=market_fit.summary(db, "nba", current_lines(db, NbaOddsLine).book.unique()))
 
 
 @router.get("/moneylines", response_model=list[MoneylineGame])
-def moneylines(book: Optional[str] = None, market_weight: float = Query(0.35, ge=0, le=1), db: Session = Depends(get_db)):
+def moneylines(book: Optional[str] = None, market_weight: Optional[float] = Query(None, ge=0, le=1), db: Session = Depends(get_db)):
     """Both teams' win chances for every slate game still to tip off (model, market, blend) and the best moneyline."""
     run = latest_run(db)
     if not run or not run.teams:
@@ -192,8 +200,9 @@ def moneylines(book: Optional[str] = None, market_weight: float = Query(0.35, ge
     live = {g["game_id"] for g in _upcoming(run)}
     games = {gid: g for gid, g in run.teams.items() if gid in live}
     lines = current_lines(db, NbaOddsLine)
-    return mlm.price(games, lines, market_weight, books.pricing_books(book, lines.get("book", []), books.hide_offshore(db)), names=nba_odds.TEAM_NAMES,
-                     min_market_weight=model.ML_MIN_MARKET_WEIGHT)
+    w = weight_for(market_fit.market_weights(db, "nba"), "ml", None) if market_weight is None else market_weight
+    return mlm.price(games, lines, w, books.pricing_books(book, lines.get("book", []), books.hide_offshore(db)), names=nba_odds.TEAM_NAMES,
+                     min_market_weight=model.ML_MIN_MARKET_WEIGHT, book_weights=market_fit.book_weights(db, "nba"))
 
 
 @router.get("/injuries", response_model=InjuryReport)
@@ -254,7 +263,7 @@ def player_search(q: str = Query("", max_length=60), limit: int = Query(12, ge=1
 
 
 @router.get("/players/{player_id}", response_model=PlayerDetail)
-def player(player_id: str, market_weight: float = Query(0.35, ge=0, le=1), db: Session = Depends(get_db)):
+def player(player_id: str, market_weight: Optional[float] = Query(None, ge=0, le=1), db: Session = Depends(get_db)):
     run = latest_run(db)
     rows = db.scalars(select(NbaProjection).where(NbaProjection.run_id == run.id, NbaProjection.player_id == player_id)).all() if run else []
     if not rows:
@@ -278,13 +287,12 @@ def _game_logs(player_id: str, season: int, n: int = 12) -> dict:
 
 
 @router.get("/players/{player_id}/lines", response_model=LadderOut)
-def player_lines(player_id: str, kind: NbaKind, odds_range: int = Query(300, ge=0, le=100000), db: Session = Depends(get_db)):
-    """Every posted quote for one player and stat, main and alternate lines, all books, priced by the model."""
+def player_lines(player_id: str, kind: NbaKind, odds_range: int = Query(300, ge=0, le=100000),
+                 market_weight: Optional[float] = Query(None, ge=0, le=1), db: Session = Depends(get_db)):
+    """Every posted quote for one player and stat, main and alternate lines, all books, priced by the model blended
+    with the market's distribution read off the ladder."""
     run = latest_run(db)
-    p = db.scalars(select(NbaProjection).where(NbaProjection.run_id == run.id, NbaProjection.player_id == player_id,
-                                               NbaProjection.kind == kind)).first() if run else None
-    if not p:
-        raise HTTPException(404, "No projection for that player and stat in the current run")
+    p = _proj(db, run, player_id, kind)
     main = current_lines(db, NbaOddsLine)
     key = odds.norm(p.name)
     main = main[(main.market == kind) & (main.player.map(odds.norm) == key) & (main.game_id == p.game_id)].assign(alt=False)
@@ -294,11 +302,31 @@ def player_lines(player_id: str, kind: NbaKind, odds_range: int = Query(300, ge=
                                 book=r.book, over_link=r.over_link, under_link=r.under_link, event_link=r.event_link,
                                 game_id=r.game_id, alt=True) for r in alts], columns=list(main.columns))
     quotes = pd.concat([f for f in (main, alt_df) if not f.empty] or [main], ignore_index=True)
+    dist = _dists(run).get(kind)
+    curve = ladder_curve(quotes, p.mu, kind, dist, market_fit.book_weights(db, "nba"))
+    w = market_fit.ladder_weight(market_weight, market_fit.market_weights(db, "nba"), p, main)
     if books.hide_offshore(db):
         quotes = quotes[~quotes.book.isin(books.OFFSHORE)]
     fetched = max((r.fetched_at for r in alts), default=None)
     return LadderOut(kind=kind, mu=p.mu, sd=p.sd, game_id=p.game_id, alt_fetched_at=fetched.isoformat() if fetched else None,
-                     quotes=build_ladder(p.mu, p.sd, quotes, odds_range, kind, _dists(run).get(kind)))
+                     curve=curve, w=w if curve else None,
+                     quotes=build_ladder(p.mu, p.sd, quotes, odds_range, kind, dist, curve, w))
+
+
+def _proj(db: Session, run: Optional[NbaRun], player_id: str, kind: str) -> NbaProjection:
+    p = db.scalars(select(NbaProjection).where(NbaProjection.run_id == run.id, NbaProjection.player_id == player_id,
+                                               NbaProjection.kind == kind)).first() if run else None
+    if not p:
+        raise HTTPException(404, "No projection for that player and stat in the current run")
+    return p
+
+
+@router.get("/players/{player_id}/history", response_model=list[HistoryPoint])
+def player_history(player_id: str, kind: NbaKind, db: Session = Depends(get_db)):
+    """How one player's market moved: per odds fetch, the consensus line and its fair over chance."""
+    run = latest_run(db)
+    p = _proj(db, run, player_id, kind)
+    return market_fit.line_history(db, p.game_id, p.name, kind, p.mu, p.sd, _dists(run).get(kind), "nba")
 
 
 def clear_caches():

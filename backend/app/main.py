@@ -23,17 +23,18 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import books, config, grading, pipeline, scheduler, standings
+from . import books, config, grading, market_fit, pipeline, scheduler, standings
 from .db import AltLine, OddsLine, Projection, Run, SessionLocal, SyncRun, current_lines, proj_frame
 from .engine import data, model, odds
 from .engine import injuries as injm
 from .engine import moneyline as mlm
 from .engine import td as tdm
-from .engine.ladder import build_ladder
+from .engine.ladder import build_ladder, ladder_curve
+from .engine.market import weight_for
 from .engine.picks import best_picks, build_picks
 from .engine.search import rank_hits
 from .nba import routes as nba_routes
-from .schemas import (AdminState, Correlations, GradeReport, AltFetchResult, AutoSync, CreditStatus, KeyBalance, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, InjuryReport, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut,
+from .schemas import (AdminState, Correlations, GradeReport, AltFetchResult, AutoSync, CreditStatus, KeyBalance, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, HistoryPoint, InjuryReport, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut,
                       RefreshRequest, RunInfo, SiteSettings)
 
 @asynccontextmanager
@@ -161,24 +162,31 @@ _priced_lock = threading.Lock()
 _dists = grading.dists
 
 
-def _priced(db: Session, run: Run, version: tuple, w: float) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _wkey(w: Optional[float]):
+    return None if w is None else round(w, 3)
+
+
+def _priced(db: Session, run: Run, version: tuple, w: Optional[float]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """(projections, every book's priced quotes): one pricing of the board serves every book filter. The Parlays tab
-    asks for each book at once, so the lock makes those requests wait for one pricing instead of each doing its own."""
-    key = (run.id, version, round(w, 3))
+    asks for each book at once, so the lock makes those requests wait for one pricing instead of each doing its own.
+    w=None prices with the fitted market weights; the book weights are always the fitted ones (market_fit)."""
+    key = (run.id, version, _wkey(w), market_fit.fit_state(db, "nfl").get("fitted_at"))
     with _priced_lock:
         if key not in _priced_cache:
             _priced_cache.clear()   # only the newest odds and run are asked for
             proj = proj_frame(db, run.id)
-            _priced_cache[key] = proj, build_picks(proj, current_lines(db), w, dists=_dists(run), best_only=False)
+            priced = build_picks(proj, current_lines(db), w, dists=_dists(run), best_only=False,
+                                 book_weights=market_fit.book_weights(db, "nfl"), fitted=market_fit.market_weights(db, "nfl"))
+            _priced_cache[key] = proj, market_fit.add_moves(db, "nfl", priced, proj, _dists(run))
         return _priced_cache[key]
 
 
-def all_picks(db: Session, run: Run, w: float, book: Optional[str] = None) -> pd.DataFrame:
+def all_picks(db: Session, run: Run, w: Optional[float], book: Optional[str] = None) -> pd.DataFrame:
     """Priced picks for (run, current odds, market weight); memoized because pricing loops over every line."""
     version = tuple(sorted(db.execute(select(OddsLine.market, func.max(OddsLine.fetched_at))
                                       .group_by(OddsLine.market)).all()))
     hide = books.hide_offshore(db)
-    key = (run.id, version, round(w, 3), book, hide)
+    key = (run.id, version, _wkey(w), book, hide, market_fit.fit_state(db, "nfl").get("fitted_at"))
     if key not in _pick_cache:
         if len(_pick_cache) > 40:
             _pick_cache.clear()
@@ -209,6 +217,7 @@ def _release_memory():
     _stats.cache_clear()   # game logs in the player drawer come from the stats files, which a sync just refreshed
     _pick_cache.clear()
     _priced_cache.clear()
+    market_fit.clear_cache()
     nba_routes.clear_caches()
     gc.collect()
     try:
@@ -289,8 +298,9 @@ def projections(kind: Optional[Kind] = None, exclude_kind: Optional[Kind] = None
 @app.get("/api/picks", response_model=list[PickOut])
 def picks(kind: Optional[Kind] = None, exclude_kind: Optional[Kind] = None, side: Optional[Literal["Over", "Under"]] = None,
           game_id: Optional[str] = None, q: Optional[str] = None, book: Optional[str] = None,
-          min_ev: float = Query(0.03, ge=-1, le=1), market_weight: float = Query(0.35, ge=0, le=1),
+          min_ev: float = Query(0.03, ge=-1, le=1), market_weight: Optional[float] = Query(None, ge=0, le=1),
           include_flagged: bool = False, limit: int = Query(200, ge=1, le=1000), db: Session = Depends(get_db)):
+    """Priced plays. market_weight: how much to trust the market (0-1); left out, each market's fitted weight."""
     run = latest_run(db)
     if not run:
         return []
@@ -326,22 +336,25 @@ def build_correlations(run: Optional[Run]) -> Correlations:
 
 @app.get("/api/grades", response_model=GradeReport)
 def grades(season: Optional[int] = None, db: Session = Depends(get_db)):
-    """How the logged board did against the box scores, and whether the model or the line landed closer."""
-    return grading.report(db, season)
+    """How the logged board did against the box scores and the closing line, whether the model or the line landed
+    closer, and the fitted book and market weights."""
+    return dict(grading.report(db, season), market_fit=market_fit.summary(db, "nfl", current_lines(db).book.unique()))
 
 
 @app.get("/api/moneylines", response_model=list[MoneylineGame])
-def moneylines(book: Optional[str] = None, market_weight: float = Query(0.35, ge=0, le=1), db: Session = Depends(get_db)):
+def moneylines(book: Optional[str] = None, market_weight: Optional[float] = Query(None, ge=0, le=1), db: Session = Depends(get_db)):
     """Both teams' win chances for every game of the week (model, market, blend), with the best moneyline and its EV."""
     run = latest_run(db)
     return build_moneylines(db, run, market_weight, book)
 
 
-def build_moneylines(db: Session, run: Optional[Run], market_weight: float = 0.35, book: Optional[str] = None) -> list[dict]:
+def build_moneylines(db: Session, run: Optional[Run], market_weight: Optional[float] = None, book: Optional[str] = None) -> list[dict]:
     if not run or not run.teams:
         return []
     lines = current_lines(db)
-    return mlm.price(run.teams, lines, market_weight, books.pricing_books(book, lines.get("book", []), books.hide_offshore(db)))
+    w = weight_for(market_fit.market_weights(db, "nfl"), "ml", None) if market_weight is None else market_weight
+    return mlm.price(run.teams, lines, w, books.pricing_books(book, lines.get("book", []), books.hide_offshore(db)),
+                     book_weights=market_fit.book_weights(db, "nfl"))
 
 
 @app.get("/api/injuries", response_model=InjuryReport)
@@ -397,14 +410,14 @@ def player_search(q: str = Query("", max_length=60), limit: int = Query(12, ge=1
 
 
 @app.get("/api/players/{player_id}", response_model=PlayerDetail)
-def player(player_id: str, market_weight: float = Query(0.35, ge=0, le=1), db: Session = Depends(get_db)):
+def player(player_id: str, market_weight: Optional[float] = Query(None, ge=0, le=1), db: Session = Depends(get_db)):
     detail = build_player_detail(db, latest_run(db), player_id, market_weight)
     if not detail:
         raise HTTPException(404, "Player has no projection in the current run")
     return detail
 
 
-def build_player_detail(db: Session, run: Optional[Run], player_id: str, market_weight: float = 0.35) -> Optional[PlayerDetail]:
+def build_player_detail(db: Session, run: Optional[Run], player_id: str, market_weight: Optional[float] = None) -> Optional[PlayerDetail]:
     rows = db.scalars(select(Projection).where(Projection.run_id == run.id, Projection.player_id == player_id)).all() if run else []
     if not rows:
         return None
@@ -427,13 +440,22 @@ def _player_proj(db: Session, player_id: str, kind: str):
 
 
 @app.get("/api/players/{player_id}/lines", response_model=LadderOut)
-def player_lines(player_id: str, kind: Kind, odds_range: int = Query(300, ge=0, le=100000), db: Session = Depends(get_db)):
-    """Every posted quote (main and alternate lines, all books) for one player/market, priced by the model.
-    Prices outside -odds_range..+odds_range are hidden (default 300; 0 shows everything)."""
-    return build_ladder_out(db, _player_proj(db, player_id, kind), odds_range)
+def player_lines(player_id: str, kind: Kind, odds_range: int = Query(300, ge=0, le=100000),
+                 market_weight: Optional[float] = Query(None, ge=0, le=1), db: Session = Depends(get_db)):
+    """Every posted quote (main and alternate lines, all books) for one player/market, priced by the model blended
+    with the market's distribution read off the ladder. Prices outside -odds_range..+odds_range are hidden (default
+    300; 0 shows everything)."""
+    return build_ladder_out(db, _player_proj(db, player_id, kind), odds_range, market_weight)
 
 
-def build_ladder_out(db: Session, p: Projection, odds_range: int = 0) -> LadderOut:
+@app.get("/api/players/{player_id}/history", response_model=list[HistoryPoint])
+def player_history(player_id: str, kind: Kind, db: Session = Depends(get_db)):
+    """How one player's market moved this week: per odds fetch, the consensus line and its fair over chance."""
+    p = _player_proj(db, player_id, kind)
+    return market_fit.line_history(db, p.game_id, p.name, kind, p.mu, p.sd, _dists(db.get(Run, p.run_id)).get(kind), "nfl")
+
+
+def build_ladder_out(db: Session, p: Projection, odds_range: int = 0, market_weight: Optional[float] = None) -> LadderOut:
     key, kind = odds.norm(p.name), p.kind
     main = current_lines(db)
     main = main[(main.market == kind) & (main.player.map(odds.norm) == key) & (main.game_id == p.game_id)].assign(alt=False)
@@ -443,12 +465,17 @@ def build_ladder_out(db: Session, p: Projection, odds_range: int = 0) -> LadderO
                                 event_link=r.event_link, alt=True) for r in alts if odds.norm(r.player) == key],
                           columns=list(main.columns))
     quotes = pd.concat([f for f in (main, alt_df) if not f.empty] or [main], ignore_index=True)
+    dist = _dists(db.get(Run, p.run_id)).get(kind)
+    # the market curve reads every book, offshore ones included, as the board's consensus does
+    curve = None if p.thin else ladder_curve(quotes, p.mu, kind, dist, market_fit.book_weights(db, "nfl"))
+    w = market_fit.ladder_weight(market_weight, market_fit.market_weights(db, "nfl"), p, main)
     if books.hide_offshore(db):
         quotes = quotes[~quotes.book.isin(books.OFFSHORE)]
     fetched = max((r.fetched_at for r in alts), default=None)
     return LadderOut(kind=kind, mu=p.mu, sd=p.sd, game_id=p.game_id, alt_fetched_at=fetched.isoformat() if fetched else None,
+                     curve=curve, w=w if curve else None,
                      # thin-history projections aren't priced (model.THIN_GAMES), so they get no ladder
-                     quotes=[] if p.thin else build_ladder(p.mu, p.sd, quotes, odds_range, kind, _dists(db.get(Run, p.run_id)).get(kind)))
+                     quotes=[] if p.thin else build_ladder(p.mu, p.sd, quotes, odds_range, kind, dist, curve, w))
 
 
 @app.post("/api/players/{player_id}/alt-lines", response_model=AltFetchResult)

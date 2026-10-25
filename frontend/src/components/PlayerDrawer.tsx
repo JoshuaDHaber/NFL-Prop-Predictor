@@ -5,10 +5,11 @@ import { api, type Kind } from "../api";
 import { DOUBLE_NEED, isDouble, isYesNo, KIND_LABEL, KIND_SHORT, effText, fmtProj, fmtSd, isCount, isNba, matchup, unit, volLabel, weatherText, wxEffect } from "../format";
 import Avatar from "./Avatar";
 import LineLadder, { ODDS_RANGE } from "./LineLadder";
+import LineMovement from "./LineMovement";
 import Sheet from "./Sheet";
 import Skeleton from "./Skeleton";
 
-interface Props { playerId: string; initialKind: Kind; marketWeight: number; book: string; onBookChange: (b: string) => void; onClose: () => void }
+interface Props { playerId: string; initialKind: Kind; marketWeight: number | null; book: string; onBookChange: (b: string) => void; onClose: () => void }
 
 export default function PlayerDrawer({ playerId, initialKind, marketWeight, book, onBookChange, onClose }: Props) {
   const { data, isLoading, error } = useQuery({
@@ -30,7 +31,7 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
 
   const logs = data?.logs[kind] ?? [];
   // main-line markers on the chart come from the same ladder the table shows, so they follow the sportsbook filter
-  const ladder = useQuery({ queryKey: ["ladder", playerId, kind, ODDS_RANGE], queryFn: () => api.lines(playerId, kind, ODDS_RANGE) });
+  const ladder = useQuery({ queryKey: ["ladder", playerId, kind, ODDS_RANGE, marketWeight], queryFn: () => api.lines(playerId, kind, ODDS_RANGE, marketWeight) });
   const isTd = isYesNo(kind);
   const lines = isTd ? [] : [...new Set((ladder.data?.quotes ?? []).filter((q) => !q.alt && (book === "all" || q.book === book)).map((q) => q.line))];
 
@@ -111,8 +112,11 @@ export default function PlayerDrawer({ playerId, initialKind, marketWeight, book
                 so this projection is a rough guess. It isn't priced against sportsbook lines and stays out of Best props and parlays.
               </p>
             ) : (
-              <LineLadder kind={kind} mu={proj.mu} book={book} onBookChange={onBookChange} ctx={{ playerId: data.player_id, name: data.name, team: data.team,
-                opp: proj.opp, home: proj.home, gameId: proj.game_id }} />
+              <>
+                <LineMovement playerId={data.player_id} kind={kind} />
+                <LineLadder kind={kind} mu={proj.mu} book={book} onBookChange={onBookChange} marketWeight={marketWeight} ctx={{ playerId: data.player_id, name: data.name, team: data.team,
+                  opp: proj.opp, home: proj.home, gameId: proj.game_id }} />
+              </>
             )}
           </>
         )}

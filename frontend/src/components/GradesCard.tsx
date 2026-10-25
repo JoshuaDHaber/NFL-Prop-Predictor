@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { api, type GradeLine } from "../api";
-import { marketLabel, signedPct } from "../format";
+import { api, type ClvLine, type GradeLine, type MarketFit, type WeightCell } from "../api";
+import { marketLabel, pct, signedPct, signedPts } from "../format";
+import Info from "./Info";
 
 const units = (u: number) => `${u >= 0 ? "+" : "−"}${Math.abs(u).toFixed(2)}`;
 
@@ -16,6 +17,72 @@ function Rows({ lines, label }: { lines: GradeLine[]; label: (l: GradeLine) => s
           <td>{l.roi == null ? "–" : signedPct(l.roi)}</td>
         </tr>
       ))}
+    </>
+  );
+}
+
+function ClvRows({ lines, label }: { lines: ClvLine[]; label: (l: ClvLine) => string }) {
+  return (
+    <>
+      {lines.filter((l) => l.n > 0).map((l) => (
+        <tr key={l.label}>
+          <td>{label(l)}</td><td>{l.n}</td>
+          <td className={(l.beat ?? 0) > 0.5 ? "good" : ""}>{l.beat == null ? "–" : pct(l.beat, 0)}</td>
+          <td className={(l.ev_close ?? 0) > 0 ? "good" : ""}>{l.ev_close == null ? "–" : signedPct(l.ev_close)}</td>
+          <td>{l.move == null ? "–" : signedPts(l.move)}</td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
+/** The fitted weights the board prices with: how much each market leans on the books (by time to kickoff), and which books
+ *  count most in the market's consensus. */
+function MarketFitCard({ fit }: { fit: MarketFit }) {
+  const ll = (v: number | null) => (v == null ? "–" : v.toFixed(3));
+  return (
+    <>
+      <h3>How much to trust the market <Info term="fitted" /></h3>
+      {fit.n === 0 ? (
+        <p className="mut">
+          No graded picks to fit yet, so every market uses the default blend (35% market, more where the model is weak). Once games are graded,
+          each market's weight is the blend of model and market that would have scored best on them, by how long before kickoff the price was posted.
+        </p>
+      ) : (
+        <>
+          <p>
+            Fitted on {fit.n.toLocaleString()} graded picks: the blend of model and market whose chances scored best (log loss, lower is better),
+            pulled toward the overall weight where a market has few picks. Prices posted on game day lean on the market more when it's sharper then.
+          </p>
+          <div className="scroll"><table className="calib" aria-label="Market weights">
+            <thead><tr><th>Market</th><th>Picks</th><th>Market weight</th><th>Game day</th><th>6–48 h</th><th>48 h+</th><th>Log loss: model · market · blend</th></tr></thead>
+            <tbody>
+              {fit.kinds.map((k) => {
+                const b = Object.fromEntries((fit.buckets[k.label] ?? []).map((c) => [c.label, c]));
+                const used = (c: WeightCell) => Math.max(c.w, c.floor ?? 0);
+                const cell = (label: string) => <td className="mut">{b[label] ? `${pct(used(b[label]), 0)}${b[label].n ? ` (${b[label].n})` : ""}` : "–"}</td>;
+                return (
+                  <tr key={k.label}>
+                    <td>{marketLabel(k.label)}</td><td>{k.n}</td>
+                    <td><b>{pct(used(k), 0)}</b>{k.floor != null && k.w < k.floor && <span className="mut" title={`The fit says ${pct(k.w, 0)}, but this market never leans on the books less than ${pct(k.floor, 0)}`}> floor</span>}</td>
+                    {cell("game day")}{cell("6–48 h")}{cell("48 h+")}
+                    <td>{ll(k.ll_model)} · <span className={(k.ll_market ?? 9) < (k.ll_model ?? 9) ? "good" : ""}>{ll(k.ll_market)}</span> · {ll(k.ll_blend)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table></div>
+        </>
+      )}
+      <h3>Book weights</h3>
+      <p>
+        The market's chance averages every book's no-vig price (margin stripped with the power method, which takes more from longshots), weighted
+        by how close each book's prices 6+ hours out came to where the others closed. Books owned by one company share one weight.
+      </p>
+      <p className="book-weights">
+        {fit.books.map((b) => <span key={b.book} className="chip" title={b.n ? `Fitted on ${b.n} early quotes` : "Prior (no history scored yet)"}>{b.book} <b>{b.w.toFixed(2)}</b>{!b.n && <span className="mut">*</span>}</span>)}
+      </p>
+      {fit.books.some((b) => !b.n) && <p className="mut">* not enough history yet: the starting weight.</p>}
     </>
   );
 }
@@ -58,12 +125,29 @@ export default function GradesCard({ nba = false }: { nba?: boolean }) {
               {g.by_week.length > 1 && <Rows lines={g.by_week} label={(l) => l.label} />}
             </tbody>
           </table>
+          {(g.clv ?? []).some((c) => c.n > 0) && (
+            <>
+              <h3>Against the closing line <Info term="clv" /></h3>
+              <p>
+                The books' fair chance of each pick at the last odds fetch before {nba ? "tip-off" : "kickoff"}, at the pick's line. Beat close: the price
+                was better than the close says it was worth. Market move: how far the books' own chance moved toward the pick after it was priced.
+                Picks as first shown are the honest test; the last price before {nba ? "tip-off" : "kickoff"} is often the close itself.
+              </p>
+              <div className="scroll"><table className="calib" aria-label="Closing line value">
+                <thead><tr><th>Picks</th><th>With a close</th><th>Beat close</th><th>EV at close</th><th>Market move</th></tr></thead>
+                <tbody>
+                  <ClvRows lines={g.clv ?? []} label={(l) => l.label} />
+                  <ClvRows lines={g.clv_by_market ?? []} label={(l) => marketLabel(l.label)} />
+                </tbody>
+              </table></div>
+            </>
+          )}
           {g.model_vs_line.length > 0 && (
             <>
               <h3>Model vs the line</h3>
               <p>
                 Average miss of the projection and of the posted line against the result, every logged player and market. Where the line is closer,
-                the model should lean on the market more (the "trust the market" slider).
+                the model should lean on the market more (the fitted weights below).
               </p>
               <table className="calib" aria-label="Model vs line">
                 <thead><tr><th>Market</th><th>Players</th><th>Model MAE</th><th>Line MAE</th><th>Model closer</th></tr></thead>
@@ -82,6 +166,7 @@ export default function GradesCard({ nba = false }: { nba?: boolean }) {
           )}
         </>
       )}
+      {g.market_fit && <MarketFitCard fit={g.market_fit} />}
     </div>
   );
 }

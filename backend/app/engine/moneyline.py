@@ -13,6 +13,7 @@ import pandas as pd
 from scipy.stats import norm
 
 from . import odds
+from .market import book_weight, power_devig
 from .picks import book_set
 
 HALFLIFE = 10.0          # weeks
@@ -67,9 +68,8 @@ def win_prob(m: float, sigma: float) -> float:
 
 
 def no_vig(price, other):
-    """This side's market chance with the margin stripped (two-way market)."""
-    p, q = odds.implied(price), odds.implied(other)
-    return p / (p + q)
+    """This side's market chance with the margin stripped (two-way market, power method: market.power_devig)."""
+    return power_devig(odds.implied(price), odds.implied(other))
 
 
 def walk_forward(sched: pd.DataFrame, season: int, week: int) -> pd.DataFrame:
@@ -140,9 +140,9 @@ def _none(v):
 
 
 def price(games: dict, lines: pd.DataFrame, market_weight: float = 0.35, only_book: str = None, names: dict = None,
-          min_market_weight: float = ML_MIN_MARKET_WEIGHT) -> list[dict]:
+          min_market_weight: float = ML_MIN_MARKET_WEIGHT, book_weights: dict = None) -> list[dict]:
     """Both sides of every game: model, market and blended win chance, and the best price (at only_book, if given).
-    The market's chance is the no-vig consensus across every book, as on the props board. names maps team
+    The market's chance is the no-vig consensus across every book, sharp books weighted up, as on the props board. names maps team
     abbreviations to the Odds API's team names (the NFL's by default)."""
     names = names or odds.TEAM_NAMES
     abbr = {v: k for k, v in names.items()}
@@ -156,7 +156,8 @@ def price(games: dict, lines: pd.DataFrame, market_weight: float = 0.35, only_bo
             p_model = g["p_home"] if home else 1 - g["p_home"]
             q = gl[gl.player.map(abbr) == team] if not gl.empty else gl
             both = q[q.over_odds.notna() & q.under_odds.notna()] if not q.empty else q
-            p_mkt = float(no_vig(both.over_odds, both.under_odds).mean()) if not both.empty else None
+            p_mkt = (float(np.average(no_vig(both.over_odds, both.under_odds), weights=[book_weight(b, book_weights) for b in both.book]))
+                     if not both.empty else None)
             prob = p_model if p_mkt is None else (1 - w) * p_model + w * p_mkt
             side = dict(team=team, name=names.get(team, team), home=home, p_model=p_model, p_mkt=p_mkt, prob=prob,
                         books=int(q.book.nunique()) if not q.empty else 0,
