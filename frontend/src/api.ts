@@ -57,7 +57,10 @@ export interface WeatherFit {
   wind_from: number; cold_from: number;
   by_kind: Record<string, { n: number; bias_before: number; bias_after: number; mae_before: number; mae_after: number }>;
 }
-export interface Game { game_id: string; label: string; gameday: string; gametime: string; weather?: GameWeather | null }
+/** A team's record this season: "5-2", or "5-2-1" with ties. */
+export interface TeamRecord { overall: string; home?: string | null; road?: string | null }
+/** records: both teams' records by team, empty before they've played. */
+export interface Game { game_id: string; label: string; gameday: string; gametime: string; weather?: GameWeather | null; records?: Record<string, TeamRecord> }
 export interface JobStatus {
   state: "idle" | "running" | "done" | "error";
   started_at: string | null; finished_at: string | null; log: string[]; error: string | null;

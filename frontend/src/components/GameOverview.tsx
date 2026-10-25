@@ -90,7 +90,7 @@ export default function GameOverview({ game, books, book, onBook, marketWeight, 
 
       <div className="go-top">
         <GameWeather game={game} fit={fit} />
-        {ml ? <MoneylineCard g={ml} /> : moneylines.isLoading ? null : <div className="card empty">No win chances for this game yet.</div>}
+        {ml ? <MoneylineCard g={ml} records={game.records} /> : moneylines.isLoading ? null : <div className="card empty">No win chances for this game yet.</div>}
       </div>
 
       <section id="go-props" className="go-sec">
