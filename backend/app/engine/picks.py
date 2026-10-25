@@ -2,6 +2,7 @@
 import numpy as np
 import pandas as pd
 
+from . import market as mkt
 from . import odds
 from .model import prob_over_under, prob_over_under_dist
 from .td import (DD_ASSUMED_HOLD, FTD_ASSUMED_HOLD, MIN_MARKET_WEIGHT, TD_ASSUMED_HOLD, TD_MIN_MARKET_WEIGHT,  # noqa: F401
@@ -15,7 +16,7 @@ HOLD = {"td": TD_ASSUMED_HOLD, "ftd": FTD_ASSUMED_HOLD, "dd": DD_ASSUMED_HOLD, "
 PICK_COLUMNS = [
     "player_id", "name", "pos", "team", "opp", "home", "kind", "mu", "sd", "status", "game_id", "gameday", "gametime",
     "side", "line", "odds", "book", "p_model", "p_mkt", "prob", "ev", "kelly", "books", "edge_yds", "flagged", "wx",
-    "flag", "teammate_out",
+    "flag", "teammate_out", "hours", "w",
 ]
 # a quote this far from the consensus line (or 30% of it) is an alternate or stale line; receptions are counted in catches,
 # passing TDs in touchdowns (lines step 0.5 / 1.5 / 2.5, so a whole TD off the consensus is another line)
@@ -29,8 +30,25 @@ def book_set(only_book: str = None):
     return {b.strip() for b in only_book.split(",") if b.strip()} if only_book else None
 
 
+def stale_gap(market: str, consensus_line: float) -> float:
+    """How far a quote may sit from the consensus line before it counts as an alternate or a stale line."""
+    return max(STALE_MIN_GAP.get(market, 8.0), 0.3 * consensus_line)
+
+
+def hours_before(lines: pd.DataFrame, proj: pd.DataFrame) -> pd.Series:
+    """Hours from each quote's fetch to its game's kickoff (NaN when either is unknown), from proj's gameday and gametime
+    (Eastern) and lines' fetched_at (UTC)."""
+    if "fetched_at" not in lines or "game_id" not in lines or proj.empty:
+        return pd.Series(np.nan, index=lines.index)
+    games = proj.drop_duplicates("game_id").set_index("game_id")
+    ko = pd.to_datetime(games.gameday.astype(str) + " " + games.gametime.fillna("").astype(str).replace("", "00:00"),
+                        errors="coerce").dt.tz_localize("America/New_York", ambiguous="NaT", nonexistent="NaT")
+    ko = ko.dt.tz_convert("UTC").dt.tz_localize(None)
+    return (lines.game_id.map(ko) - pd.to_datetime(lines.fetched_at)).dt.total_seconds() / 3600
+
+
 def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 0.35, only_book: str = None,
-                dists: dict = None, best_only: bool = True) -> pd.DataFrame:
+                dists: dict = None, best_only: bool = True, book_weights: dict = None, fitted: dict = None) -> pd.DataFrame:
     """All priced Over/Under candidates. flagged (hidden by default) = model and market disagree by >40-67%, usually a
     model blind spot; `flag` names the reason ("large gap"). teammate_out is context only: a same-position rotation
     receiver in his first game out (redistribute.teammates_out). It isn't a flag: those receivers average a few yards
@@ -40,7 +58,11 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
     bettor's state); the market consensus still uses every book.
     dists: per-kind error tables from the backtest (model.fit_dist); without one, the older gamma curve is used., best book per player/market/side, sorted by EV (no EV filter).
     best_only=False keeps every book's quote (still sorted by EV); best_picks() then narrows it to the best one, so one
-    pricing can serve every book filter."""
+    pricing can serve every book filter.
+    The market's chance is the power-devigged consensus of every book at its median line, each book weighted by
+    book_weights (market.fit_book_weights; market.BOOK_PRIOR without) and moved to that line along the model's slope.
+    market_weight=None uses the fitted weight for each market and for how long before kickoff the price was fetched
+    (`fitted`, market.fit_market_weights); the market floors (MIN_MARKET_WEIGHT) apply either way."""
     if proj.empty or lines.empty:
         return pd.DataFrame(columns=PICK_COLUMNS)
     lines = lines.copy()
@@ -57,13 +79,7 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
             return pd.DataFrame(columns=PICK_COLUMNS)
     pm = {(r.key, r.kind): r for r in proj.itertuples()}
 
-    # market no-vig consensus per player/market
-    lines["nv_o"] = odds.implied(lines.over_odds) / (odds.implied(lines.over_odds) + odds.implied(lines.under_odds))
-    for kind, hold in HOLD.items():
-        yes_only = (lines.market == kind) & lines.under_odds.isna()
-        lines.loc[yes_only, "nv_o"] = odds.implied(lines.loc[yes_only, "over_odds"]) / (1 + hold)
-    cons = lines.groupby(["key", "market"]).agg(line=("line", "median"), nv_o=("nv_o", "mean"), books=("book", "nunique"))
-
+    lines = lines.assign(hours=hours_before(lines, proj).to_numpy())
     keep = book_set(only_book)
     out = []
     chances = {}   # (player, market, line) -> (p_over, p_under): most books post the same lines
@@ -75,13 +91,21 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
                           else prob_over_under(p.mu, line, p.sd ** 2))
         return chances[k]
 
+    def p_over(key, market, line):
+        p = pm.get((key, market))
+        return None if p is None else chance(p, market, line)[0]
+
+    # market consensus per player/market: power devig, sharp books weighted up, every quote moved to the median line
+    cons = mkt.consensus(lines, p_over, book_weights, HOLD, stale_gap)
 
     for r in lines.itertuples():
         p = pm.get((r.key, r.market))
         if p is None or pd.isna(r.line):
             continue
+        if (r.key, r.market) not in cons.index:
+            continue
         c = cons.loc[(r.key, r.market)]
-        if abs(r.line - c.line) > max(STALE_MIN_GAP.get(r.market, 8.0), 0.3 * c.line):
+        if abs(r.line - c.line) > stale_gap(r.market, c.line):
             continue  # alternate / stale line far from the market consensus
         if keep and r.book not in keep:
             continue
@@ -101,7 +125,9 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
             if pd.isna(odd):
                 continue
             mk = p_side if pd.isna(mk) else mk  # only one side posted: no market view to blend
-            w = max(market_weight, MIN_MARKET_WEIGHT.get(r.market, 0.0))
+            hours = None if pd.isna(r.hours) else float(r.hours)
+            base = mkt.weight_for(fitted, r.market, hours) if market_weight is None else market_weight
+            w = max(base, MIN_MARKET_WEIGHT.get(r.market, 0.0))
             prob = (1 - w) * p_side + w * mk
             dec = float(odds.american_to_dec(odd))
             ev = prob * (dec - 1) - (1 - prob)
@@ -119,7 +145,7 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
                 mu=p.mu, sd=p.sd, status=p.status, game_id=p.game_id, gameday=p.gameday, gametime=p.gametime,
                 side=side, line=float(r.line), odds=int(odd), book=r.book, p_model=p_side, p_mkt=mk, prob=prob, ev=ev,
                 kelly=max(0.0, ev / (dec - 1)) / 4, books=int(c.books),
-                edge_yds=edge, flagged=bool(flag), wx=wx, flag=flag, teammate_out=out_))
+                edge_yds=edge, flagged=bool(flag), wx=wx, flag=flag, teammate_out=out_, hours=hours, w=w))
     df = pd.DataFrame(out, columns=PICK_COLUMNS)
     if df.empty:
         return df

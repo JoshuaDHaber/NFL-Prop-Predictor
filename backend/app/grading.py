@@ -5,19 +5,21 @@ model beats the market or how much to trust it. This log can: each NFL sync snap
 still to kick off (the last snapshot before a game is the one graded), and each model run grades finished games from
 nflverse's weekly stats, which it has just loaded anyway.
 """
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Callable, Optional
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 from sqlalchemy import select
 
+from . import market_fit
 from .db import PickLog, Run, current_lines, proj_frame
+from .engine import odds as odds_math
 from .engine.picks import build_picks
 from .engine.td import YES_NO
 
 ET = ZoneInfo("America/New_York")
-MARKET_WEIGHT = 0.35   # the board's default "trust the market" setting
+MARKET_WEIGHT = None   # the board's default "trust the market" setting: the fitted weights (market_fit)
 BOARD_MIN_EV = 0.03    # the board's default Min EV: what a visitor sees without touching the sliders
 # market -> stats column (rr and td are sums, below)
 STAT = {"rush": "rushing_yards", "rec": "receiving_yards", "pass": "passing_yards", "recs": "receptions",
@@ -29,12 +31,26 @@ def dists(run: Run) -> dict:
     return {k: v for k, v in (run.variance or {}).items() if isinstance(v, dict) and not k.startswith("_")}
 
 
-def _kickoff_utc(gameday: str, gametime: str) -> Optional[datetime]:
-    try:
-        local = datetime.fromisoformat(f"{gameday}T{gametime or '00:00'}").replace(tzinfo=ET)
-    except ValueError:
-        return None
-    return local.astimezone(timezone.utc).replace(tzinfo=None)
+_kickoff_utc = market_fit.kickoff_utc
+
+
+def board_prices(session, sport: str, proj: pd.DataFrame, lines: pd.DataFrame, dists_: dict) -> pd.DataFrame:
+    """The board as a visitor sees it by default: fitted market weights and book weights."""
+    return build_picks(proj, lines, MARKET_WEIGHT, dists=dists_, book_weights=market_fit.book_weights(session, sport),
+                       fitted=market_fit.market_weights(session, sport))
+
+
+def log_row(row, p, now: datetime) -> None:
+    """Copy one priced pick onto its pick_log row; the first time it's on the board (EV 3%+, no flag) is kept too."""
+    row.gameday, row.gametime, row.name, row.pos, row.team = str(p.gameday), str(p.gametime), p.name, p.pos, p.team
+    row.line, row.odds, row.book = float(p.line), int(p.odds), p.book
+    row.mu, row.prob, row.p_model, row.p_mkt, row.ev = (float(x) for x in (p.mu, p.prob, p.p_model, p.p_mkt, p.ev))
+    hours = getattr(p, "hours", None)
+    row.hours = None if hours is None or pd.isna(hours) else float(hours)
+    row.flagged, row.snapped_at = bool(p.flagged), now
+    if row.first_at is None and p.ev >= BOARD_MIN_EV and not p.flagged:
+        row.first_at, row.first_line, row.first_odds, row.first_book = now, float(p.line), int(p.odds), p.book
+        row.first_ev, row.first_p_mkt = float(p.ev), float(p.p_mkt)
 
 
 def snapshot_board(session, now: datetime = None) -> int:
@@ -44,7 +60,7 @@ def snapshot_board(session, now: datetime = None) -> int:
     run = session.scalars(select(Run).order_by(Run.id.desc()).limit(1)).first()
     if not run:
         return 0
-    picks = build_picks(proj_frame(session, run.id), current_lines(session), MARKET_WEIGHT, dists=dists(run))
+    picks = board_prices(session, "nfl", proj_frame(session, run.id), current_lines(session), dists(run))
     if picks.empty:
         return 0
     ko = [_kickoff_utc(str(d), str(t)) for d, t in zip(picks.gameday, picks.gametime)]
@@ -58,11 +74,9 @@ def snapshot_board(session, now: datetime = None) -> int:
         if row is None:
             row = PickLog(game_id=p.game_id, player_id=p.player_id, kind=p.kind, side=p.side)
             session.add(row)
-        row.season, row.week = run.season, run.week
-        row.gameday, row.gametime, row.name, row.pos, row.team = str(p.gameday), str(p.gametime), p.name, p.pos, p.team
-        row.line, row.odds, row.book = float(p.line), int(p.odds), p.book
-        row.mu, row.prob, row.p_model, row.p_mkt, row.ev = (float(x) for x in (p.mu, p.prob, p.p_model, p.p_mkt, p.ev))
-        row.flagged, row.run_id, row.snapped_at = bool(p.flagged), run.id, now
+        row.season, row.week, row.run_id = run.season, run.week, run.id
+        log_row(row, p, now)
+    market_fit.log_snaps(session, "nfl", picks, now)
     session.commit()
     return len(picks)
 
@@ -121,6 +135,7 @@ def grade_logged(session, stats: pd.DataFrame, sched: pd.DataFrame, log: Callabl
     except Exception as e:   # noqa: BLE001
         session.rollback()
         log(f"  couldn't grade logged picks ({type(e).__name__}: {e})")
+    market_fit.refit_logged(session, "nfl", log)
 
 
 # ---------- the report ----------
@@ -136,6 +151,25 @@ def _line(label: str, rows: list) -> dict:
     return dict(label=label, n=len(rows), wins=w, losses=l, pushes=res.count("push"), voids=res.count("void"),
                 units=round(units, 2), roi=round(units / len(decided), 4) if decided else None,
                 expected_wins=round(sum(r.prob for r in decided), 1))
+
+
+def _clv(label: str, rows: list, first: bool = False) -> dict:
+    """Closing-line value: how the market's fair chance at the close compares with the price taken. beat = share whose
+    price beat the close (fair chance above the price's implied chance); ev_close = EV measured at the close's fair
+    chance; move = how far the market's own fair chance moved toward the pick from when it was priced to the close.
+    first=True reads the price as first shown on the board instead of the last one before kickoff."""
+    got = []
+    for r in rows:
+        cp = r.close_p_first if first else r.close_p
+        o = r.first_odds if first else r.odds
+        pm = r.first_p_mkt if first else r.p_mkt
+        if cp is not None and o is not None and r.close_books:
+            got.append((cp, float(odds_math.american_to_dec(o)), pm))
+    if not got:
+        return dict(label=label, n=0, beat=None, ev_close=None, move=None)
+    return dict(label=label, n=len(got), beat=round(sum(cp * d > 1 for cp, d, _ in got) / len(got), 3),
+                ev_close=round(sum(cp * d - 1 for cp, d, _ in got) / len(got), 4),
+                move=round(sum(cp - pm for cp, _, pm in got if pm is not None) / max(1, sum(pm is not None for *_, pm in got)), 4))
 
 
 def _one_per_player(rows: list) -> list:
@@ -176,8 +210,14 @@ def report(session, season: Optional[int] = None, table=PickLog, period: Callabl
         checks.append(dict(kind=k, n=len(v), mae_model=round(sum(abs(r.mu - r.actual) for r in v) / len(v), 2),
                            mae_line=round(sum(abs(r.line - r.actual) for r in v) / len(v), 2),
                            model_closer=round(sum(abs(r.mu - r.actual) < abs(r.line - r.actual) for r in v) / len(v), 3)))
+    shown = [r for r in rows if r.first_at is not None]
+    clv = [_clv("As first shown on the board", shown, first=True),
+           _clv("One pick per player, as first shown", _one_per_player(shown), first=True),
+           _clv("Board, last price before kickoff", board),
+           _clv("Every logged price", rows)]
+    clv_by_market = [_clv(k, [r for r in shown if r.kind == k], first=True) for k in sorted({r.kind for r in shown})]
     return dict(
-        season=season, graded=len(rows), pending=pending,
+        season=season, graded=len(rows), pending=pending, clv=clv, clv_by_market=clv_by_market,
         weeks=sorted({r.week for r in rows}) if table is PickLog else [],
         board=[_line("Board (Min EV 3%, flags hidden)", board),
                _line("One pick per player", _one_per_player(board)),

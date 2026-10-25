@@ -474,3 +474,23 @@ def test_hidden_offshore_books_leave_every_list_and_price(client, monkeypatch):
         with SessionLocal() as s:
             s.delete(s.merge(bov))
             s.commit()
+
+
+def test_picks_default_to_fitted_weights_and_carry_movement_fields(client):
+    p = client.get("/api/picks", params={"min_ev": -1}).json()[0]
+    assert p["w"] == pytest.approx(0.35)          # no fit stored yet: the default weight
+    assert p["open_line"] is None and p["move"] is None and p["steam"] == 0   # no line history yet
+    assert client.get("/api/picks", params={"min_ev": -1, "market_weight": 0.8}).json()[0]["w"] == pytest.approx(0.8)
+
+
+def test_history_and_ladder_curve_endpoints(client):
+    assert client.get("/api/players/p0/history", params={"kind": "rush"}).json() == []
+    lad = client.get("/api/players/p0/lines", params={"kind": "rush"}).json()
+    assert "curve" in lad and "w" in lad
+    assert client.get("/api/players/nobody/history", params={"kind": "rush"}).status_code == 404
+
+
+def test_grades_carry_clv_and_the_market_fit(client):
+    g = client.get("/api/grades").json()
+    assert g["clv"][0]["n"] == 0 and g["market_fit"]["n"] == 0
+    assert [b["book"] for b in g["market_fit"]["books"]] == ["X"]   # the books on the current lines

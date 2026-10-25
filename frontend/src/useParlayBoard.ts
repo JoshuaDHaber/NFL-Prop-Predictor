@@ -5,7 +5,7 @@ import { getLeague } from "./league";
 import { buildBalancedLadders, buildLadderParlays, buildTdParlays, buildThreesLadders, defaultBook, filterGames, ladderProps, ladderTargets, LADDER_PLAYERS_PER_TEAM, parlaysByBook, THREES_PLAYERS } from "./parlays";
 
 // Parlays rank by win probability, not EV, so they price every play (any EV) at the default market weight
-export const PARLAY_FILTERS: Filters = { kind: "all", side: "all", game: "all", book: "all", q: "", minEv: -1, marketWeight: 0.35, flagged: false };
+export const PARLAY_FILTERS: Filters = { kind: "all", side: "all", game: "all", book: "all", q: "", minEv: -1, marketWeight: null, flagged: false };
 
 /**
  * Every parlay tile for the chosen games (none = every game) at one sportsbook: likely plays, touchdowns, ladders and single alternate props.

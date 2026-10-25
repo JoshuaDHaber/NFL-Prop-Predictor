@@ -250,6 +250,21 @@ class PickLog(Base):
     actual: Mapped[float] = mapped_column(Float, nullable=True)
     result: Mapped[str] = mapped_column(String(5), nullable=True)   # win | loss | push | void (didn't play); None until graded
     graded_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    hours: Mapped[float] = mapped_column(Float, nullable=True)      # hours from the price's fetch to kickoff
+    # the price as first shown on the board (EV 3%+, no flag): what a visitor could have bet earliest
+    first_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    first_line: Mapped[float] = mapped_column(Float, nullable=True)
+    first_odds: Mapped[int] = mapped_column(Integer, nullable=True)
+    first_book: Mapped[str] = mapped_column(String(40), nullable=True)
+    first_ev: Mapped[float] = mapped_column(Float, nullable=True)
+    first_p_mkt: Mapped[float] = mapped_column(Float, nullable=True)
+    # the close (app/market_fit.py): the market's fair chance of this side at the last fetch before kickoff, at this
+    # row's line and at first_line; close_books 0 = no closing quotes for this player and market
+    close_p: Mapped[float] = mapped_column(Float, nullable=True)
+    close_p_first: Mapped[float] = mapped_column(Float, nullable=True)
+    close_line: Mapped[float] = mapped_column(Float, nullable=True)
+    close_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    close_books: Mapped[int] = mapped_column(Integer, nullable=True)
 
 
 Index("ix_pick_log_key", PickLog.game_id, PickLog.player_id, PickLog.kind, PickLog.side, unique=True)
@@ -284,9 +299,50 @@ class NbaPickLog(Base):
     actual: Mapped[float] = mapped_column(Float, nullable=True)
     result: Mapped[str] = mapped_column(String(5), nullable=True)   # win | loss | push | void (didn't play); None until graded
     graded_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    hours: Mapped[float] = mapped_column(Float, nullable=True)      # hours from the price's fetch to kickoff
+    # the price as first shown on the board (EV 3%+, no flag): what a visitor could have bet earliest
+    first_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    first_line: Mapped[float] = mapped_column(Float, nullable=True)
+    first_odds: Mapped[int] = mapped_column(Integer, nullable=True)
+    first_book: Mapped[str] = mapped_column(String(40), nullable=True)
+    first_ev: Mapped[float] = mapped_column(Float, nullable=True)
+    first_p_mkt: Mapped[float] = mapped_column(Float, nullable=True)
+    # the close (app/market_fit.py): the market's fair chance of this side at the last fetch before kickoff, at this
+    # row's line and at first_line; close_books 0 = no closing quotes for this player and market
+    close_p: Mapped[float] = mapped_column(Float, nullable=True)
+    close_p_first: Mapped[float] = mapped_column(Float, nullable=True)
+    close_line: Mapped[float] = mapped_column(Float, nullable=True)
+    close_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    close_books: Mapped[int] = mapped_column(Integer, nullable=True)
 
 
 Index("ix_nba_pick_log_key", NbaPickLog.game_id, NbaPickLog.player_id, NbaPickLog.kind, NbaPickLog.side, unique=True)
+
+
+class PickSnap(Base):
+    """Every price the board showed, one row per sync and player/market/side, appended (a row is skipped when nothing
+    changed since that key's last one). pick_log keeps only the last price before kickoff; this keeps the earlier ones
+    with their model and market chances, so how much to trust the market can be fitted by how long before kickoff the
+    price was posted (app/market_fit.py). NFL and NBA share it (sport); their game ids can't collide."""
+    __tablename__ = "pick_snaps"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sport: Mapped[str] = mapped_column(String(4))
+    snapped_at: Mapped[datetime] = mapped_column(DateTime)
+    game_id: Mapped[str] = mapped_column(String(32))
+    player_id: Mapped[str] = mapped_column(String(20))
+    kind: Mapped[str] = mapped_column(String(6))
+    side: Mapped[str] = mapped_column(String(5))
+    line: Mapped[float] = mapped_column(Float)
+    odds: Mapped[int] = mapped_column(Integer)
+    book: Mapped[str] = mapped_column(String(40))
+    mu: Mapped[float] = mapped_column(Float)
+    p_model: Mapped[float] = mapped_column(Float)
+    p_mkt: Mapped[float] = mapped_column(Float)
+    ev: Mapped[float] = mapped_column(Float)
+    hours: Mapped[float] = mapped_column(Float, nullable=True)
+    flagged: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    __table_args__ = (Index("ix_pick_snaps_key", "game_id", "player_id", "kind", "side"),)
 
 
 def backfill_game_ids(eng) -> int:
@@ -314,6 +370,11 @@ def backfill_game_ids(eng) -> int:
         return done
 
 
+PICK_LOG_ADDED = (("hours", "FLOAT"), ("first_at", "TIMESTAMP"), ("first_line", "FLOAT"), ("first_odds", "INTEGER"),
+                  ("first_book", "VARCHAR(40)"), ("first_ev", "FLOAT"), ("first_p_mkt", "FLOAT"), ("close_p", "FLOAT"),
+                  ("close_p_first", "FLOAT"), ("close_line", "FLOAT"), ("close_at", "TIMESTAMP"), ("close_books", "INTEGER"))
+
+
 def ensure_columns(eng) -> bool:
     """create_all never alters existing tables; add the link columns to databases created before they existed.
     Returns True when game_id was just added (so the caller can tag the existing quotes)."""
@@ -328,7 +389,8 @@ def ensure_columns(eng) -> bool:
             conn.execute(text("ALTER TABLE odds_lines ADD COLUMN game_id VARCHAR(24)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_odds_lines_game_id ON odds_lines (game_id)"))
     for table, col, sql_type in (("runs", "weather", "JSON"), ("runs", "teams", "JSON"), ("projections", "wx", "FLOAT"),
-                                 ("projections", "teammate_out", "VARCHAR(160)"), ("projections", "thin", "BOOLEAN")):
+                                 ("projections", "teammate_out", "VARCHAR(160)"), ("projections", "thin", "BOOLEAN"),
+                                 *((t, c, typ) for t in ("pick_log", "nba_pick_log") for c, typ in PICK_LOG_ADDED)):
         if col not in {c["name"] for c in inspect(eng).get_columns(table)}:
             with eng.begin() as conn:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {sql_type}"))
@@ -407,9 +469,9 @@ def current_lines(session, table=None):
     keep = [r for r in rows if r.fetched_at == newest[(r.market, r.game_id)]]
     df = pd.DataFrame([dict(player=r.player, market=r.market, line=r.line, over_odds=r.over_odds,
                             under_odds=r.under_odds, book=r.book, over_link=r.over_link, under_link=r.under_link,
-                            event_link=r.event_link, game_id=r.game_id) for r in keep],
+                            event_link=r.event_link, game_id=r.game_id, fetched_at=r.fetched_at) for r in keep],
                       columns=["player", "market", "line", "over_odds", "under_odds", "book", "over_link",
-                               "under_link", "event_link", "game_id"])
+                               "under_link", "event_link", "game_id", "fetched_at"])
     per_engine[table.__tablename__] = (version, df)
     return df   # shared between requests: callers filter or copy it, never change it in place
 

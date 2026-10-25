@@ -104,6 +104,16 @@ export interface Pick {
   flag?: "" | "large gap";
   /** Same-position rotation receivers in their first game out (receiving yards). Context only, not a flag. */
   teammate_out?: string;
+  /** The market weight it was priced with (the fitted one for its market and fetch time, or the slider's). */
+  w?: number | null;
+  /** Hours from the price's fetch to kickoff. */
+  hours?: number | null;
+  /** The consensus line at the week's first fetch, and how far the market's fair chance of this side has moved since
+   *  (at this line; positive = toward this side). Null with only one fetch. */
+  open_line?: number | null;
+  move?: number | null;
+  /** +1: books moved together toward this side between the last two fetches; -1: against it. */
+  steam?: number;
 }
 /** A player search hit: an active player; projected is false for players on bye, off the NBA slate, or without a projection. */
 export interface PlayerHit { player_id: string; name: string; pos: string; team: string; headshot?: string | null; projected: boolean }
@@ -113,9 +123,15 @@ export interface PlayerDetail {
   projections: Projection[]; picks: Pick[]; logs: Record<string, GameLogEntry[]>;
 }
 
-export interface QuoteSide { odds: number; prob: number; ev: number; link: string | null }
+/** prob blends the model (p_model) with the market curve read off the whole ladder (p_curve); off_curve is the EV against the
+ *  curve alone: positive means the price beats what the books' own ladder implies. */
+export interface QuoteSide { odds: number; prob: number; ev: number; link: string | null; p_model?: number | null; p_curve?: number | null; off_curve?: number | null }
 export interface LadderRow { line: number; book: string; alt: boolean; event_link: string | null; over: QuoteSide | null; under: QuoteSide | null }
-export interface Ladder { kind: Kind; mu: number; sd: number; game_id: string; alt_fetched_at: string | null; quotes: LadderRow[] }
+export interface Ladder { kind: Kind; mu: number; sd: number; game_id: string; alt_fetched_at: string | null; quotes: LadderRow[];
+  /** The market's distribution read off the ladder (location m, spread s, its median) and the weight it gets in each rung's chance. */
+  curve?: { m: number; s: number; median: number; n_lines: number } | null; w?: number | null }
+/** One odds fetch of a player's market: the consensus line, its fair over chance, and the over's fair chance at the current line. */
+export interface HistoryPoint { at: string; line: number; books: number; p_over: number | null; p_now_line: number | null; best_over: number | null; best_under: number | null }
 /** One team's side of a game: win chance from the team model, the market (no-vig) and the blend, and the best moneyline. */
 export interface MoneylineSide {
   team: string; name: string; home: boolean;
@@ -183,12 +199,22 @@ export interface MarketCheck { kind: Kind; n: number; mae_model: number; mae_lin
 /** Same-game correlations (pair key -> latent correlation), for pricing parlays; see parlays.ts and backend engine/correlation.py. */
 export interface Correlations { pairs: Record<string, number>; check: Record<string, { n: number; actual?: number; copula?: number; independent?: number }> }
 
+/** Closing-line value for a slice of the logged board: share that beat the close, EV at the close, and how far the market
+ *  moved toward the picks from when they were priced. */
+export interface ClvLine { label: string; n: number; beat: number | null; ev_close: number | null; move: number | null }
+export interface WeightCell { label: string; n: number; w: number; w_fit: number | null; ll_model: number | null; ll_market: number | null; ll_blend: number | null; floor?: number | null }
+/** The fitted weights the board uses: the market weight overall, per market and per market and time to kickoff, and each book's
+ *  weight in the market consensus. */
+export interface MarketFit { fitted_at: string | null; n: number; w: number | null; kinds: WeightCell[]; buckets: Record<string, WeightCell[]>; books: { book: string; w: number; n: number }[] }
+
 export interface GradeReport {
   season: number | null; graded: number; pending: number; weeks: number[]; dates?: string[];
   board: GradeLine[]; by_market: GradeLine[]; by_ev: GradeLine[]; by_week: GradeLine[]; model_vs_line: MarketCheck[];
+  clv?: ClvLine[]; clv_by_market?: ClvLine[]; market_fit?: MarketFit | null;
 }
 
-export interface Filters { kind: Kind | "all"; side: "all" | "Over" | "Under"; game: string; book: string; q: string; minEv: number; marketWeight: number; flagged: boolean;
+/** marketWeight: how much to trust the market, 0-1, or null for the weights fitted per market and time to kickoff. */
+export interface Filters { kind: Kind | "all"; side: "all" | "Over" | "Under"; game: string; book: string; q: string; minEv: number; marketWeight: number | null; flagged: boolean;
   /** NBA only: one Eastern game date ("YYYY-MM-DD"), or every date when unset. */
   date?: string }
 
@@ -205,7 +231,7 @@ export const api = {
   meta: () => get<Meta>(lg("meta")).then((m) => ({ ...m, books: keepBooks(m.books) })),
   nbaMeta: () => get<NbaMeta>("nba/meta").then((m) => ({ ...m, books: keepBooks(m.books) })),
   picks: (f: Filters, limit = 300) =>
-    get<Pick[]>(lg("picks"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, side: f.side, game_id: f.game, gameday: f.date, book: bookParam(f.book), q: f.q, min_ev: f.minEv, market_weight: f.marketWeight,
+    get<Pick[]>(lg("picks"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, side: f.side, game_id: f.game, gameday: f.date, book: bookParam(f.book), q: f.q, min_ev: f.minEv, market_weight: f.marketWeight ?? undefined,
       include_flagged: f.flagged, limit }),
   projections: (f: Filters) => get<Projection[]>(lg("projections"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, game_id: f.game, gameday: f.date, q: f.q }),
   /** Every market for every projected player, anytime TD included (the player compare tab). */
@@ -215,8 +241,10 @@ export const api = {
   /** The NBA's projections whatever league is on screen, for the same reason. */
   nbaProjections: () => get<Projection[]>("nba/projections"),
   searchPlayers: (q: string) => get<PlayerHit[]>(lg("player-search"), { q }),
-  player: (id: string, marketWeight: number) => get<PlayerDetail>(lg(`players/${id}`), { market_weight: marketWeight }),
-  moneylines: (book: string, marketWeight: number) => get<MoneylineGame[]>(lg("moneylines"), { book: bookParam(book), market_weight: marketWeight }),
+  player: (id: string, marketWeight: number | null) => get<PlayerDetail>(lg(`players/${id}`), { market_weight: marketWeight ?? undefined }),
+  moneylines: (book: string, marketWeight: number | null) => get<MoneylineGame[]>(lg("moneylines"), { book: bookParam(book), market_weight: marketWeight ?? undefined }),
+  /** How a player's market moved through the week (one point per odds fetch). */
+  history: (id: string, kind: Kind) => get<HistoryPoint[]>(`${NBA_KIND_SET.has(kind) ? "nba/" : ""}players/${id}/history`, { kind }),
   injuries: () => get<InjuryReport>(lg("injuries")),
   grades: () => get<GradeReport>("grades"),
   correlations: () => get<Correlations>("correlations"),
@@ -224,7 +252,8 @@ export const api = {
   nbaGrades: () => get<GradeReport>("nba/grades"),
   /** oddsRange hides prices outside -N..+N (American); 0 shows everything. */
   // by the market, not the league on screen: a betslip can hold legs from both
-  lines: (id: string, kind: Kind, oddsRange = 300) => get<Ladder>(`${NBA_KIND_SET.has(kind) ? "nba/" : ""}players/${id}/lines`, { kind, odds_range: oddsRange })
+  lines: (id: string, kind: Kind, oddsRange = 300, marketWeight: number | null = null) =>
+    get<Ladder>(`${NBA_KIND_SET.has(kind) ? "nba/" : ""}players/${id}/lines`, { kind, odds_range: oddsRange, market_weight: marketWeight ?? undefined })
     .then((l) => ({ ...l, quotes: l.quotes.filter((q) => !allowed || allowed.includes(q.book)) })),
   fetchAlt: async (id: string): Promise<AltFetchResult> => {
     const res = await request(`/api/players/${id}/alt-lines`, { method: "POST" });

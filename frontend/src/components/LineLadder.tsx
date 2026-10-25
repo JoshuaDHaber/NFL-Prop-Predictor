@@ -2,9 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api, type Kind, type LadderRow, type QuoteSide } from "../api";
 import { useBetSlip } from "../BetSlipContext";
-import { KIND_LABEL, isDouble, isYesNo, americanOdds, fmtProj, isNba, playLabel, signedPct, timeAgo, unit } from "../format";
+import { KIND_LABEL, isDouble, isYesNo, americanOdds, fmtProj, isNba, pct, playLabel, signedPct, timeAgo, unit } from "../format";
 import { legId, type Leg } from "../slip";
 import { BookName } from "./BookBadge";
+import Info from "./Info";
 import Skeleton from "./Skeleton";
 
 export interface PlayerCtx { playerId: string; name: string; team: string; opp: string; home: boolean; gameId: string }
@@ -21,10 +22,11 @@ const bestOf = (rows: LadderRow[], side: "over" | "under"): Cell | null => {
 };
 
 export const ODDS_RANGE = 300; // prices shown by default: -300 to +300
+const BEATS_LADDER = 0.03;      // a rung priced 3%+ better than the books' own ladder implies is marked
 
-interface LadderProps { ctx: PlayerCtx; kind: Kind; mu: number; book: string; onBookChange: (b: string) => void }
+interface LadderProps { ctx: PlayerCtx; kind: Kind; mu: number; book: string; onBookChange: (b: string) => void; marketWeight?: number | null }
 
-export default function LineLadder({ ctx, kind, mu, book, onBookChange }: LadderProps) {
+export default function LineLadder({ ctx, kind, mu, book, onBookChange, marketWeight = null }: LadderProps) {
   const isTd = isYesNo(kind); // anytime and first TD: one line (0.5), shown as Yes / No
   const qc = useQueryClient();
   const slip = useBetSlip();
@@ -33,7 +35,7 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
   const [onlyEv, setOnlyEv] = useState(false);
   const [limitOdds, setLimitOdds] = useState(true);
   const oddsRange = limitOdds ? ODDS_RANGE : 0;
-  const ladder = useQuery({ queryKey: ["ladder", ctx.playerId, kind, oddsRange], queryFn: () => api.lines(ctx.playerId, kind, oddsRange) });
+  const ladder = useQuery({ queryKey: ["ladder", ctx.playerId, kind, oddsRange, marketWeight], queryFn: () => api.lines(ctx.playerId, kind, oddsRange, marketWeight) });
   const fetchAlt = useMutation({
     mutationFn: () => api.fetchAlt(ctx.playerId),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["ladder", ctx.playerId] }); qc.invalidateQueries({ queryKey: ["picks"] }); },
@@ -72,7 +74,8 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
         <button className={`add ${inSlip ? "on" : ""}`} onClick={() => slip.toggle(toLeg(c))}
           aria-label={`${inSlip ? "Remove" : "Add"} ${playLabel(kind, c.side, c.row.line)} at ${c.row.book}`}>{inSlip ? "✓" : "+"}</button>
         <span className="lc-main"><span className="odds">{americanOdds(c.q.odds)}</span>
-          <span className={c.q.ev > 0 ? "pos" : "mut"}> {signedPct(c.q.ev)}</span><br />
+          <span className={c.q.ev > 0 ? "pos" : "mut"}> {signedPct(c.q.ev)}</span>
+          {(c.q.off_curve ?? 0) >= BEATS_LADDER && <span className="beats" title={`The books' own ladder puts this at ${pct(c.q.p_curve ?? 0)}; at ${americanOdds(c.q.odds)} that's ${signedPct(c.q.off_curve!)} EV before the model has a say.`}>beats ladder</span>}<br />
           <span className="mut"><BookName book={c.row.book} size={14} /></span></span>
       </td>
     );
@@ -102,7 +105,11 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange }: Ladder
           )}
           <div className="mut ladder-note">
             {isDouble(kind) ? `Model chance of a ${KIND_LABEL[kind].toLowerCase()} ${(mu * 100).toFixed(0)}%. Win probability and EV here use the model alone (no market blend).`
-              : isTd ? `Model chance ${kind === "ftd" ? "of the game's first TD" : "of a TD"} ${(mu * 100).toFixed(0)}%. Win probability and EV lean at least 60% on the market's chance, since the model is a weak signal here.` : `Win probability and EV here use the model alone (no market blend). Projection ${fmtProj(kind, mu)} ${unit(kind)}.`}
+              : isTd ? `Model chance ${kind === "ftd" ? "of the game's first TD" : "of a TD"} ${(mu * 100).toFixed(0)}%. Win probability and EV lean at least 60% on the market's chance, since the model is a weak signal here.`
+              : ladder.data.curve && ladder.data.w != null
+                ? <>Win probability and EV blend the model (projection {fmtProj(kind, mu)} {unit(kind)}) with the market curve <Info term="curve" /> read off {ladder.data.curve.n_lines} lines across books
+                  (market median {fmtProj(kind, ladder.data.curve.median)}), {pct(ladder.data.w, 0)} market.</>
+                : `Win probability and EV here use the model alone (no market blend). Projection ${fmtProj(kind, mu)} ${unit(kind)}.`}
             {ladder.data.alt_fetched_at && ` Alternates fetched ${timeAgo(ladder.data.alt_fetched_at)}.`}
           </div>
           <div className="scroll ladder">

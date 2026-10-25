@@ -158,6 +158,11 @@ class PickOut(BaseModel):
     wx: Optional[float] = None
     flag: str = ""             # why it's flagged: "large gap" | "teammate out"
     teammate_out: str = ""     # same-position rotation receivers in their first game out (shown on Overs too)
+    w: Optional[float] = None          # the market weight this pick was priced with (fitted, or the slider's)
+    hours: Optional[float] = None      # hours from the price's fetch to kickoff
+    open_line: Optional[float] = None  # the consensus line at the first fetch of the week
+    move: Optional[float] = None       # market's fair chance of this side since that first fetch (+ = toward it)
+    steam: int = 0                     # +1 books moved together toward this side between the last two fetches, -1 against
 
 
 class GradeLine(BaseModel):
@@ -189,6 +194,42 @@ class Correlations(BaseModel):
     check: dict = {}
 
 
+class ClvLine(BaseModel):
+    """Closing-line value for one slice of the logged board (grading._clv)."""
+    label: str
+    n: int
+    beat: Optional[float] = None       # share whose price beat the close's fair chance
+    ev_close: Optional[float] = None   # average EV measured at the close's fair chance
+    move: Optional[float] = None       # average move of the market's fair chance toward the pick, priced -> close
+
+
+class BookWeight(BaseModel):
+    book: str
+    w: float
+    n: int = 0                         # early quotes the fit scored (0 = the prior alone)
+
+
+class WeightCell(BaseModel):
+    label: str                         # a market, or a market's time bucket
+    n: int
+    w: float
+    w_fit: Optional[float] = None
+    ll_model: Optional[float] = None
+    ll_market: Optional[float] = None
+    ll_blend: Optional[float] = None
+    floor: Optional[float] = None      # pricing never leans on the market less than this (anytime TD, moneyline)
+
+
+class MarketFit(BaseModel):
+    """The fitted book weights and market weights the board uses (app/market_fit.py)."""
+    fitted_at: Optional[str] = None
+    n: int = 0
+    w: Optional[float] = None
+    kinds: list[WeightCell] = []
+    buckets: dict[str, list[WeightCell]] = {}
+    books: list[BookWeight] = []
+
+
 class GradeReport(BaseModel):
     season: Optional[int] = None
     graded: int
@@ -200,6 +241,9 @@ class GradeReport(BaseModel):
     by_ev: list[GradeLine]
     by_week: list[GradeLine]
     model_vs_line: list[MarketCheck]
+    clv: list[ClvLine] = []
+    clv_by_market: list[ClvLine] = []
+    market_fit: Optional[MarketFit] = None
 
 
 class GameLogEntry(BaseModel):
@@ -240,6 +284,9 @@ class QuoteSide(BaseModel):
     prob: float
     ev: float
     link: Optional[str] = None
+    p_model: Optional[float] = None    # the model's chance alone
+    p_curve: Optional[float] = None    # the market curve's fair chance (market.fit_market_curve)
+    off_curve: Optional[float] = None  # EV against the market curve alone: + = priced better than the book's own ladder
 
 
 class LadderRow(BaseModel):
@@ -258,6 +305,18 @@ class LadderOut(BaseModel):
     game_id: str
     alt_fetched_at: Optional[str] = None
     quotes: list[LadderRow]
+    curve: Optional[dict] = None       # the market's distribution read off the ladder: {m, s, median, n_lines}
+    w: Optional[float] = None          # the market weight blended into each rung's chance
+
+
+class HistoryPoint(BaseModel):
+    at: str
+    line: float
+    books: int
+    p_over: Optional[float] = None       # fair chance of the over at that fetch's consensus line
+    p_now_line: Optional[float] = None   # fair chance of the over at the current consensus line
+    best_over: Optional[int] = None
+    best_under: Optional[int] = None
 
 
 class AltFetchResult(BaseModel):

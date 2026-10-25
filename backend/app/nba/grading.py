@@ -12,9 +12,9 @@ from typing import Callable, Optional
 import pandas as pd
 from sqlalchemy import select
 
+from .. import market_fit
 from ..db import NbaOddsLine, NbaPickLog, NbaRun, current_lines
-from ..engine.picks import build_picks
-from ..grading import MARKET_WEIGHT, outcome
+from ..grading import board_prices, log_row, outcome
 from ..grading import report as _report
 from . import espn, model
 
@@ -38,7 +38,7 @@ def snapshot_board(session, now: Optional[datetime] = None) -> int:
     proj = _proj_frame(session, run.id)
     if proj.empty or not live:
         return 0
-    picks = build_picks(proj, current_lines(session, NbaOddsLine), MARKET_WEIGHT, dists=_dists(run))
+    picks = board_prices(session, "nba", proj, current_lines(session, NbaOddsLine), _dists(run))
     if picks.empty:
         return 0
     picks = picks[picks.game_id.isin(live)]
@@ -51,11 +51,9 @@ def snapshot_board(session, now: Optional[datetime] = None) -> int:
         if row is None:
             row = NbaPickLog(game_id=p.game_id, player_id=p.player_id, kind=p.kind, side=p.side)
             session.add(row)
-        row.season = run.season
-        row.gameday, row.gametime, row.name, row.pos, row.team = str(p.gameday), str(p.gametime), p.name, p.pos, p.team
-        row.line, row.odds, row.book = float(p.line), int(p.odds), p.book
-        row.mu, row.prob, row.p_model, row.p_mkt, row.ev = (float(x) for x in (p.mu, p.prob, p.p_model, p.p_mkt, p.ev))
-        row.flagged, row.run_id, row.snapped_at = bool(p.flagged), run.id, now
+        row.season, row.run_id = run.season, run.id
+        log_row(row, p, now)
+    market_fit.log_snaps(session, "nba", picks, now)
     session.commit()
     return len(picks)
 
@@ -104,6 +102,7 @@ def grade_logged(session, logs: pd.DataFrame, today: date, log: Callable[[str], 
     except Exception as e:   # noqa: BLE001
         session.rollback()
         log(f"  couldn't grade logged NBA picks ({type(e).__name__}: {e})")
+    market_fit.refit_logged(session, "nba", log)
 
 
 def _week(r) -> tuple:
