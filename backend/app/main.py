@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import books, config, grading, pipeline, scheduler
+from . import books, config, grading, pipeline, scheduler, standings
 from .db import AltLine, OddsLine, Projection, Run, SessionLocal, SyncRun, current_lines, proj_frame
 from .engine import data, model, odds
 from .engine import injuries as injm
@@ -233,7 +233,9 @@ def build_meta(db: Session, lan_url: Optional[str] = None) -> Meta:
         rows = db.execute(select(Projection.game_id, Projection.gameday, Projection.gametime)
                           .where(Projection.run_id == run.id).distinct()).all()
         weather = run.weather or {}
-        games = [Game(game_id=g, label=game_label(g), gameday=d, gametime=t, weather=weather.get(g))
+        recs = standings.records("football/nfl", run.season, data.CACHE, data.ESPN_TEAMS)
+        games = [Game(game_id=g, label=game_label(g), gameday=d, gametime=t, weather=weather.get(g),
+                      records={t: recs[t] for t in g.split("_")[2:4] if t in recs})
                  for g, d, t in sorted(rows, key=lambda r: (r[1], r[2], r[0]))]
         backtest = run.backtest
     return Meta(redistribution=(run.variance or {}).get("_redistribution") if run else None,

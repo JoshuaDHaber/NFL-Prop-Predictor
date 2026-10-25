@@ -38,13 +38,17 @@ function Tile({ g, picks, ml, injuries, onOpen }: { g: Game; picks: Pick[]; ml?:
   const wx = weatherBit(g);
   const blow = blowoutAt(ml);
   const [awayColor, homeColor] = matchupColors(away, home);
+  const rec = (team: string, at: "home" | "road") => {
+    const r = g.records?.[team];
+    return r && <span className="gt-rec" title={`${r.overall} this season${r[at] ? ` · ${r[at]} ${at === "home" ? "at home" : "on the road"}` : ""}`}>{r.overall}</span>;
+  };
   return (
     <button className="gt" onClick={() => onOpen(g.game_id)} aria-label={`Open ${g.label}`}>
       <span className="gt-top"><span>{kickoff(g.gameday, g.gametime)}</span>{wx && <span>{wx}</span>}</span>
       <span className="gt-match">
-        <span className="gt-team"><TeamLogo team={away} /><span><b>{away}</b>{a && <small>{pct(a.prob, 0)}</small>}</span></span>
+        <span className="gt-team"><TeamLogo team={away} /><span><span className="gt-abbr"><b>{away}</b>{rec(away, "road")}</span>{a && <small>{pct(a.prob, 0)}</small>}</span></span>
         <span className="gt-at">@</span>
-        <span className="gt-team home"><span><b>{home}</b>{h && <small>{pct(h.prob, 0)}</small>}</span><TeamLogo team={home} /></span>
+        <span className="gt-team home"><span><span className="gt-abbr">{rec(home, "home")}<b>{home}</b></span>{h && <small>{pct(h.prob, 0)}</small>}</span><TeamLogo team={home} /></span>
       </span>
       {a && h
         ? <span className="ml-bar gt-bar" aria-hidden><i className="tbar" style={{ width: `${a.prob * 100}%`, ...shadeVars(awayColor) }} /><i className="tbar" style={{ width: `${h.prob * 100}%`, ...shadeVars(homeColor) }} /></span>

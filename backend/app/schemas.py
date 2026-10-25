@@ -54,12 +54,19 @@ class GameWeather(BaseModel):
     factors: dict[str, float] = {}    # per market: multiplier applied to yardage projections
 
 
+class TeamRecord(BaseModel):
+    overall: str                  # "5-2", or "5-2-1" with ties
+    home: Optional[str] = None    # at home
+    road: Optional[str] = None    # on the road
+
+
 class Game(BaseModel):
     game_id: str
     label: str
     gameday: str
     gametime: str
     weather: Optional[GameWeather] = None
+    records: dict[str, TeamRecord] = {}   # both teams' records this season, by team; empty before they've played
 
 
 class JobStatus(BaseModel):

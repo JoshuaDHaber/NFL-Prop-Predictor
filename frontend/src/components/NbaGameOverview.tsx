@@ -79,7 +79,7 @@ export default function NbaGameOverview({ game, books, book, onBook, marketWeigh
 
       <GamePlayerSearch rows={roster.data ?? []} onSelect={onSelect} />
 
-      {ml ? (ml.blowout ? <div className="go-top"><MoneylineCard g={ml} /><BlowoutCard g={ml} /></div> : <MoneylineCard g={ml} />)
+      {ml ? (ml.blowout ? <div className="go-top"><MoneylineCard g={ml} records={game.records} /><BlowoutCard g={ml} /></div> : <MoneylineCard g={ml} records={game.records} />)
         : moneylines.isLoading ? null : <div className="card empty">No win chances for this game yet.</div>}
 
       <section id="go-props" className="go-sec">

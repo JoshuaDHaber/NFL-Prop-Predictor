@@ -346,6 +346,9 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
 .gt-team { display: flex; flex-direction: column; } .gt-team.home { align-items: flex-end; text-align: right; }
 .gt-team b { font-size: 26px; font-weight: 800; letter-spacing: -.02em; line-height: 1.1; } .gt-team small { font-size: 12px; color: var(--mut); font-weight: 600; }
 .gt-at { color: var(--mut); font-weight: 700; }
+/* the record sits on the abbreviation's baseline, mirrored for the home team so each abbreviation stays beside its logo */
+.gt-abbr { display: flex; align-items: baseline; gap: 6px; }
+.gt-rec, .ml-rec { font-size: 12px; font-weight: 600; color: var(--mut); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .gt-bar { margin: 0; height: 8px; } .gt-bar i { padding: 0; }
 .gt-bar-empty { display: block; border-radius: 999px; background: var(--chip); }
 .gt-line { margin-top: -4px; }

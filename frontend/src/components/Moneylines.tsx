@@ -1,4 +1,4 @@
-import type { MoneylineGame, MoneylineSide } from "../api";
+import type { MoneylineGame, MoneylineSide, TeamRecord } from "../api";
 import { useBetSlip } from "../BetSlipContext";
 import { americanOdds, kickoff, pct, signedPct } from "../format";
 import { legLink } from "../slip";
@@ -11,12 +11,14 @@ export function favored(g: MoneylineGame, m: number, digits = 1) {
   return Math.abs(m) < 0.05 ? "Pick'em" : `${(m > 0 ? home : away).team} by ${Math.abs(m).toFixed(digits)}`;
 }
 
-function SideRow({ s }: { s: MoneylineSide }) {
+function SideRow({ s, rec }: { s: MoneylineSide; rec?: TeamRecord }) {
   const { state } = useBetSlip();
+  // the record that matters for this game's venue: the home team's at home, the away team's on the road
+  const venue = s.home ? rec?.home : rec?.road;
   const url = s.book ? legLink({ link: s.link, eventLink: s.event_link, book: s.book }, state) : null;
   return (
     <tr>
-      <td className="ml-team"><b>{s.team}</b> <span className="mut ml-name">{s.home ? "home" : "away"}</span><span className="mut ml-name"><br />{s.name}</span></td>
+      <td className="ml-team"><b>{s.team}</b>{rec && <> <span className="ml-rec">{rec.overall}</span></>} <span className="mut ml-name">{s.home ? "home" : "away"}{venue && ` ${venue}`}</span><span className="mut ml-name"><br />{s.name}</span></td>
       <td data-label="Model">{pct(s.p_model, 0)}</td>
       <td data-label="Market">{s.p_mkt == null ? <span className="mut">–</span> : pct(s.p_mkt, 0)}</td>
       <td data-label="Win prob"><b>{pct(s.prob)}</b></td>
@@ -30,8 +32,8 @@ function SideRow({ s }: { s: MoneylineSide }) {
   );
 }
 
-/** One game: both teams' win chances as a bar, then each side's model, market and blended chance with the best price. */
-export function MoneylineCard({ g }: { g: MoneylineGame }) {
+/** One game: both teams' win chances as a bar, then each side's record, model, market and blended chance with the best price. */
+export function MoneylineCard({ g, records }: { g: MoneylineGame; records?: Record<string, TeamRecord> }) {
   const [away, home] = g.sides;
   const [awayColor, homeColor] = matchupColors(away.team, home.team);
   return (
@@ -47,7 +49,7 @@ export function MoneylineCard({ g }: { g: MoneylineGame }) {
         <table className="ml-table">
           <thead><tr><th>Team</th><th title="The team-rating model alone">Model</th><th title="No-vig consensus across every book">Market</th>
             <th title="Chance to win: the blend used for EV">Win %</th><th title="Best moneyline">Price</th><th>EV</th></tr></thead>
-          <tbody><SideRow s={away} /><SideRow s={home} /></tbody>
+          <tbody><SideRow s={away} rec={records?.[away.team]} /><SideRow s={home} rec={records?.[home.team]} /></tbody>
         </table>
       </div>
       <p className="mut ml-foot">

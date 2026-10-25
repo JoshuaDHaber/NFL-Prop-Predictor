@@ -37,6 +37,17 @@ def test_meta_summarises_run_odds_and_games(client):
     assert m["games"][0]["label"] == "BBB @ AAA"
     assert m["backtest"]["rush"]["mae_naive"] == 25.0
     assert m["has_odds_key"] is False
+    assert m["games"][0]["records"] == {}   # ESPN unreachable: no records, and the page still loads
+
+
+def test_meta_carries_both_teams_records(client, monkeypatch):
+    js = {"children": [{"standings": {"entries": [
+        {"team": {"abbreviation": t}, "stats": [{"type": "total", "summary": r}, {"type": "home", "summary": "1-0"}, {"type": "road", "summary": "0-1"}]}
+        for t, r in [("AAA", "3-1"), ("BBB", "1-3"), ("CCC", "2-2")]]}}]}
+    monkeypatch.setattr(main.standings, "_download", lambda url: js)
+    main.standings._records.cache_clear()
+    assert client.get("/api/meta").json()["games"][0]["records"] == {
+        "AAA": dict(overall="3-1", home="1-0", road="0-1"), "BBB": dict(overall="1-3", home="1-0", road="0-1")}
 
 
 def test_moneylines_price_both_teams_of_every_game(client, monkeypatch):

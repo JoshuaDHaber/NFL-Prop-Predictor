@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import books, config
+from .. import books, config, standings
 from ..db import NbaAltLine, NbaOddsLine, NbaProjection, NbaRun, SessionLocal, current_lines
 from ..engine import moneyline as mlm
 from ..engine import odds
@@ -57,8 +57,11 @@ def _upcoming(run: NbaRun, now: Optional[datetime] = None) -> list[dict]:
 @router.get("/meta", response_model=NbaMeta)
 def meta(request: Request, db: Session = Depends(get_db)):
     run = latest_run(db)
-    games = [Game(game_id=g["game_id"], label=_label(g["game_id"]), gameday=g["gameday"], gametime=g["gametime"])
-             for g in (_upcoming(run) if run else [])]
+    upcoming = _upcoming(run) if run else []
+    recs = standings.records("basketball/nba", run.season, config.NBA_CACHE) if upcoming else {}
+    games = [Game(game_id=g["game_id"], label=_label(g["game_id"]), gameday=g["gameday"], gametime=g["gametime"],
+                  records={t: recs[t] for t in g["game_id"].split("_")[2:4] if t in recs})
+             for g in upcoming]
     fetched = dict(db.execute(select(NbaOddsLine.market, func.max(NbaOddsLine.fetched_at)).group_by(NbaOddsLine.market)).all())
     counts = current_lines(db, NbaOddsLine).groupby("market").size().to_dict()
     return NbaMeta(
