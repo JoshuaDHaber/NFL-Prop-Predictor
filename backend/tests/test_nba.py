@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app import main, scheduler
 from app.db import NbaAltLine, NbaOddsLine, NbaProjection, NbaRun, SessionLocal
-from app.nba import espn, model
+from app.nba import blowout, espn, model
 from app.nba import pipeline as nba_pipeline
 from app.nba import routes as nba_routes
 
@@ -143,10 +143,20 @@ def test_nba_run_stores_same_game_correlations(monkeypatch):
     monkeypatch.setattr(nba_pipeline.espn, "gamelogs", lambda *a, **k: logs)
     monkeypatch.setattr(nba_pipeline.espn, "injuries", lambda: ([], None))
     monkeypatch.setattr(nba_pipeline.grading, "grade_logged", lambda *a, **k: None)
+    rng = np.random.default_rng(0)
+    spreads = rng.choice(np.arange(-12, 12.5, 0.5), 800)
+    history = pd.DataFrame({"event_id": [str(i) for i in range(800)], "season": 2025,
+                            "date": pd.date_range("2025-01-01", periods=800, freq="h").strftime("%Y-%m-%d"),
+                            "spread_line": spreads, "margin": np.round(spreads + rng.normal(0, 13, 800))})
+    monkeypatch.setattr(nba_pipeline.blowout, "history", lambda log=print: history)
     log = []
     rid = nba_pipeline.run_projections(log=log.append, now=now)
     with SessionLocal() as s:
-        corr = s.get(NbaRun, rid).variance["_correlation"]
+        run = s.get(NbaRun, rid)
+        corr = run.variance["_correlation"]
+        b = run.teams[game["game_id"]]["blowout"]
+    assert b["games"] == 800 and [c["margin"] for c in b["chances"]] == list(blowout.THRESHOLDS)
+    assert 0.1 < b["chances"][1]["p"] < 0.3 and b["chances"][1]["p_away"] > b["chances"][1]["p_home"]   # NY favored by 2.5
     pairs = corr["pairs"]
     assert pairs["same|pts:G|threes:G"][0] > 0.5
     assert all(abs(r) < 0.3 for k, (r, n) in pairs.items() if not k.startswith("same|"))
@@ -169,7 +179,8 @@ def nba_client(monkeypatch):
         run = NbaRun(season=2027, slate=["2026-10-20"], backtest={"pts": dict(n=10, mae_model=5.0, mae_naive=5.1, bias=0.0)},
                      variance={}, excluded=["Hurt Guy (Out)"], games=[game],
                      teams={GID: dict(home="DET", away="BOS", gameday="2026-10-20", gametime="19:30", margin=2.0,
-                                      p_home=0.56, home_rating=1.0, away_rating=0.5, spread=1.5, total=221.5)})
+                                      p_home=0.56, home_rating=1.0, away_rating=0.5, spread=1.5, total=221.5,
+                                      blowout=dict(games=10000, chances=[dict(margin=20, p=0.18, p_home=0.11, p_away=0.07)]))})
         run.projections = [NbaProjection(player_id="p1", name="Star Guard", pos="PG", team="DET", opp="BOS", home=True,
                                          kind=k, mu=mu, sd=sd, vol=36.0, eff=mu / 36, spread=1.5, status="", game_id=GID,
                                          gameday="2026-10-20", gametime="19:30", last5=[mu] * 5, wx=1.0, teammate_out="")
@@ -204,6 +215,7 @@ def test_nba_picks_moneylines_and_projections(nba_client):
     [ml] = nba_client.get("/api/nba/moneylines").json()
     away, home = ml["sides"]
     assert (away["team"], home["team"]) == ("BOS", "DET") and home["odds"] == -130 and ml["total"] == 221.5
+    assert ml["blowout"] == dict(games=10000, chances=[dict(margin=20, p=0.18, p_home=0.11, p_away=0.07)])
     assert len(nba_client.get("/api/nba/projections", params={"kind": "reb"}).json()) == 1
     # the date filter: the game's own day keeps it, another day has nothing
     day = over["gameday"]
@@ -211,7 +223,7 @@ def test_nba_picks_moneylines_and_projections(nba_client):
     assert nba_client.get("/api/nba/picks", params={"min_ev": -1, "gameday": "1999-01-01"}).json() == []
     assert nba_client.get("/api/nba/projections", params={"kind": "reb", "gameday": "1999-01-01"}).json() == []
     # the NFL board never sees NBA quotes
-    assert all(g["game_id"] != GID for g in nba_client.get("/api/moneylines").json())
+    assert all(g["game_id"] != GID and g["blowout"] is None for g in nba_client.get("/api/moneylines").json())
 
 
 def test_nba_games_that_tipped_off_drop_off_the_board(nba_client):

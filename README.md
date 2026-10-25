@@ -32,7 +32,7 @@ A full-stack web app that projects NFL player yardage, prices the projections ag
 
 The NBA side covers the **slate**: the next two game dates (Eastern) with games still to tip off, so before opening night it shows opening night and the day after. Games drop off the board at tip-off.
 
-- **Games:** a tile per game with tip-off, logos, both teams' win chances, the market spread and total (from ESPN), the top prop, and the injury count. A tile opens the game page: the moneyline card, best props, projections and both teams' injury reports (ESPN's status, injury, latest news line and estimated return), at one sportsbook picked at the top.
+- **Games:** a tile per game with tip-off, logos, both teams' win chances, the market spread and total (from ESPN), the chance of a 20+ point blowout (red at 30% or more), the top prop, and the injury count. A tile opens the game page: the moneyline card, a blowout card (the chance the game is decided by 15, 20, 25 or 30+ points, split by which team does it), best props, projections and both teams' injury reports (ESPN's status, injury, latest news line and estimated return), at one sportsbook picked at the top.
 - **Best props / Projections:** points, rebounds, assists and 3-pointers made, with the same filters, pricing, player drawer and betslip as the NFL.
 - **Parlays:** the NFL's tiles at one sportsbook (likely plays, ladders of points/rebounds/assists/threes overs on alternate lines stacked to +100 to +300, and the likeliest single alternate props), for the whole slate or chosen games; each game page has its own. No touchdown section.
 - **Injuries:** ESPN's report for every slate team. *Out*, *Doubtful* and *Suspended* players aren't projected; *Day-to-day* players are, and are flagged.
@@ -41,6 +41,15 @@ The NBA side covers the **slate**: the next two game dates (Eastern) with games 
 **Data.** ESPN's public JSON API (no key) for the schedule, rosters, every rostered player's game logs (this season and the two before, All-Star weekend left out: ESPN files it under the regular season) and injuries; stats.nba.com and NBA.com's CDN refuse requests from hosting providers. Responses are cached in `backend/data/nba_cache/`, on the Railway volume, so finished seasons are fetched once (a first run takes about 25 seconds, later ones a few). Lines come from The Odds API (`basketball_nba`) with its own key, **`ODDS_API_KEY_NBA`**.
 
 **Model** (`backend/app/nba/`). Each stat = projected minutes × per-minute rate × opponent factor. Minutes are a recency-weighted average of recent games (8-game half-life); rates use a 40-game half-life, shrunk toward the guard/forward/center average by 150 minutes of league-average play (30 for threes, since who shoots them varies so much within a position), with last season counting 60% as much as this one. The opponent factor compares what a defense allowed with what its opponents' players usually produce, shrunk to 1 and kept within ±15%. Over/under probabilities come from the walk-forward backtest's own errors, as for the NFL, except threes: they're small whole numbers, so they're priced as a Poisson count (the error table underrated their overs by 4-5 points at 1.5+ lines; Poisson came within 0.4-2.7 points at every line). Team win chances come from a ridge regression of point margins (60-day half-life, last season at half weight) through a normal curve fitted in the backtest (about 12.5 points), and always lean at least 80% on the market's no-vig chance.
+
+**Blowouts** (`backend/app/nba/blowout.py`; `python -m app.nba.blowout` prints the backtest and the slate). The final margin is a Student-t around the market spread (about 15 degrees of freedom: misses of 2.5 standard deviations happen 1.8% of the time, not a normal curve's 1.2%), its width quadratic in the size of the spread (pick'ems and big spreads miss by more than 3-6 point lines; the total added nothing). The width is then rescaled by how far the last 600 games missed their lines, bounded to ±15%: games decided by 20+ went from 16-19% a season in 2019-2023 to 22.8% in 2025-26, and the rescale follows that where weighting recent seasons didn't. Fitted on every game since 2018-19 with ESPN's closing spread (the median across its pregame books), kept in `backend/data/nba_blowout_history.csv` and topped up each NBA run; the first run on a fresh volume fetches the whole history, about 12,000 requests and two to three minutes. Walk-forward (2021-22 to 2025-26, each season fitted on the ones before):
+
+| Margin | Games | Predicted | Actual | Log loss vs. last season's rate |
+|---|---|---|---|---|
+| 15+ | 6,632 | 33.8% | 32.8% | -1.9% |
+| 20+ | 6,632 | 20.0% | 19.7% | -2.7% |
+| 25+ | 6,632 | 11.1% | 11.4% | -3.9% |
+| 30+ | 6,632 | 5.8% | 6.3% | -5.3% |
 
 Walk-forward backtest (2025-26 and the 2026 playoffs, weekly, rostered players with 12+ projected minutes):
 

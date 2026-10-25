@@ -20,7 +20,7 @@ from ..engine import moneyline as mlm
 from ..engine import odds as nfl_odds
 from ..odds_keys import KeyRing
 from ..pipeline import _correlation_line, _s, archive_quotes, store_lines
-from . import espn, grading, model
+from . import blowout, espn, grading, model
 from . import odds as nba_odds
 
 Log = Callable[[str], None]
@@ -73,6 +73,16 @@ def run_projections(log: Log = print, now: Optional[datetime] = None) -> Optiona
     teams = model.ml_project(games, slate, sigma, today)
     log(f"  team ratings: win-probability curve sd {sigma:.2f} pts, Brier {backtest['ml']['mae_model']:.3f}"
         f" (always the home team's usual rate: {backtest['ml']['mae_naive']:.3f})")
+    blow_fit = None
+    try:   # context for the game pages; the run goes out without it
+        chances, blow_fit = blowout.project(blowout.history(log), slate)
+        for gid, b in chances.items():
+            if gid in teams:
+                teams[gid]["blowout"] = b
+        log(f"  blowout chances for {len(chances)} games (t with {blow_fit['nu']:.0f} df over {blow_fit['n']:,} games,"
+            f" recent rescale x{blow_fit['mult']:.3f})")
+    except Exception as e:
+        log(f"  couldn't work out blowout chances ({e})")
 
     log("NBA: injuries and projections...")
     try:
@@ -114,7 +124,8 @@ def run_projections(log: Log = print, now: Optional[datetime] = None) -> Optiona
     with SessionLocal() as s:
         run = NbaRun(season=season, slate=dates, backtest=backtest, created_at=now,
                      variance={**dists, "_correlation": corr, "_moneyline": dict(sigma=sigma, halflife_days=model.ML_HL_DAYS,
-                                                           min_market_weight=model.ML_MIN_MARKET_WEIGHT)},
+                                                           min_market_weight=model.ML_MIN_MARKET_WEIGHT),
+                               "_blowout": blow_fit},
                      excluded=sorted(set(excluded)), games=slate, teams=teams)
         run.projections = rows
         s.add(run)

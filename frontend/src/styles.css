@@ -349,6 +349,7 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
 .gt-bar { margin: 0; height: 8px; } .gt-bar i { padding: 0; }
 .gt-bar-empty { display: block; border-radius: 999px; background: var(--chip); }
 .gt-line { margin-top: -4px; }
+.gt-blow { margin-top: -8px; } .gt-blow.hot b { color: var(--bad); }
 .gt-prop { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 12px; background: var(--chip); min-width: 0; }
 .gt-prop-main { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; } .gt-prop .side-pill { margin: 0; font-size: 12px; }
 .ev-text { color: var(--good); font-weight: 700; }
@@ -378,6 +379,15 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ml-bar .tbar { background: var(--tc-dark); color: var(--ti-dark); } }
 :root[data-theme="dark"] .ml-bar .tbar { background: var(--tc-dark); color: var(--ti-dark); }
 .ml-bar .tbar + .tbar { box-shadow: inset 2px 0 0 var(--card); }
+/* blowout card (NBA game page): a diverging bar per margin, the away team's chance left of centre, the home team's right */
+.bo-card { display: flex; flex-direction: column; }
+.bo-rows { display: flex; flex-direction: column; gap: 8px; padding: 4px 14px 2px; }
+.bo-row { display: grid; grid-template-columns: 58px 36px 1fr 36px 44px; align-items: center; gap: 8px; font-size: 13px; }
+.bo-row > :nth-child(2) { text-align: right; } .bo-row > :nth-child(5) { text-align: right; }
+.bo-th { font-size: 11px; font-weight: 600; color: var(--mut); }
+.bo-track { margin: 0; height: 12px; background: var(--chip); }
+.bo-half { flex: 1; display: flex; min-width: 0; } .bo-half.bo-left { justify-content: flex-end; box-shadow: inset -1px 0 0 var(--mut); }
+.bo-track .tbar { padding: 0; height: 100%; } .bo-track .tbar + .tbar { box-shadow: none; }
 .team-logo { flex: none; object-fit: contain; }
 .gt-team { flex-direction: row; align-items: center; gap: 8px; } .gt-team > span { display: flex; flex-direction: column; }
 .gt-team.home { justify-content: flex-end; align-items: center; } .gt-team.home > span { align-items: flex-end; }
