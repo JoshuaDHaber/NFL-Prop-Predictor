@@ -3,6 +3,7 @@ import type { Game, InjuryReport, MoneylineGame, Pick } from "../api";
 import { KIND_LABEL, americanOdds, kickoff, pct, signedPct, weatherShort, weatherText, notableWeather } from "../format";
 import { gameStatusCounts } from "./Injuries";
 import { favored } from "./Moneylines";
+import { blowoutAt } from "./Blowout";
 import TeamLogo from "./TeamLogo";
 import { getLeague } from "../league";
 import { matchupColors, shadeVars } from "../teams";
@@ -35,6 +36,7 @@ function Tile({ g, picks, ml, injuries, onOpen }: { g: Game; picks: Pick[]; ml?:
   const injText = inj && [inj.out && `${inj.out} out`, inj.doubtful && `${inj.doubtful} doubtful`, inj.questionable && `${inj.questionable} questionable`, inj.dayToDay && `${inj.dayToDay} day-to-day`].filter(Boolean).join(" · ");
   const [a, h] = ml?.sides ?? [];
   const wx = weatherBit(g);
+  const blow = blowoutAt(ml);
   const [awayColor, homeColor] = matchupColors(away, home);
   return (
     <button className="gt" onClick={() => onOpen(g.game_id)} aria-label={`Open ${g.label}`}>
@@ -48,6 +50,7 @@ function Tile({ g, picks, ml, injuries, onOpen }: { g: Game; picks: Pick[]; ml?:
         ? <span className="ml-bar gt-bar" aria-hidden><i className="tbar" style={{ width: `${a.prob * 100}%`, ...shadeVars(awayColor) }} /><i className="tbar" style={{ width: `${h.prob * 100}%`, ...shadeVars(homeColor) }} /></span>
         : <span className="gt-bar gt-bar-empty" aria-hidden />}
       <span className="gt-line mut">{ml ? (ml.spread != null ? `Spread: ${favored(ml, ml.spread)}` : `Model: ${favored(ml, ml.margin)}`) : "No moneyline yet"}{ml?.total != null && ` · Total ${ml.total}`}</span>
+      {blow && <span className={`gt-line gt-blow mut${blow.p >= 0.3 ? " hot" : ""}`} title="Chance the game is decided by 20 or more points, either way">20+ pt blowout: <b>{pct(blow.p, 0)}</b></span>}
       <span className="gt-prop">
         <span className="tile-label">Top prop</span>
         {top ? <>

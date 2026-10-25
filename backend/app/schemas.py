@@ -324,6 +324,18 @@ class InjuryReport(BaseModel):
     teams: dict[str, list[InjuredPlayer]] = {}
 
 
+class BlowoutChance(BaseModel):
+    margin: int        # decided by this many points or more
+    p: float           # either way
+    p_home: float      # the home team winning by that much
+    p_away: float
+
+
+class Blowout(BaseModel):
+    games: int                     # games the model was fitted on
+    chances: list[BlowoutChance]   # 15+, 20+, 25+, 30+
+
+
 class MoneylineGame(BaseModel):
     game_id: str
     label: str
@@ -333,6 +345,7 @@ class MoneylineGame(BaseModel):
     spread: Optional[float] = None # the market's (nflverse) home spread, points
     total: Optional[float] = None  # the market's points total (NBA, from ESPN)
     sides: list[MoneylineSide]     # away, home
+    blowout: Optional[Blowout] = None   # NBA: chances the game is decided by 15/20/25/30+, from the spread
 
 
 class KeyBalance(BaseModel):

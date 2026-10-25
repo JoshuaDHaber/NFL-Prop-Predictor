@@ -172,5 +172,6 @@ def price(games: dict, lines: pd.DataFrame, market_weight: float = 0.35, only_bo
                             link=_none(best.get("over_link")), event_link=_none(best.get("event_link")))
             sides.append(side)
         out.append(dict(game_id=gid, label=f"{g['away']} @ {g['home']}", gameday=g["gameday"], gametime=g["gametime"],
-                        margin=g["margin"], spread=g.get("spread"), total=g.get("total"), sides=sides))
+                        margin=g["margin"], spread=g.get("spread"), total=g.get("total"), sides=sides,
+                        blowout=g.get("blowout")))
     return out

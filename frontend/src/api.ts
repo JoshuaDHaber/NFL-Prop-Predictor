@@ -119,7 +119,12 @@ export interface MoneylineSide {
   p_model: number; p_mkt: number | null; prob: number; books: number;
   odds: number | null; book: string | null; ev: number | null; kelly: number | null; link: string | null; event_link: string | null;
 }
-export interface MoneylineGame { game_id: string; label: string; gameday: string; gametime: string; margin: number; spread: number | null; total?: number | null; sides: MoneylineSide[] }
+/** NBA: the chance a game is decided by `margin`+ points, either way and by each team. */
+export interface BlowoutChance { margin: number; p: number; p_home: number; p_away: number }
+export interface MoneylineGame {
+  game_id: string; label: string; gameday: string; gametime: string; margin: number; spread: number | null; total?: number | null; sides: MoneylineSide[];
+  blowout?: { games: number; chances: BlowoutChance[] } | null;
+}
 /** This week's injury report per team (both sides of the ball) plus reserve lists. Times are UTC without a zone suffix. */
 export interface InjuredPlayer {
   player_id: string; name: string; pos: string; team: string; side: "off" | "def" | "st";

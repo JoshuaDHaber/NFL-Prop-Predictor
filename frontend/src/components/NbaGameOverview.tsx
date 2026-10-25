@@ -6,6 +6,7 @@ import { KIND_SHORT, NBA_MARKET_TABS, SUB_LABEL, groupOf, scrollBehavior } from 
 import { useParlayBoard } from "../useParlayBoard";
 import GamePlayerSearch from "./GamePlayerSearch";
 import { GameInjuries } from "./Injuries";
+import { BlowoutCard } from "./Blowout";
 import { MoneylineCard } from "./Moneylines";
 import ParlayTiles from "./ParlayTiles";
 import PicksTable from "./PicksTable";
@@ -78,7 +79,8 @@ export default function NbaGameOverview({ game, books, book, onBook, marketWeigh
 
       <GamePlayerSearch rows={roster.data ?? []} onSelect={onSelect} />
 
-      {ml ? <MoneylineCard g={ml} /> : moneylines.isLoading ? null : <div className="card empty">No win chances for this game yet.</div>}
+      {ml ? (ml.blowout ? <div className="go-top"><MoneylineCard g={ml} /><BlowoutCard g={ml} /></div> : <MoneylineCard g={ml} />)
+        : moneylines.isLoading ? null : <div className="card empty">No win chances for this game yet.</div>}
 
       <section id="go-props" className="go-sec">
         <h2 className="parlay-h">Best props <small>positive EV for this game{book !== "all" ? ` at ${book}` : ""}</small></h2>
