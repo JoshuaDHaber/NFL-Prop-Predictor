@@ -69,6 +69,11 @@ class Game(BaseModel):
     records: dict[str, TeamRecord] = {}   # both teams' records this season, by team; empty before they've played
 
 
+class ByeTeam(BaseModel):
+    team: str
+    record: Optional[str] = None   # "5-2" this season, when standings are available
+
+
 class JobStatus(BaseModel):
     state: Literal["idle", "running", "done", "error"]
     started_at: Optional[str] = None
@@ -94,6 +99,7 @@ class Meta(BaseModel):
     odds: dict[str, OddsInfo]
     games: list[Game]
     next_games: list[Game] = []  # next week's schedule, for a preview once this week's slate is down to its last games
+    next_byes: list[ByeTeam] = []  # teams with no game next week
     has_odds_key: bool
     job: JobStatus
     lan_url: Optional[str] = None

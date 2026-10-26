@@ -498,17 +498,38 @@ def test_grades_carry_clv_and_the_market_fit(client):
 
 
 def test_meta_previews_next_weeks_schedule_from_the_cached_copy(client, monkeypatch):
-    sched = pd.DataFrame([dict(game_id="2026_05_CCC_DDD", season=2026, week=5, gameday="2026-10-11", gametime="13:00", game_type="REG"),
-                          dict(game_id="2026_06_EEE_FFF", season=2026, week=6, gameday="2026-10-18", gametime="13:00", game_type="REG")])
+    sched = pd.DataFrame([dict(game_id="2026_05_CCC_DDD", season=2026, week=5, gameday="2026-10-11", gametime="13:00", game_type="REG",
+                               away_team="CCC", home_team="DDD"),
+                          dict(game_id="2026_06_EEE_FFF", season=2026, week=6, gameday="2026-10-18", gametime="13:00", game_type="REG",
+                               away_team="EEE", home_team="FFF")])
     monkeypatch.setattr(main.data, "cached_schedule", lambda: sched)
     main._next_week_schedule.cache_clear()
-    nxt = client.get("/api/meta").json()["next_games"]
+    m = client.get("/api/meta").json()
+    nxt = m["next_games"]
     assert [g["game_id"] for g in nxt] == ["2026_05_CCC_DDD"] and nxt[0]["label"] == "CCC @ DDD"
+    assert [b["team"] for b in m["next_byes"]] == ["EEE", "FFF"]   # on the season's schedule, no game in week 5
     main._next_week_schedule.cache_clear()
 
 
 def test_meta_has_no_preview_before_a_schedule_is_downloaded(client, monkeypatch):
     monkeypatch.setattr(main.data, "cached_schedule", lambda: None)
     main._next_week_schedule.cache_clear()
-    assert client.get("/api/meta").json()["next_games"] == []
+    m = client.get("/api/meta").json()
+    assert m["next_games"] == [] and m["next_byes"] == []
     main._next_week_schedule.cache_clear()
+
+
+def test_fetching_the_schedule_in_the_background_refreshes_the_preview(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main.data, "load_schedule", lambda: calls.append(1))
+    cleared = []
+    monkeypatch.setattr(main._next_week_schedule, "cache_clear", lambda: cleared.append(1))
+    main._fetch_schedule()
+    assert calls == [1] and cleared == [1]
+
+
+def test_a_failed_schedule_fetch_leaves_the_server_running(monkeypatch):
+    def boom():
+        raise OSError("offline")
+    monkeypatch.setattr(main.data, "load_schedule", boom)
+    main._fetch_schedule()   # logs and returns; the next sync fetches it

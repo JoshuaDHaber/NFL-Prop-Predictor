@@ -76,6 +76,8 @@ export interface Meta {
   games: Game[];
   /** Next week's schedule (no projections or lines yet), previewed under the slate once it's down to its last games. */
   next_games?: Game[];
+  /** Teams with no game next week, with their record when standings are in. */
+  next_byes?: { team: string; record?: string | null }[];
   has_odds_key: boolean;
   job: JobStatus;
   lan_url: string | null;

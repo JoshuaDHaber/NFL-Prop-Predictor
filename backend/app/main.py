@@ -34,7 +34,7 @@ from .engine.market import weight_for
 from .engine.picks import best_picks, build_picks
 from .engine.search import rank_hits
 from .nba import routes as nba_routes
-from .schemas import (AdminState, Correlations, GradeReport, AltFetchResult, AutoSync, CreditStatus, KeyBalance, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, HistoryPoint, InjuryReport, LadderOut, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut,
+from .schemas import (AdminState, Correlations, GradeReport, AltFetchResult, AutoSync, CreditStatus, KeyBalance, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, HistoryPoint, InjuryReport, LadderOut, ByeTeam, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut,
                       RefreshRequest, RunInfo, SiteSettings)
 
 @asynccontextmanager
@@ -49,6 +49,9 @@ async def lifespan(_: FastAPI):
     scheduler.after_job = _release_memory
     if scheduler.start():
         print("Scheduled syncs are on (AUTO_SYNC)")
+        # no schedule yet (a new volume, or a cleared cache): fetch it now rather than at the next sync
+        if data.cached_schedule() is None:
+            threading.Thread(target=_fetch_schedule, daemon=True).start()
     yield
     scheduler.stop()
 
@@ -237,22 +240,38 @@ def meta(request: Request, db: Session = Depends(get_db)):
 
 
 @lru_cache(maxsize=4)
-def _next_week_schedule(season: int, week: int) -> tuple:
-    """(game_id, gameday, gametime) for the week after `week`, from the schedule a sync downloaded (never downloading on a
-    page load); empty after the regular season or before there's a copy."""
+def _next_week_schedule(season: int, week: int) -> tuple[tuple, tuple]:
+    """The week after `week`: its games as (game_id, gameday, gametime), and the teams on bye (every team on the season's
+    schedule without a game that week). From the schedule a sync downloaded, never downloading on a page load; both
+    empty after the regular season or before there's a copy."""
     try:
         s = data.cached_schedule()
     except Exception:
-        return ()
+        return (), ()
     if s is None:
-        return ()
-    nxt = s[(s.season == season) & (s.week == week + 1)].sort_values(["gameday", "gametime", "game_id"])
-    return tuple((r.game_id, str(r.gameday), "" if pd.isna(r.gametime) else str(r.gametime)) for r in nxt.itertuples())
+        return (), ()
+    season_games = s[s.season == season]
+    nxt = season_games[season_games.week == week + 1].sort_values(["gameday", "gametime", "game_id"])
+    if nxt.empty:
+        return (), ()
+    playing = set(nxt.away_team) | set(nxt.home_team)
+    byes = sorted((set(season_games.away_team) | set(season_games.home_team)) - playing)
+    return tuple((r.game_id, str(r.gameday), "" if pd.isna(r.gametime) else str(r.gametime)) for r in nxt.itertuples()), tuple(byes)
+
+
+def _fetch_schedule() -> None:
+    """Download the schedule into the cache in the background, then let the next-week preview read it."""
+    try:
+        data.load_schedule()
+        _next_week_schedule.cache_clear()
+        print("Fetched the NFL schedule (the cache was empty)")
+    except Exception as e:
+        print(f"Couldn't fetch the NFL schedule; the next sync will: {e}")
 
 
 def build_meta(db: Session, lan_url: Optional[str] = None) -> Meta:
     run = latest_run(db)
-    games, next_games, backtest = [], [], {}
+    games, next_games, next_byes, backtest = [], [], [], {}
     if run:
         rows = db.execute(select(Projection.game_id, Projection.gameday, Projection.gametime)
                           .where(Projection.run_id == run.id).distinct()).all()
@@ -261,15 +280,17 @@ def build_meta(db: Session, lan_url: Optional[str] = None) -> Meta:
         games = [Game(game_id=g, label=game_label(g), gameday=d, gametime=t, weather=weather.get(g),
                       records={t: recs[t] for t in g.split("_")[2:4] if t in recs})
                  for g, d, t in sorted(rows, key=lambda r: (r[1], r[2], r[0]))]
+        upcoming, byes = _next_week_schedule(run.season, run.week)
         next_games = [Game(game_id=g, label=game_label(g), gameday=d, gametime=t, records={t_: recs[t_] for t_ in g.split("_")[2:4] if t_ in recs})
-                      for g, d, t in _next_week_schedule(run.season, run.week)]
+                      for g, d, t in upcoming]
+        next_byes = [ByeTeam(team=t, record=recs[t]["overall"] if t in recs else None) for t in byes]
         backtest = run.backtest
     return Meta(redistribution=(run.variance or {}).get("_redistribution") if run else None,
                 weather=(run.variance or {}).get("_weather") if run else None,
                 calibration=(run.variance or {}).get("_calibration") if run else None,
                 run=None if not run else RunInfo(id=run.id, season=run.season, week=run.week,
                                                   created_at=run.created_at.isoformat(), excluded=run.excluded),
-                backtest=backtest, odds=_odds_info(db), games=games, next_games=next_games, has_odds_key=bool(config.ODDS_API_KEY()),
+                backtest=backtest, odds=_odds_info(db), games=games, next_games=next_games, next_byes=next_byes, has_odds_key=bool(config.ODDS_API_KEY()),
                 job=JobStatus(**_job), lan_url=lan_url, auto_sync=_auto_sync(),
                 books=books.shown((b for (b,) in db.execute(select(OddsLine.book).distinct()).all()), books.hide_offshore(db)))
 
