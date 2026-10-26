@@ -19,6 +19,7 @@ export const GLOSSARY = {
   proj: ["Projection", "The model's expected number for this player, ± its typical miss."],
   hit: ["Hit chance", "The chance every leg wins. Legs in the same game are priced together, using how they moved together in past games."],
   modelEv: ["Model EV", "Expected return of the whole parlay at the book's combined odds, if the hit chance is right."],
+  ladder: ["Ladder", "Overs on alternate lines, stacked until the parlay pays +100 to +300. Each leg is a lower, likelier line than the main one."],
   sameGame: ["Same-game parlay", "Some legs share a game, and those legs move together, so the hit chance counts how they did in past games instead of multiplying. Books price same-game parlays their own way, usually below the legs multiplied: take it if the book's price beats the fair odds."],
   fair: ["Fair odds", "The odds that would make this parlay break even. If the book offers better, the model likes it."],
 } as const;

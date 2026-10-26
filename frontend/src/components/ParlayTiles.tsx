@@ -122,13 +122,13 @@ export default function ParlayTiles({ book, games, selectedGames, onGames, parla
         : <div className="card empty">Not enough likely plays at {book ?? "one sportsbook"} to build one. These need at least three high-probability plays from different players{selectedGames.length ? " in the selected games" : ""}.<TryBook book={book} counts={parlayCounts} onBook={onBook} /></div>}
 
       {!nba && <>
-      <h2 className="parlay-h">Touchdowns <small>the likeliest anytime scorers, parlayed</small></h2>
+      <h2 className="parlay-h">Touchdowns</h2>
       {tdParlays.length
         ? <section className="parlays" aria-label="Touchdown parlays">{tdParlays.map((p, i) => <ParlayCard key={p.key} p={p} lead={i === 0} />)}</section>
         : <div className="card empty">No anytime-TD prices at {book ?? "this sportsbook"} to parlay{selectedGames.length === 1 ? " for this game" : ""} yet. Books usually post them a day or two before kickoff.</div>}
       </>}
 
-      <h2 className="parlay-h">Ladders <small>{ladderMarkets} overs stacked to +100 to +300</small></h2>
+      <h2 className="parlay-h">Ladders <Info term="ladder" /></h2>
       {ladders.length
         ? ladderRows(ladders, nba).map((row, r, rows) => (
           <section key={row.key} aria-label={`${row.label} ladders`}>
