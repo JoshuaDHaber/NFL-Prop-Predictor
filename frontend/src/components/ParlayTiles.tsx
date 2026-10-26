@@ -22,8 +22,14 @@ function ParlayCard({ p, lead }: { p: Parlay; lead: boolean }) {
   return (
     <article className={`parlay${lead ? " lead" : ""}`}>
       <header>
-        <span className="tile-label">{lead && <Star />}{p.title}</span>
-        <span className="mut">{p.legs.length} legs</span>
+        <div>
+          <span className="tile-label">{lead && <Star />}{p.title}</span>
+          <p className="parlay-sub mut">{p.blurb}</p>
+        </div>
+        <span className="parlay-meta mut">
+          {p.sameGame && <span className="sg-tag">Same game <Info term="sameGame" /></span>}
+          {p.legs.length} legs
+        </span>
       </header>
       <div className="parlay-odds">{americanOdds(p.american)}<small>{p.sameGame ? "legs multiplied" : "combined odds"}</small></div>
       <dl className="parlay-stats">
@@ -45,8 +51,6 @@ function ParlayCard({ p, lead }: { p: Parlay; lead: boolean }) {
           </li>
         ))}
       </ul>
-      <p className="mut parlay-note">{p.blurb} Every leg is at {p.book}, so these are the odds you'd get there.
-        {p.sameGame && " Some legs share a game: the hit chance counts how they move together (fitted on past games), but the book prices same-game parlays its own way, usually below the legs multiplied. Take it if the book's price beats the fair odds."}</p>
       <button className="primary" onClick={addAll} disabled={added}>{added ? "On your slip" : "Add all to slip"}</button>
     </article>
   );
@@ -110,6 +114,7 @@ export default function ParlayTiles({ book, games, selectedGames, onGames, parla
   return (
     <>
       {onGames && <GamePills games={games} selected={selectedGames} onChange={onGames} multi label="Games to build from" />}
+      {book && (parlays.length > 0 || tdParlays.length > 0 || ladders.length > 0) && <p className="mut parlay-book">Every leg on this page is priced at {book}, so the odds are what you'd get there.</p>}
 
       <h2 className="parlay-h">Likely plays</h2>
       {parlays.length
