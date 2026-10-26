@@ -114,15 +114,15 @@ export default function ParlayTiles({ book, games, selectedGames, onGames, parla
   return (
     <>
       {onGames && <GamePills games={games} selected={selectedGames} onChange={onGames} multi label="Games to build from" />}
-      {book && (parlays.length > 0 || tdParlays.length > 0 || ladders.length > 0) && <p className="mut parlay-book">Every leg on this page is priced at {book}, so the odds are what you'd get there.</p>}
+      {book && (parlays.length > 0 || tdParlays.length > 0 || ladders.length > 0) && <p className="mut parlay-book">Every leg of these parlays is priced at {book}, so the odds are what you'd get there.</p>}
 
-      <h2 className="parlay-h">Likely plays</h2>
+      <h2 className="parlay-h">Likely plays <Info term="likely" /></h2>
       {parlays.length
         ? <section className="parlays" aria-label="Recommended parlays">{parlays.map((p, i) => <ParlayCard key={p.key} p={p} lead={i === 0} />)}</section>
         : <div className="card empty">Not enough likely plays at {book ?? "one sportsbook"} to build one. These need at least three high-probability plays from different players{selectedGames.length ? " in the selected games" : ""}.<TryBook book={book} counts={parlayCounts} onBook={onBook} /></div>}
 
       {!nba && <>
-      <h2 className="parlay-h">Touchdowns</h2>
+      <h2 className="parlay-h">Touchdowns <Info term="tdParlay" /></h2>
       {tdParlays.length
         ? <section className="parlays" aria-label="Touchdown parlays">{tdParlays.map((p, i) => <ParlayCard key={p.key} p={p} lead={i === 0} />)}</section>
         : <div className="card empty">No anytime-TD prices at {book ?? "this sportsbook"} to parlay{selectedGames.length === 1 ? " for this game" : ""} yet. Books usually post them a day or two before kickoff.</div>}
@@ -138,7 +138,7 @@ export default function ParlayTiles({ book, games, selectedGames, onGames, parla
         : <div className="card empty">{laddersLoading ? "Loading alternate lines…" : `No ${ladderMarkets} over combinations with betslip links at ${book ?? "this sportsbook"} land between +100 and +300. ${nba ? "NBA alternate lines come with the day-of props syncs. " : ""}Not every book publishes links for alternate lines; try another book.`}</div>}
 
       {altProps.length > 0 && <>
-        <h2 className="parlay-h">Likely alternate props <small>each player's likeliest linked over, on its own</small></h2>
+        <h2 className="parlay-h">Likely alternate props <Info term="altProps" /></h2>
         <AltProps props={altProps} />
       </>}
 
