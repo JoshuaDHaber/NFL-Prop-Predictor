@@ -91,10 +91,20 @@ interface Props {
   /** Omit to hide the game picker (a single game's page builds from that game only). */
   onGames?: (ids: string[]) => void;
   parlays: Parlay[]; tdParlays: Parlay[]; ladders: Parlay[]; altProps: ParlayLeg[]; laddersLoading: boolean;
+  /** Likely-play parlays per book, and a way to switch book, so an empty section can point at a book that has some. */
+  parlayCounts?: Record<string, number>;
+  onBook?: (b: string) => void;
+}
+
+/** "Try DraftKings (3 parlays)": the book with the most likely-play parlays, as a button, when it isn't the one on screen. */
+function TryBook({ book, counts, onBook }: { book: string | null; counts?: Record<string, number>; onBook?: (b: string) => void }) {
+  const best = Object.entries(counts ?? {}).filter(([b, n]) => b !== book && n > 0).sort((a, b) => b[1] - a[1])[0];
+  if (!best || !onBook) return null;
+  return <> <button className="link" onClick={() => onBook(best[0])}>Try {best[0]} ({best[1]} parlay{best[1] === 1 ? "" : "s"})</button></>;
 }
 
 /** Recommended parlays at one sportsbook: tiles of high-probability plays, then ladder-style tiles, each with the combined odds. */
-export default function ParlayTiles({ book, games, selectedGames, onGames, parlays, tdParlays, ladders, altProps, laddersLoading }: Props) {
+export default function ParlayTiles({ book, games, selectedGames, onGames, parlays, tdParlays, ladders, altProps, laddersLoading, parlayCounts, onBook }: Props) {
   const nba = getLeague() === "nba";
   const ladderMarkets = nba ? "points, rebounds, assists, threes, combos, steals and blocks" : "rushing and receiving";
   return (
@@ -104,13 +114,13 @@ export default function ParlayTiles({ book, games, selectedGames, onGames, parla
       <h2 className="parlay-h">Likely plays</h2>
       {parlays.length
         ? <section className="parlays" aria-label="Recommended parlays">{parlays.map((p, i) => <ParlayCard key={p.key} p={p} lead={i === 0} />)}</section>
-        : <div className="card empty">Not enough likely plays at {book ?? "one sportsbook"} to build one. These need at least three high-probability plays from different players{selectedGames.length ? " in the selected games" : ""}.</div>}
+        : <div className="card empty">Not enough likely plays at {book ?? "one sportsbook"} to build one. These need at least three high-probability plays from different players{selectedGames.length ? " in the selected games" : ""}.<TryBook book={book} counts={parlayCounts} onBook={onBook} /></div>}
 
       {!nba && <>
       <h2 className="parlay-h">Touchdowns <small>the likeliest anytime scorers, parlayed</small></h2>
       {tdParlays.length
         ? <section className="parlays" aria-label="Touchdown parlays">{tdParlays.map((p, i) => <ParlayCard key={p.key} p={p} lead={i === 0} />)}</section>
-        : <div className="card empty">No anytime-TD plays at {book ?? "this sportsbook"} to parlay{selectedGames.length === 1 ? " for this game" : ""}. Load anytime-TD lines, or try another book.</div>}
+        : <div className="card empty">No anytime-TD prices at {book ?? "this sportsbook"} to parlay{selectedGames.length === 1 ? " for this game" : ""} yet. Books usually post them a day or two before kickoff.</div>}
       </>}
 
       <h2 className="parlay-h">Ladders <small>{ladderMarkets} overs stacked to +100 to +300</small></h2>

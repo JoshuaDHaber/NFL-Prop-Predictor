@@ -93,6 +93,7 @@ class Meta(BaseModel):
     backtest: dict[str, BacktestStat]
     odds: dict[str, OddsInfo]
     games: list[Game]
+    next_games: list[Game] = []  # next week's schedule, for a preview once this week's slate is down to its last games
     has_odds_key: bool
     job: JobStatus
     lan_url: Optional[str] = None
@@ -159,6 +160,7 @@ class PickOut(BaseModel):
     flag: str = ""             # why it's flagged: "large gap" | "teammate out"
     teammate_out: str = ""     # same-position rotation receivers in their first game out (shown on Overs too)
     w: Optional[float] = None          # the market weight this pick was priced with (fitted, or the slider's)
+    median: Optional[float] = None     # the outcome he beats half the time (below mu when long plays skew the average up)
     hours: Optional[float] = None      # hours from the price's fetch to kickoff
     open_line: Optional[float] = None  # the consensus line at the first fetch of the week
     move: Optional[float] = None       # market's fair chance of this side since that first fetch (+ = toward it)
@@ -239,6 +241,7 @@ class GradeReport(BaseModel):
     board: list[GradeLine]
     by_market: list[GradeLine]
     by_ev: list[GradeLine]
+    by_prob: list[GradeLine] = []  # by the win chance shown, for calibration: expected_wins vs wins in each
     by_week: list[GradeLine]
     model_vs_line: list[MarketCheck]
     clv: list[ClvLine] = []

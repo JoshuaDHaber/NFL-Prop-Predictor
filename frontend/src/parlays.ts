@@ -111,12 +111,13 @@ export function bestBook(byBook: Record<string, Parlay[]>): string | null {
   return books.sort((a, b) => byBook[b][0].ev - byBook[a][0].ev)[0] ?? null;
 }
 
-/** The book the tab opens on when it has any picks. */
+/** The book the tab opens on when it has a parlay to show. */
 export const PREFERRED_BOOK = "FanDuel";
 
-/** The book to show first: FanDuel when it's loaded, else the best lead parlay, else the book with the most overs to ladder from. */
+/** The book to show first: FanDuel when it has a parlay, else the best lead parlay, else the book with the most overs to ladder
+ *  from. A book with nothing to build never opens the tab just for being FanDuel. */
 export function defaultBook(byBook: Record<string, Parlay[]>, picksByBook: Record<string, Pick[]>): string | null {
-  if (PREFERRED_BOOK in picksByBook) return PREFERRED_BOOK;
+  if (byBook[PREFERRED_BOOK]?.length) return PREFERRED_BOOK;
   const best = bestBook(byBook);
   if (best) return best;
   const overs = (b: string) => (picksByBook[b] ?? []).filter((p) => p.side === "Over" && isLadderKind(p.kind)).length;

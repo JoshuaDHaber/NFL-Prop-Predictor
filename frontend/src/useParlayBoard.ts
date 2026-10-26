@@ -72,8 +72,11 @@ export function useParlayBoard(books: string[], chosenGames: string[], enabled: 
   const altProps = useMemo(() => activeBook ? ladderProps(ladderEntries, activeBook) : [], [activeBook, ladderEntries]);
   const ladders = useMemo(() => [...ladderParlays, ...threesLadders, ...balancedLadders], [ladderParlays, threesLadders, balancedLadders]);
 
+  // how many likely-play parlays each book has, so an empty book can point at one that isn't
+  const parlayCounts = useMemo(() => Object.fromEntries(Object.entries(byBook).map(([b, ps]) => [b, ps.length])), [byBook]);
+
   return {
-    loading, book: activeBook, setBook, parlays: (activeBook && byBook[activeBook]) || [], tdParlays, ladders, altProps,
+    parlayCounts, loading, book: activeBook, setBook, parlays: (activeBook && byBook[activeBook]) || [], tdParlays, ladders, altProps,
     laddersLoading: ladderQueries.some((q) => q.isLoading) || threesQueries.some((q) => q.isLoading),
   };
 }

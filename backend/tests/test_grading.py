@@ -105,3 +105,17 @@ def test_longest_rush_and_first_td_grade_from_their_play_by_play_columns():
     assert grading.actual_value("rlng", row) == 23.0 and grading.outcome("Over", 19.5, 23.0) == "win"
     assert grading.actual_value("ftd", row) == 1.0 and grading.outcome("Over", 0.5, 1.0) == "win"
     assert grading.outcome("Over", 0.5, grading.actual_value("ftd", {"first_td": 0.0})) == "loss"
+
+
+def test_the_report_groups_the_board_by_shown_win_chance_for_calibration(monkeypatch):
+    board(monkeypatch, [pick(G1, "a", "rec", "Under", 50.5, -110, 0.20, 40),
+                        pick(G1, "a", "recs", "Under", 4.5, +120, 0.10, 4)])
+    with SessionLocal() as s:
+        grading.snapshot_board(s, now=MORNING)
+        stats = pd.DataFrame([dict(player_id=p, season=2026, week=6, team=t, receiving_yards=ry, receptions=rc, rushing_yards=0)
+                              for p, t, ry, rc in (("a", "AAA", 60, 3), ("z", "BBB", 10, 1))])
+        grading.grade(s, stats, pd.DataFrame([dict(game_id=G1, home_score=20.0)]))
+        rep = grading.report(s)
+    rows = [b for b in rep["by_prob"] if b["n"]]
+    assert sum(b["n"] for b in rows) == 2 and sum(b["wins"] for b in rows) == 1
+    assert all(b["expected_wins"] <= b["wins"] + b["losses"] for b in rows)

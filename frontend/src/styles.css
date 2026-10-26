@@ -43,6 +43,7 @@ tr.clickable { cursor: pointer; } tr.clickable:hover, tr.clickable:focus { backg
 .pick { font-weight: 600; } .over, .pos { color: var(--good); } .under { color: var(--bad); } .pos { font-weight: 600; }
 .q { color: #b45309; font-size: 12px; }
 .group-toggle { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; font-size: 13px; cursor: pointer; }
+.cards-toggle { display: none; }
 .flag.related { background: var(--card); color: var(--mut); border: 1px solid var(--line); }
 .flag { background: var(--warn-bg); color: var(--warn); font-size: 11px; padding: 1px 6px; border-radius: 6px; margin-left: 6px; }
 .flag.with { background: var(--card); color: var(--good); border: 1px solid currentColor; }
@@ -51,7 +52,8 @@ tr.clickable { cursor: pointer; } tr.clickable:hover, tr.clickable:focus { backg
 .move { display: block; font-size: 11px; font-weight: 600; }
 .move.with { color: var(--good); }
 .move.against { color: var(--bad); }
-.spark { display: inline-flex; align-items: flex-end; gap: 2px; height: 18px; vertical-align: middle; }
+.spark { position: relative; display: inline-flex; align-items: flex-end; gap: 2px; height: 18px; vertical-align: middle; }
+.spark-line { position: absolute; left: -2px; right: -2px; height: 0; border-top: 1.5px dashed var(--ink); opacity: .55; }
 .spark i { width: 5px; background: var(--acc); opacity: .7; border-radius: 1px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
 .stack { display: flex; flex-direction: column; gap: 12px; }
@@ -228,6 +230,16 @@ tr.clickable:hover td:last-child { border-top-right-radius: 10px; border-bottom-
   .t-picks td:nth-child(4) { grid-column: 1; grid-row: 3; } .t-picks td:nth-child(5) { grid-column: 2; grid-row: 3; }
   .t-picks td:nth-child(8) { grid-column: 3; grid-row: 3; } .t-picks td:nth-child(9) { grid-column: 4; grid-row: 3; }
   .t-picks td:nth-child(6) { grid-column: 1 / -1; grid-row: 4; }
+
+  /* compact cards (the default): player and EV, the pick, then win prob; the rest is a tap away */
+  .cards-toggle { display: flex; }
+  .compact .t-picks tr { gap: 8px; padding: 12px 14px; }
+  .compact .t-picks td:nth-child(4), .compact .t-picks td:nth-child(5), .compact .t-picks td:nth-child(8), .compact .t-picks td:nth-child(9),
+  .compact .t-picks .meter, .compact .t-picks .wp-blend { display: none; }
+  .compact .t-picks td:nth-child(6) { grid-column: 1 / 4; grid-row: 3; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+  .compact .t-picks td:nth-child(6)::before { display: inline; margin: 0; }
+  .compact .t-picks td:nth-child(6) .wp-note, .compact .t-picks td:nth-child(6) .move { flex-basis: 100%; }
+  .compact .t-picks tr::after { content: "Details ›"; grid-column: 4; grid-row: 3; align-self: end; }
 
   /* projections */
   .t-proj td:nth-child(1) { grid-column: 1 / -1; }
@@ -442,7 +454,7 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
 .topbar { position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: nowrap; align-items: stretch; gap: 20px; height: 60px; margin: -24px -16px 0; padding: 0 16px;
   background: color-mix(in srgb, var(--bg) 85%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
 .topbar .brand { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -.02em; display: flex; align-items: center; }
-.topbar .brand button { all: unset; display: flex; align-items: center; gap: 8px; cursor: pointer; white-space: nowrap; }
+.topbar .brand button, .topbar .brand a { all: unset; display: flex; align-items: center; gap: 8px; cursor: pointer; white-space: nowrap; }
 .topbar .brand .logo { box-shadow: none; }
 .topnav { display: flex; align-items: stretch; flex: 1; min-width: 0; }
 .topnav-main { display: flex; align-items: stretch; min-width: 0; overflow-x: auto; scrollbar-width: none; }
@@ -467,7 +479,7 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
 .menu-item { all: unset; box-sizing: border-box; display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 8px;
   font-size: 14px; color: var(--ink); cursor: pointer; white-space: nowrap; }
 .menu-item:hover, .menu-item:focus-visible { background: var(--chip); }
-.menu-item[aria-checked="true"] { font-weight: 600; } .menu-item:disabled { color: var(--mut); cursor: default; }
+.menu-item[aria-checked="true"], .menu-item[aria-current="page"] { font-weight: 600; } .menu-item:disabled { color: var(--mut); cursor: default; }
 .menu-check { color: var(--acc2); }
 .state-pop { width: 250px; }
 .state-pop p { margin: 4px 10px 8px; font-size: 12px; color: var(--mut); white-space: normal; } .state-pop p.err { color: var(--bad); }
@@ -542,9 +554,9 @@ input[type="search"] { font-weight: 400; }
 }
 
 /* responsible gambling, at the foot of every page */
-.rg { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--mut); }
+.rg { display: block; line-height: 1.9; margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--mut); }
 .rg a { color: var(--ink); font-weight: 600; text-decoration: none; } .rg a:hover { text-decoration: underline; }
-.rg-age { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border: 1.5px solid var(--mut); border-radius: 5px; font-weight: 800; color: var(--ink); font-size: 11px; }
+.rg-age { display: inline-flex; align-items: center; height: 20px; margin-right: 8px; vertical-align: middle; padding: 0 7px; border: 1.5px solid var(--mut); border-radius: 5px; font-weight: 800; color: var(--ink); font-size: 11px; }
 
 /* ---------- one filter bar (Best props, Projections) and the chips that undo each filter ---------- */
 .filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -634,7 +646,48 @@ table, .tile-value, .parlay-odds, .parlay-stats dd, .leg-odds, .pill-count, .cou
 
 /* how old the odds are */
 .fresh { display: inline-flex; align-items: center; gap: 5px; } .fresh i { width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
-.fresh.aging i { background: #d97706; } .fresh.stale i { background: var(--bad); } .fresh-warn { color: var(--bad); font-weight: 600; }
+.fresh.aging i { background: #d97706; } .fresh.stale i { background: var(--bad); }
+
+/* odds over six hours old: a banner over the page, and every EV and stake greyed and marked as an old price */
+.stale-banner { background: color-mix(in srgb, var(--bad) 12%, var(--card)); color: var(--ink); border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent); }
+.stale-banner b { color: var(--bad); }
+.odds-stale .ev-pill, .odds-stale .ev-text, .odds-stale .tile-value em, .odds-stale .c-kelly, .odds-stale .parlay-stats dd.pos { filter: grayscale(1); opacity: .55; }
+.odds-stale .c-ev::after { content: "old price"; display: block; margin-top: 3px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--bad); }
+.stale-ack { display: flex; gap: 10px; align-items: flex-start; margin: 12px 0 0; padding: 10px 12px; border-radius: 10px; font-size: 13px; cursor: pointer;
+  background: color-mix(in srgb, var(--bad) 10%, var(--card)); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent); }
+.stale-ack input { margin-top: 2px; flex: none; } .stale-ack b { color: var(--bad); }
+
+/* a pick the projection seems to argue against, and a winning bet that usually loses: one plain sentence each */
+.pick-why, .wp-note { display: block; max-width: 34ch; margin-top: 4px; font-size: 11.5px; line-height: 1.35; color: var(--warn); }
+.wp-blend { display: block; } .wp-blend .info-btn { vertical-align: -2px; }
+.t-picks .pick-why, .t-picks .wp-note { white-space: normal; min-width: 22ch; }
+@media (min-width: 701px) { .t-picks .wp-note { margin-left: auto; } }
+.spark i.hit { background: var(--good); opacity: 1; }
+
+/* game tiles are links */
+a.gt { color: inherit; text-decoration: none; }
+
+/* next week's schedule, under a slate down to its last games */
+.next-week { margin-top: 26px; }
+.next-week-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 14px 24px; padding: 16px; }
+.nw-day h3 { margin: 0 0 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--mut); }
+.nw-day ul { list-style: none; margin: 0; padding: 0; }
+.nw-day li { display: grid; grid-template-columns: 64px 1fr auto 1fr; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.nw-day li:first-child { border-top: 0; }
+.nw-time { font-size: 12px; } .nw-team { display: flex; align-items: center; gap: 6px; } .nw-team small { font-size: 11px; }
+
+/* model check: the track record leads */
+.sub-h { margin: 8px 0 0; font-size: 15px; } .sub-h small { font-weight: 500; font-size: 12px; }
+.track-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 4px 0 8px; }
+.track-stats div { display: flex; flex-direction: column; gap: 2px; } .track-stats b { font-size: 24px; letter-spacing: -.02em; }
+.track-stats b.good { color: var(--good); } .track-stats b.bad { color: var(--bad); } .track-stats span { font-size: 12px; }
+.calib-plot { margin: 8px 0; max-width: 340px; } .calib-plot svg { width: 100%; height: auto; display: block; }
+.calib-grid line { stroke: var(--line); } .calib-grid text { fill: var(--mut); font-size: 10px; }
+.calib-diag { stroke: var(--mut); stroke-dasharray: 4 4; stroke-width: 1.5; }
+.calib-dot { fill: var(--acc2); fill-opacity: .85; stroke: var(--card); stroke-width: 2; }
+.calib-plot figcaption { font-size: 12px; margin-top: 4px; }
+
+footer a { color: var(--ink); font-weight: 600; text-decoration: none; } footer a:hover { text-decoration: underline; }
 
 /* ---------- reduced motion: no lifts, slides or shimmer ---------- */
 @media (prefers-reduced-motion: reduce) {

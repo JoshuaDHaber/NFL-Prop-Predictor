@@ -6,14 +6,17 @@ import { detectState } from "../geoState";
 import BookBadge from "./BookBadge";
 import Sheet from "./Sheet";
 import SidePill from "./SidePill";
-import { isYesNo, KIND_SHORT, americanOdds, pct, playLabel, signedPct } from "../format";
+import { isYesNo, KIND_SHORT, americanOdds, pct, playLabel, signedPct, timeAgo } from "../format";
 import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, combinedLink, legLink, slipLinksText, linkStatus, openProgress, parlay, rebook, sameGame, slipHitChance, toAmerican, toWin, type BookOption } from "../slip";
 
 // once per page load: the stored state covers later opens, and "Try again" re-runs it
 let locatedOnce = false;
 
 export default function BetSlip() {
-  const { legs, remove, replace, clear, state, setState, open, setOpen } = useBetSlip();
+  const { legs, remove, replace, clear, state, setState, open, setOpen, staleSince } = useBetSlip();
+  // old odds: the bettor ticks that they'll check prices before a Place button hands the slip to a book (once per odds fetch)
+  const [checkedStale, setCheckedStale] = useState<string | null>(null);
+  const gated = !!staleSince && checkedStale !== staleSince;
   const close = () => setOpen(false);
   const [stakes, setStakes] = useState<Record<string, number>>({});
   const [copied, setCopied] = useState<"link" | null>(null);
@@ -98,6 +101,7 @@ export default function BetSlip() {
     const prog = openProgress(legs, book, state, opened[book] ?? []);
     if (!prog.direct.length) return null;
     const label = <><BookBadge book={book} size={20} />{groups.length > 1 ? `Place at ${book}` : "Place bet"}</>;
+    if (gated) return <button key={book} className="primary" disabled title="Tick the box above first: these prices are old">{label} ↗</button>;
     const combine = combineFor(book);
     // a real link (not window.open), so phones hand it to the sportsbook app
     if (combine) return (
@@ -239,7 +243,8 @@ export default function BetSlip() {
                         </div>
                         <div className="slip-actions">
                           {/* a book's only leg goes through "Place bet" below */}
-                          {url && !(ls.length === 1 && direct) && <a href={url} target="_blank" rel="noopener noreferrer" className="btn"
+                          {url && !(ls.length === 1 && direct) && gated && <button className="btn" disabled title="Tick the box below first: these prices are old">{direct ? "Add at book ↗" : "Open book ↗"}</button>}
+                          {url && !(ls.length === 1 && direct) && !gated && <a href={url} target="_blank" rel="noopener noreferrer" className="btn"
                             title={direct ? "Adds this selection to your betslip at the sportsbook" : "Opens the sportsbook's page (no betslip link for this selection yet)"}>
                             {direct ? "Add at book ↗" : "Open book ↗"}
                           </a>}
@@ -276,6 +281,12 @@ export default function BetSlip() {
               );
             })}
 
+            {legs.length > 0 && staleSince && (
+              <label className="stale-ack">
+                <input type="checkbox" checked={!gated} onChange={(e) => setCheckedStale(e.target.checked ? staleSince : null)} />
+                <span><b>These prices are {timeAgo(staleSince).replace(" ago", "")} old</b> and have probably moved. I'll check each one at the book before betting.</span>
+              </label>
+            )}
             {legs.length > 0 && (
               <div className="slip-footer">
                 {groups.map(([book]) => placeButton(book))}

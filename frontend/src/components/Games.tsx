@@ -10,9 +10,12 @@ import { matchupColors, shadeVars } from "../teams";
 import { BookName } from "./BookBadge";
 import { InjuryIcon, WeatherIcon } from "./icons";
 import SidePill from "./SidePill";
+import { routeClick } from "./NavLink";
 
 interface Props {
   games: Game[];
+  /** Next week's schedule, previewed under a slate that's down to its last game or two. */
+  nextGames?: Game[];
   /** Positive-EV plays across the slate, any order. */
   picks: Pick[];
   moneylines: MoneylineGame[];
@@ -43,7 +46,7 @@ function Tile({ g, picks, ml, injuries, onOpen }: { g: Game; picks: Pick[]; ml?:
     return r && <span className="gt-rec" title={`${r.overall} this season${r[at] ? ` · ${r[at]} ${at === "home" ? "at home" : "on the road"}` : ""}`}>{r.overall}</span>;
   };
   return (
-    <button className="gt" onClick={() => onOpen(g.game_id)} aria-label={`Open ${g.label}`}>
+    <a className="gt" href={`#game=${encodeURIComponent(g.game_id)}`} onClick={routeClick(() => onOpen(g.game_id))} aria-label={`Open ${g.label}`}>
       <span className="gt-top"><span>{kickoff(g.gameday, g.gametime)}</span>{wx && <span>{wx}</span>}</span>
       <span className="gt-match">
         <span className="gt-team"><TeamLogo team={away} /><span><span className="gt-abbr"><b>{away}</b>{rec(away, "road")}</span>{a && <small>{pct(a.prob, 0)}</small>}</span></span>
@@ -67,20 +70,61 @@ function Tile({ g, picks, ml, injuries, onOpen }: { g: Game; picks: Pick[]; ml?:
         <span>{inj == null ? "" : injText ? <span className="with-icon"><InjuryIcon size={14} stroke={1.75} aria-hidden />{injText}</span> : getLeague() === "nba" ? "No injuries listed" : "No game statuses yet"}</span>
       </span>
       <span className="gt-go">Game overview →</span>
-    </button>
+    </a>
+  );
+}
+
+/** A slate this small is the tail of the week (Monday night): next week's schedule fills the page under it. */
+const PREVIEW_UNDER = 3;
+
+/** Next week's games, kickoff and matchup only: no projections or lines until the week's first sync. */
+function NextWeek({ games }: { games: Game[] }) {
+  const days = new Map<string, Game[]>();
+  for (const g of games) days.set(g.gameday, [...(days.get(g.gameday) ?? []), g]);
+  const dayName = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+  return (
+    <section className="next-week" aria-label="Next week's games">
+      <h2 className="parlay-h">Next week <small>projections and props arrive with the first sync after this week's games</small></h2>
+      <div className="card next-week-list">
+        {[...days].map(([d, gs]) => (
+          <div key={d} className="nw-day">
+            <h3>{dayName(d)}</h3>
+            <ul>
+              {gs.map((g) => {
+                const [, , away, home] = g.game_id.split("_");
+                return (
+                  <li key={g.game_id}>
+                    <span className="nw-time mut">{g.gametime ? kickoff(g.gameday, g.gametime).replace(/^\S+\s/, "") : ""}</span>
+                    <span className="nw-team"><TeamLogo team={away} size={22} /><b>{away}</b><small className="mut">{g.records?.[away]?.overall}</small></span>
+                    <span className="mut">@</span>
+                    <span className="nw-team"><TeamLogo team={home} size={22} /><b>{home}</b><small className="mut">{g.records?.[home]?.overall}</small></span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
 /** The slate: one tile per game with its win chances, top prop and injury count. A tile opens that game's overview. */
-export default function Games({ games, picks, moneylines, injuries, onOpen }: Props) {
-  if (!games.length) return <div className="card empty">No games on the slate yet. They appear after the next scheduled sync.</div>;
+export default function Games({ games, nextGames = [], picks, moneylines, injuries, onOpen }: Props) {
+  if (!games.length) return <>
+    <div className="card empty">No games on the slate yet. They appear after the next scheduled sync.</div>
+    {nextGames.length > 0 && <NextWeek games={nextGames} />}
+  </>;
   const nba = getLeague() === "nba";
   const byGame = new Map<string, Pick[]>();
   for (const p of [...picks].filter((p) => !p.flagged).sort((x, y) => y.ev - x.ev)) byGame.set(p.game_id, [...(byGame.get(p.game_id) ?? []), p]);
   const mlByGame = new Map(moneylines.map((m) => [m.game_id, m]));
   return (
+    <>
     <section className="gt-grid" aria-label={nba ? "Upcoming games" : "This week's games"}>
       {games.map((g) => <Tile key={g.game_id} g={g} picks={byGame.get(g.game_id) ?? []} ml={mlByGame.get(g.game_id)} injuries={injuries} onOpen={onOpen} />)}
     </section>
+    {games.length < PREVIEW_UNDER && nextGames.length > 0 && <NextWeek games={nextGames} />}
+    </>
   );
 }

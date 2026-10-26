@@ -3,7 +3,10 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { api, type BacktestStat, type Filters, type Game, type InjuryReport, type Kind } from "./api";
 import BookSelect from "./components/BookSelect";
 import GamePills from "./components/GamePills";
-import Freshness from "./components/Freshness";
+import Freshness, { StaleBanner, latestFetch, oddsLevel } from "./components/Freshness";
+import Methodology from "./components/Methodology";
+import { routeClick } from "./components/NavLink";
+import { useBetSlip } from "./BetSlipContext";
 import HowToRead from "./components/HowToRead";
 import PageHead from "./components/PageHead";
 import ResponsibleGaming from "./components/ResponsibleGaming";
@@ -11,7 +14,7 @@ import TopBar from "./components/TopBar";
 import BetSlip from "./components/BetSlip";
 import Controls from "./components/Controls";
 import Games from "./components/Games";
-import GradesCard from "./components/GradesCard";
+import GradesCard, { TrackRecord } from "./components/GradesCard";
 import { GameInjuries } from "./components/Injuries";
 import NbaGameOverview from "./components/NbaGameOverview";
 import ParlayTiles from "./components/ParlayTiles";
@@ -22,7 +25,7 @@ import TopTiles, { type Tile } from "./components/TopTiles";
 import { KIND_LABEL, NBA_KINDS, easternToday, isYesNo, americanOdds, fmtProj, fmtSd, matchup, playLabel, projCaption, signedPct, timeAgo } from "./format";
 import { importOrReload } from "./staleChunk";
 import { localWhen } from "./sync";
-import { filterParams, filtersFromUrl, param, setParams, useSection } from "./route";
+import { filterParams, filtersFromUrl, leaguePath, param, setParams, useSection } from "./route";
 import { useDebounced } from "./useDebounced";
 import { useParlayBoard } from "./useParlayBoard";
 import Skeleton from "./components/Skeleton";
@@ -76,6 +79,11 @@ export default function NbaApp() {
 
   // the drawer and ladder read ["meta"] from the cache, so the NBA meta lives under the same key (this league has its own cache)
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.nbaMeta });
+  // odds over six hours old: the slip asks the bettor to check prices before handing legs to a book
+  const { setStaleSince } = useBetSlip();
+  const oddsAt = meta.data ? latestFetch(meta.data.odds) : undefined;
+  const stale = !!oddsAt && oddsLevel(oddsAt) === "stale";
+  useEffect(() => setStaleSince(stale ? oddsAt! : null), [stale, oddsAt, setStaleSince]);
   const gameOpen = !!gameId && (!meta.data || meta.data.games.some((g) => g.game_id === gameId));
   useEffect(() => {
     if (!gameId || !meta.data || meta.data.games.some((g) => g.game_id === gameId)) return;
@@ -143,12 +151,14 @@ export default function NbaApp() {
   const setDrawerBook = (b: string) => (openedGame ? setGameBook(b) : setFilters({ ...filters, book: b }));
   const hasLines = Object.keys(m.odds).length > 0;
   const hasProps = NBA_KINDS.some((k) => m.odds[k]?.lines);
-  const latestOdds = Object.values(m.odds).map((o) => o.fetched_at).sort().at(-1);
+  const latestOdds = oddsAt;
+  const pricedPage = !!openedGame || tab === "games" || tab === "picks" || tab === "parlays";
+  const href = (t: Tab) => leaguePath("nba", SLUGS[t]);
   const seasonLabel = m.run ? `${m.run.season - 1}-${String(m.run.season).slice(2)}` : "";
 
   return (
     <div className="wrap">
-      <TopBar tabs={TABS} more={MORE} tab={tab} onTab={goTab} />
+      <TopBar tabs={TABS} more={MORE} tab={tab} onTab={goTab} href={href} />
       <p className="statusline">
         {m.run ? `${seasonLabel} · ${m.run.slate.map(day).join(" & ")} · projections ${timeAgo(m.run.created_at)}` : "No projections yet"}
         {latestOdds && <> · <Freshness at={latestOdds} /></>}
@@ -165,6 +175,9 @@ export default function NbaApp() {
       )}
 
 
+      {stale && pricedPage && <StaleBanner at={latestOdds!} />}
+
+      <div className={stale ? "odds-stale" : undefined}>
       {openedGame ? (
         <NbaGameOverview key={openedGame.game_id} game={openedGame} books={m.books} book={pageBook} onBook={setGameBook} marketWeight={debounced.marketWeight}
           onBack={() => (pushedGame.current ? window.history.back() : openGame(null))} onSelect={select} />
@@ -186,22 +199,21 @@ export default function NbaApp() {
         {tab === "picks" && (picks.isLoading ? <Skeleton kind="rows" /> :
           <PicksTable picks={picks.data ?? []} onSelect={(p) => select(p.player_id, p.kind)} />)}
         {tab === "parlays" && (board.loading ? <Skeleton kind="cards" /> :
-          <ParlayTiles book={board.book} games={dateGames} selectedGames={chosenGames} onGames={setParlayGames} parlays={board.parlays}
+          <ParlayTiles book={board.book} parlayCounts={board.parlayCounts} onBook={board.setBook} games={dateGames} selectedGames={chosenGames} onGames={setParlayGames} parlays={board.parlays}
             tdParlays={board.tdParlays} ladders={board.ladders} altProps={board.altProps} laddersLoading={board.laddersLoading} />)}
         {tab === "injuries" && (injuries.isLoading ? <Skeleton kind="cards" count={2} /> : injuries.error || !injuries.data ? <p className="err">Couldn't load the injury report.</p> :
           <NbaInjuries report={injuries.data} games={dateGames} onSelect={select} />)}
         {tab === "projections" && (projections.isLoading ? <Skeleton kind="rows" /> :
           <ProjectionsTable nba rows={projections.data ?? []} onSelect={(p) => select(p.player_id, p.kind)} />)}
         {tab === "compare" && <PlayerCompare onSelect={select} />}
-        {tab === "check" && <div className="stack"><GradesCard nba /><NbaBacktest backtest={m.backtest} /></div>}
+        {tab === "check" && <div className="stack"><TrackRecord nba /><GradesCard nba /><NbaBacktest backtest={m.backtest} /><Methodology league="nba" /></div>}
         {tab === "admin" && <Suspense fallback={<Skeleton kind="cards" />}><AdminPage embedded /></Suspense>}
       </>}
 
+      </div>
+
       <footer>
-        Points, rebounds, assists, threes, steals and blocks = projected minutes × a per-minute rate, recency-weighted and shrunk toward the position's average, adjusted for
-        the opponent; PRA, PR and PA are the sums of those projections. Double- and triple-double chances combine each stat's chance of
-        reaching 10, calibrated on past games. Win probabilities come from the backtest's own errors (threes, steals and blocks: Poisson counts), blended with the market's no-vig price. Team win chances come from
-        point-margin ratings and lean heavily on the moneyline market. Teammates' injuries don't move a player's projection yet. Not betting advice.
+        Projections and win chances, not betting advice.{tab !== "check" && <> <a href={href("check")} onClick={routeClick(() => goTab("check"))}>How the numbers work →</a></>}
         <span className="signoff">Bread from air, picks from stats. Built by JD Haber.</span>
         <ResponsibleGaming />
       </footer>

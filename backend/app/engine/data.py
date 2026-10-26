@@ -137,6 +137,16 @@ def load_schedule():
     return g[g.game_type == "REG"].copy()
 
 
+def cached_schedule():
+    """The schedule as a sync last downloaded it, never downloading (for page loads); None before the first download."""
+    for name in ("games.csv.gz", "games.csv"):
+        path = os.path.join(CACHE, name)
+        if os.path.exists(path):
+            g = _read(path, name, None)
+            return g[g.game_type == "REG"].copy()
+    return None
+
+
 def load_injuries(season):
     try:
         return _get_csv(f"{BASE}/injuries/injuries_{season}.csv", f"injuries_{season}.csv", max_age_hours=1)

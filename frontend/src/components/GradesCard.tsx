@@ -87,6 +87,60 @@ function MarketFitCard({ fit }: { fit: MarketFit }) {
   );
 }
 
+/** Shown win chance against how often those picks won, one dot per bucket (sized by how many picks), with the diagonal a
+ *  well-calibrated board sits on. Dots under it: the board was overconfident there. */
+function CalibrationPlot({ lines }: { lines: GradeLine[] }) {
+  const pts = lines.map((l) => ({ l, d: l.wins + l.losses })).filter(({ d }) => d >= 5)
+    .map(({ l, d }) => ({ label: l.label, n: d, x: l.expected_wins / d, y: l.wins / d }));
+  if (pts.length < 2) return null;
+  const W = 280, H = 220, P = { l: 36, r: 10, t: 10, b: 30 };
+  const lo = 0.2, hi = 0.9;
+  const sx = (v: number) => P.l + ((Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo)) * (W - P.l - P.r);
+  const sy = (v: number) => H - P.b - ((Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo)) * (H - P.t - P.b);
+  const ticks = [0.3, 0.5, 0.7, 0.9];
+  const maxN = Math.max(...pts.map((p) => p.n));
+  return (
+    <figure className="calib-plot">
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Calibration: shown win chance against actual win rate; the table below has the numbers">
+        {ticks.map((t) => (
+          <g key={t} className="calib-grid">
+            <line x1={P.l} x2={W - P.r} y1={sy(t)} y2={sy(t)} /><text x={P.l - 6} y={sy(t) + 4} textAnchor="end">{Math.round(t * 100)}%</text>
+            <text x={sx(t)} y={H - P.b + 16} textAnchor="middle">{Math.round(t * 100)}%</text>
+          </g>
+        ))}
+        <line className="calib-diag" x1={sx(lo)} y1={sy(lo)} x2={sx(hi)} y2={sy(hi)} />
+        {pts.map((p) => (
+          <circle key={p.label} className="calib-dot" cx={sx(p.x)} cy={sy(p.y)} r={4 + 5 * Math.sqrt(p.n / maxN)}>
+            <title>{`${p.label}: shown ${pct(p.x, 0)}, won ${pct(p.y, 0)} of ${p.n} picks`}</title>
+          </circle>
+        ))}
+      </svg>
+      <figcaption className="mut">Across: the win chance the board showed. Up: how often those picks won. On the diagonal is honest; under it, overconfident.</figcaption>
+    </figure>
+  );
+}
+
+/** The headline for the model page: how the board's picks actually did, and whether its win chances held up. */
+export function TrackRecord({ nba = false }: { nba?: boolean }) {
+  const q = useQuery({ queryKey: [nba ? "nba-grades" : "grades"], queryFn: nba ? api.nbaGrades : api.grades, retry: false });
+  const g = q.data;
+  const b = g?.board[0];
+  if (!g || !b || b.wins + b.losses === 0) return null;
+  const decided = b.wins + b.losses;
+  return (
+    <section className="card prose track" aria-label="Track record">
+      <h3>Track record</h3>
+      <div className="track-stats">
+        <div><span className="mut">Board record</span><b>{b.wins}-{b.losses}{b.pushes ? `-${b.pushes}` : ""}</b><small className="mut">{pct(b.wins / decided, 0)} won</small></div>
+        <div><span className="mut">Expected</span><b>{b.expected_wins.toFixed(0)} W</b><small className="mut">{pct(b.expected_wins / decided, 0)} if the chances were right</small></div>
+        <div><span className="mut">Return</span><b className={b.units >= 0 ? "good" : "bad"}>{units(b.units)} u</b><small className="mut">{b.roi == null ? "" : `${signedPct(b.roi)} ROI`}, 1 unit a pick</small></div>
+      </div>
+      {g.by_prob && <CalibrationPlot lines={g.by_prob} />}
+      <p className="mut">Every pick the board showed before kickoff (Min EV 3%, flags hidden), graded from the box scores. The full breakdown is under Graded picks.</p>
+    </section>
+  );
+}
+
 /** "Oct 20" from an Eastern date. */
 const day = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
@@ -122,6 +176,7 @@ export default function GradesCard({ nba = false }: { nba?: boolean }) {
               <Rows lines={g.board} label={(l) => l.label} />
               <Rows lines={g.by_market} label={(l) => marketLabel(l.label)} />
               <Rows lines={g.by_ev} label={(l) => l.label} />
+              {g.by_prob && <Rows lines={g.by_prob} label={(l) => `Shown ${l.label}`} />}
               {g.by_week.length > 1 && <Rows lines={g.by_week} label={(l) => l.label} />}
             </tbody>
           </table>

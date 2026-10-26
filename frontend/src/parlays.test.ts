@@ -207,9 +207,14 @@ describe("ladder parlays", () => {
 });
 
 describe("defaultBook", () => {
-  it("opens on FanDuel whenever it is loaded", () => {
-    const picksByBook = { DraftKings: slate(4, () => ({ book: "DraftKings", odds: 500 })), FanDuel: [] };
+  it("opens on FanDuel when it has a parlay", () => {
+    const picksByBook = { DraftKings: slate(4, () => ({ book: "DraftKings", odds: 500 })), FanDuel: slate(4, () => ({ book: "FanDuel" })) };
     expect(defaultBook(parlaysByBook(picksByBook), picksByBook)).toBe("FanDuel");
+  });
+
+  it("skips FanDuel when it has nothing to build", () => {
+    const picksByBook = { DraftKings: slate(4, () => ({ book: "DraftKings", odds: 500 })), FanDuel: [] };
+    expect(defaultBook(parlaysByBook(picksByBook), picksByBook)).toBe("DraftKings");
   });
 
   it("falls back to the book with the most overs when no standard parlay exists", () => {
