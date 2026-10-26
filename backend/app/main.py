@@ -214,6 +214,7 @@ def _release_memory():
     """Hand a finished job's memory back to the OS (matters on a 1 GB host) and drop caches the new data outdates."""
     import gc
     _injury_report.cache_clear()
+    _next_week_schedule.cache_clear()
     _stats.cache_clear()   # game logs in the player drawer come from the stats files, which a sync just refreshed
     _pick_cache.clear()
     _priced_cache.clear()
@@ -235,9 +236,23 @@ def meta(request: Request, db: Session = Depends(get_db)):
     return out
 
 
+@lru_cache(maxsize=4)
+def _next_week_schedule(season: int, week: int) -> tuple:
+    """(game_id, gameday, gametime) for the week after `week`, from the schedule a sync downloaded (never downloading on a
+    page load); empty after the regular season or before there's a copy."""
+    try:
+        s = data.cached_schedule()
+    except Exception:
+        return ()
+    if s is None:
+        return ()
+    nxt = s[(s.season == season) & (s.week == week + 1)].sort_values(["gameday", "gametime", "game_id"])
+    return tuple((r.game_id, str(r.gameday), "" if pd.isna(r.gametime) else str(r.gametime)) for r in nxt.itertuples())
+
+
 def build_meta(db: Session, lan_url: Optional[str] = None) -> Meta:
     run = latest_run(db)
-    games, backtest = [], {}
+    games, next_games, backtest = [], [], {}
     if run:
         rows = db.execute(select(Projection.game_id, Projection.gameday, Projection.gametime)
                           .where(Projection.run_id == run.id).distinct()).all()
@@ -246,13 +261,15 @@ def build_meta(db: Session, lan_url: Optional[str] = None) -> Meta:
         games = [Game(game_id=g, label=game_label(g), gameday=d, gametime=t, weather=weather.get(g),
                       records={t: recs[t] for t in g.split("_")[2:4] if t in recs})
                  for g, d, t in sorted(rows, key=lambda r: (r[1], r[2], r[0]))]
+        next_games = [Game(game_id=g, label=game_label(g), gameday=d, gametime=t, records={t_: recs[t_] for t_ in g.split("_")[2:4] if t_ in recs})
+                      for g, d, t in _next_week_schedule(run.season, run.week)]
         backtest = run.backtest
     return Meta(redistribution=(run.variance or {}).get("_redistribution") if run else None,
                 weather=(run.variance or {}).get("_weather") if run else None,
                 calibration=(run.variance or {}).get("_calibration") if run else None,
                 run=None if not run else RunInfo(id=run.id, season=run.season, week=run.week,
                                                   created_at=run.created_at.isoformat(), excluded=run.excluded),
-                backtest=backtest, odds=_odds_info(db), games=games, has_odds_key=bool(config.ODDS_API_KEY()),
+                backtest=backtest, odds=_odds_info(db), games=games, next_games=next_games, has_odds_key=bool(config.ODDS_API_KEY()),
                 job=JobStatus(**_job), lan_url=lan_url, auto_sync=_auto_sync(),
                 books=books.shown((b for (b,) in db.execute(select(OddsLine.book).distinct()).all()), books.hide_offshore(db)))
 

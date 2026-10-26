@@ -199,6 +199,9 @@ def report(session, season: Optional[int] = None, table=PickLog, period: Callabl
     board = [r for r in rows if r.ev >= BOARD_MIN_EV and not r.flagged]
     kinds = sorted({r.kind for r in board})
     by_ev = [(f"EV {lo:.0%}–{hi:.0%}" if hi < 9 else f"EV {lo:.0%}+", lo, hi) for lo, hi in ((0.03, 0.08), (0.08, 0.15), (0.15, 0.25), (0.25, 9))]
+    # calibration: the board's picks grouped by the win chance they were shown with, to set against how often they won
+    by_prob = [(f"Under {hi:.0%}" if lo == 0 else f"{lo:.0%}+" if hi > 1 else f"{lo:.0%}–{hi:.0%}", lo, hi)
+               for lo, hi in ((0, 0.4), (0.4, 0.5), (0.5, 0.55), (0.55, 0.6), (0.6, 0.65), (0.65, 0.7), (0.7, 9))]
     # model vs line: one row per player and market (the Over and Under rows share a line and a projection)
     seen = {}
     for r in rows:
@@ -226,6 +229,7 @@ def report(session, season: Optional[int] = None, table=PickLog, period: Callabl
                _line("Flagged (hidden)", [r for r in rows if r.flagged and r.ev >= BOARD_MIN_EV])],
         by_market=[_line(k, [r for r in board if r.kind == k]) for k in kinds],
         by_ev=[_line(label, [r for r in board if lo <= r.ev < hi]) for label, lo, hi in by_ev],
+        by_prob=[_line(label, [r for r in board if lo <= r.prob < hi]) for label, lo, hi in by_prob],
         by_week=[_line(label, [r for r in board if period(r)[1] == label]) for _, label in sorted({period(r) for r in board})],
         model_vs_line=checks,
     )

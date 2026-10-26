@@ -74,6 +74,8 @@ export interface Meta {
   backtest: Record<string, BacktestStat>;
   odds: Record<string, { fetched_at: string; lines: number }>;
   games: Game[];
+  /** Next week's schedule (no projections or lines yet), previewed under the slate once it's down to its last games. */
+  next_games?: Game[];
   has_odds_key: boolean;
   job: JobStatus;
   lan_url: string | null;
@@ -114,6 +116,8 @@ export interface Pick {
   move?: number | null;
   /** +1: books moved together toward this side between the last two fetches; -1: against it. */
   steam?: number;
+  /** The outcome he beats half the time: below mu where a few long plays pull the average up (longest rush). Null for yes/no markets. */
+  median?: number | null;
 }
 /** A player search hit: an active player; projected is false for players on bye, off the NBA slate, or without a projection. */
 export interface PlayerHit { player_id: string; name: string; pos: string; team: string; headshot?: string | null; projected: boolean }
@@ -209,7 +213,9 @@ export interface MarketFit { fitted_at: string | null; n: number; w: number | nu
 
 export interface GradeReport {
   season: number | null; graded: number; pending: number; weeks: number[]; dates?: string[];
-  board: GradeLine[]; by_market: GradeLine[]; by_ev: GradeLine[]; by_week: GradeLine[]; model_vs_line: MarketCheck[];
+  board: GradeLine[]; by_market: GradeLine[]; by_ev: GradeLine[]; by_week: GradeLine[];
+  /** The board by the win chance it showed: expected_wins / decided against wins / decided is the calibration. */
+  by_prob?: GradeLine[]; model_vs_line: MarketCheck[];
   clv?: ClvLine[]; clv_by_market?: ClvLine[]; market_fit?: MarketFit | null;
 }
 

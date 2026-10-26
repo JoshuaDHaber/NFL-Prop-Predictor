@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { routeClick } from "./NavLink";
 
 export const Caret = () => (
   <svg className="caret" width="10" height="6" viewBox="0 0 10 6" aria-hidden="true">
@@ -41,8 +42,14 @@ export default function Menu({ label, ariaLabel, buttonClass = "chip-menu", alig
   );
 }
 
-/** One choice in a Menu, checked when it's the current one. */
-export function MenuItem({ on, onClick, children }: { on?: boolean; onClick: () => void; children: ReactNode }) {
+/** One choice in a Menu, checked when it's the current one. With href it's a link (a section), which a plain click still
+ *  routes through onClick. */
+export function MenuItem({ on, onClick, href, children }: { on?: boolean; onClick: () => void; href?: string; children: ReactNode }) {
+  if (href) return (
+    <a className="menu-item" href={href} aria-current={on ? "page" : undefined} onClick={routeClick(onClick)}>
+      <span>{children}</span>{on && <span className="menu-check" aria-hidden="true">✓</span>}
+    </a>
+  );
   return (
     <button className="menu-item" role="menuitemradio" aria-checked={!!on} onClick={onClick}>
       <span>{children}</span>{on && <span className="menu-check" aria-hidden="true">✓</span>}

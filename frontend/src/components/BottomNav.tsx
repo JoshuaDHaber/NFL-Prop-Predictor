@@ -2,6 +2,7 @@ import { IconChartDots, IconChartLine, IconDots, IconFirstAidKit, IconLayoutGrid
   IconStack2, type Icon } from "@tabler/icons-react";
 import { useBetSlip } from "../BetSlipContext";
 import Menu, { MenuItem } from "./Menu";
+import { routeClick } from "./NavLink";
 
 const ICON: Record<string, Icon> = { games: IconLayoutGrid, picks: IconListDetails, parlays: IconStack2, projections: IconChartLine,
   injuries: IconFirstAidKit, compare: IconScale, model: IconChartDots, check: IconChartDots, admin: IconSettings };
@@ -10,7 +11,7 @@ const SHORT: Record<string, string> = { picks: "Props" };
 const SLOTS = 3;
 
 /** Phones: the main sections and the bet slip along the bottom, where a thumb reaches. */
-export default function BottomNav<T extends string>({ tabs, tab, onTab }: { tabs: [T, string][]; tab?: T; onTab?: (t: T) => void }) {
+export default function BottomNav<T extends string>({ tabs, tab, onTab, href }: { tabs: [T, string][]; tab?: T; onTab?: (t: T) => void; href?: (t: T) => string }) {
   const { legs, setOpen } = useBetSlip();
   const main = tabs.slice(0, SLOTS);
   const rest = tabs.slice(SLOTS);
@@ -18,9 +19,9 @@ export default function BottomNav<T extends string>({ tabs, tab, onTab }: { tabs
   const item = (k: T, label: string) => {
     const I = ICON[k] ?? IconDots;
     return (
-      <button key={k} className={`bnav-item${tab === k ? " on" : ""}`} aria-current={tab === k ? "page" : undefined} onClick={() => onTab?.(k)}>
+      <a key={k} href={href?.(k)} className={`bnav-item${tab === k ? " on" : ""}`} aria-current={tab === k ? "page" : undefined} onClick={routeClick(() => onTab?.(k))}>
         <I size={22} stroke={1.75} aria-hidden /><span>{SHORT[k] ?? label}</span>
-      </button>
+      </a>
     );
   };
   return (
@@ -34,7 +35,7 @@ export default function BottomNav<T extends string>({ tabs, tab, onTab }: { tabs
         label={<><IconDots size={22} stroke={1.75} aria-hidden /><span>{inRest ? SHORT[inRest[0]] ?? inRest[1] : "More"}</span></>}>
         {(close) => rest.map(([k, label]) => {
           const I = ICON[k] ?? IconDots;
-          return <MenuItem key={k} on={tab === k} onClick={() => { close(); onTab?.(k); }}><span className="with-icon"><I size={18} stroke={1.75} aria-hidden />{label}</span></MenuItem>;
+          return <MenuItem key={k} on={tab === k} href={href?.(k)} onClick={() => { close(); onTab?.(k); }}><span className="with-icon"><I size={18} stroke={1.75} aria-hidden />{label}</span></MenuItem>;
         })}
       </Menu>
     </nav>

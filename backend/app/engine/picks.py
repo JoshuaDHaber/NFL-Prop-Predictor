@@ -4,7 +4,7 @@ import pandas as pd
 
 from . import market as mkt
 from . import odds
-from .model import prob_over_under, prob_over_under_dist
+from .model import median_dist, median_gamma, prob_over_under, prob_over_under_dist
 from .td import (DD_ASSUMED_HOLD, FTD_ASSUMED_HOLD, MIN_MARKET_WEIGHT, TD_ASSUMED_HOLD, TD_MIN_MARKET_WEIGHT,  # noqa: F401
                  TPL_ASSUMED_HOLD, YES_NO)  # (re-exported for callers and tests)
 
@@ -16,7 +16,7 @@ HOLD = {"td": TD_ASSUMED_HOLD, "ftd": FTD_ASSUMED_HOLD, "dd": DD_ASSUMED_HOLD, "
 PICK_COLUMNS = [
     "player_id", "name", "pos", "team", "opp", "home", "kind", "mu", "sd", "status", "game_id", "gameday", "gametime",
     "side", "line", "odds", "book", "p_model", "p_mkt", "prob", "ev", "kelly", "books", "edge_yds", "flagged", "wx",
-    "flag", "teammate_out", "hours", "w",
+    "flag", "teammate_out", "hours", "w", "median",
 ]
 # a quote this far from the consensus line (or 30% of it) is an alternate or stale line; receptions are counted in catches,
 # passing TDs in touchdowns (lines step 0.5 / 1.5 / 2.5, so a whole TD off the consensus is another line)
@@ -91,6 +91,15 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
                           else prob_over_under(p.mu, line, p.sd ** 2))
         return chances[k]
 
+    medians = {}
+
+    def median(p, market):
+        k = (p.key, market)
+        if k not in medians:
+            medians[k] = (median_dist(p.mu, dists[market]) if dists and market in dists
+                          else median_gamma(p.mu, p.sd ** 2) if p.mu > 0 and p.sd > 0 else p.mu)
+        return medians[k]
+
     def p_over(key, market, line):
         p = pm.get((key, market))
         return None if p is None else chance(p, market, line)[0]
@@ -145,7 +154,8 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
                 mu=p.mu, sd=p.sd, status=p.status, game_id=p.game_id, gameday=p.gameday, gametime=p.gametime,
                 side=side, line=float(r.line), odds=int(odd), book=r.book, p_model=p_side, p_mkt=mk, prob=prob, ev=ev,
                 kelly=max(0.0, ev / (dec - 1)) / 4, books=int(c.books),
-                edge_yds=edge, flagged=bool(flag), wx=wx, flag=flag, teammate_out=out_, hours=hours, w=w))
+                edge_yds=edge, flagged=bool(flag), wx=wx, flag=flag, teammate_out=out_, hours=hours, w=w,
+                median=None if is_td else median(p, r.market)))
     df = pd.DataFrame(out, columns=PICK_COLUMNS)
     if df.empty:
         return df

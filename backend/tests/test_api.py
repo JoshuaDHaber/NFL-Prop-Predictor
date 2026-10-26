@@ -1,4 +1,5 @@
 from datetime import datetime
+import pandas as pd
 
 import pytest
 from fastapi.testclient import TestClient
@@ -494,3 +495,20 @@ def test_grades_carry_clv_and_the_market_fit(client):
     g = client.get("/api/grades").json()
     assert g["clv"][0]["n"] == 0 and g["market_fit"]["n"] == 0
     assert [b["book"] for b in g["market_fit"]["books"]] == ["X"]   # the books on the current lines
+
+
+def test_meta_previews_next_weeks_schedule_from_the_cached_copy(client, monkeypatch):
+    sched = pd.DataFrame([dict(game_id="2026_05_CCC_DDD", season=2026, week=5, gameday="2026-10-11", gametime="13:00", game_type="REG"),
+                          dict(game_id="2026_06_EEE_FFF", season=2026, week=6, gameday="2026-10-18", gametime="13:00", game_type="REG")])
+    monkeypatch.setattr(main.data, "cached_schedule", lambda: sched)
+    main._next_week_schedule.cache_clear()
+    nxt = client.get("/api/meta").json()["next_games"]
+    assert [g["game_id"] for g in nxt] == ["2026_05_CCC_DDD"] and nxt[0]["label"] == "CCC @ DDD"
+    main._next_week_schedule.cache_clear()
+
+
+def test_meta_has_no_preview_before_a_schedule_is_downloaded(client, monkeypatch):
+    monkeypatch.setattr(main.data, "cached_schedule", lambda: None)
+    main._next_week_schedule.cache_clear()
+    assert client.get("/api/meta").json()["next_games"] == []
+    main._next_week_schedule.cache_clear()

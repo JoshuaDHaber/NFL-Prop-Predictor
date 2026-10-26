@@ -473,6 +473,19 @@ def prob_over_under_dist(mu, line, dist):
     return min(max(po, 0.01), 0.99), min(max(pu, 0.01), 0.99)  # the data can't justify certainty
 
 
+def median_dist(mu, dist):
+    """The outcome the player beats half the time, from a fit_dist table: below mu when the errors skew right (longest
+    rush or reception, where a few long plays pull the average up)."""
+    if dist.get("poisson"):
+        return float(st.poisson.median(max(mu, 1e-6)))
+    return float(mu + sd_at(mu, dist) * np.interp(0.5, Z_PROBS, dist["z"]))
+
+
+def median_gamma(mu, var):
+    """median_dist for prob_over_under's gamma curve."""
+    return float(st.gamma(mu * mu / var, scale=var / mu).median())
+
+
 def backtest_summary(bt):
     out = {}
     for kind, g in bt.groupby("kind"):

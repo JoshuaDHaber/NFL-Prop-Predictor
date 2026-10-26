@@ -16,6 +16,10 @@ interface SlipCtx {
   setAllBooks: (b: boolean) => void;
   open: boolean;
   setOpen: (o: boolean) => void;
+  /** When the page's odds were fetched, while they're over six hours old (null when current): the slip asks the bettor to
+   *  check prices before it hands legs to a book. */
+  staleSince: string | null;
+  setStaleSince: (at: string | null) => void;
 }
 
 const Ctx = createContext<SlipCtx | null>(null);
@@ -43,6 +47,7 @@ export function BetSlipProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState(init.state ?? "");
   const [allBooks, setAllBooks] = useState(!!init.allBooks);
   const [open, setOpen] = useState(!!init.shared);
+  const [staleSince, setStaleSince] = useState<string | null>(null);
 
   useEffect(() => {
     try { localStorage.setItem(KEY, JSON.stringify({ legs, state, allBooks })); } catch { /* ignore */ }
@@ -65,8 +70,8 @@ export function BetSlipProvider({ children }: { children: ReactNode }) {
   const clear = useCallback(() => setLegs([]), []);
   const has = useCallback((id: string) => legs.some((l) => l.id === id), [legs]);
 
-  const value = useMemo(() => ({ legs, has, toggle, remove, replace, clear, state, setState, allBooks, setAllBooks, open, setOpen }),
-    [legs, has, toggle, remove, replace, clear, state, allBooks, open]);
+  const value = useMemo(() => ({ legs, has, toggle, remove, replace, clear, state, setState, allBooks, setAllBooks, open, setOpen, staleSince, setStaleSince }),
+    [legs, has, toggle, remove, replace, clear, state, allBooks, open, staleSince]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

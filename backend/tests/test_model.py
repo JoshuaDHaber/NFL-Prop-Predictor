@@ -141,3 +141,11 @@ def test_add_first_td_marks_only_the_games_first_scorer():
     df = pd.DataFrame({"player_id": ["a", "a", "b"], "season": [2026] * 3, "week": [1, 2, 1]})
     first = pd.DataFrame({"player_id": ["a"], "season": [2026], "week": [1], "game_id": ["2026_01_X_Y"]})
     assert model.add_first_td(df, first).first_td.tolist() == [1.0, 0.0, 0.0]
+
+
+def test_the_median_sits_where_overs_and_unders_split_evenly_and_under_the_mean_when_skewed():
+    dist = model.fit_dist(_backtest(n=6000))["rush"]
+    med = model.median_dist(60, dist)
+    assert med < 60   # right-skewed outcomes: the typical game is below the average
+    assert model.prob_over_under_dist(60, med + 0.01, dist)[0] == pytest.approx(0.5, abs=0.03)
+    assert model.median_gamma(60, 900) < 60

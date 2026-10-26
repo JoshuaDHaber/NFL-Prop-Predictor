@@ -15,7 +15,7 @@ import ProjectionsTable from "./components/ProjectionsTable";
 import { isYesNo, KIND_LABEL, americanOdds, fmtProj, fmtSd, marketLabel, projCaption, matchup, playLabel, signedPct, timeAgo } from "./format";
 import { useLeague } from "./LeagueContext";
 import BookSelect from "./components/BookSelect";
-import Freshness from "./components/Freshness";
+import Freshness, { StaleBanner, latestFetch, oddsLevel } from "./components/Freshness";
 import HowToRead from "./components/HowToRead";
 import PageHead from "./components/PageHead";
 import ResponsibleGaming from "./components/ResponsibleGaming";
@@ -23,8 +23,11 @@ import TopBar from "./components/TopBar";
 import TopTiles, { type Tile } from "./components/TopTiles";
 import { importOrReload } from "./staleChunk";
 import { localWhen } from "./sync";
-import { filterParams, filtersFromUrl, param, setParams, useSection } from "./route";
+import { filterParams, filtersFromUrl, leaguePath, param, setParams, useSection } from "./route";
+import { useBetSlip } from "./BetSlipContext";
+import Methodology from "./components/Methodology";
 import { useDebounced } from "./useDebounced";
+import { routeClick } from "./components/NavLink";
 import { PARLAY_FILTERS, useParlayBoard } from "./useParlayBoard";
 import Skeleton from "./components/Skeleton";
 
@@ -80,6 +83,11 @@ function PublicApp() {
   const debounced = useDebounced(filters, 250);
 
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
+  // odds over six hours old: the slip asks the bettor to check prices before handing legs to a book
+  const { setStaleSince } = useBetSlip();
+  const oddsAt = meta.data ? latestFetch(meta.data.odds) : undefined;
+  const stale = !!oddsAt && oddsLevel(oddsAt) === "stale";
+  useEffect(() => setStaleSince(stale ? oddsAt! : null), [stale, oddsAt, setStaleSince]);
   // a game page counts as open only for a game still on the slate (assumed so until the slate loads)
   const gameOpen = !!gameId && (!meta.data || meta.data.games.some((g) => g.game_id === gameId));
   // an old link (#game=<a game no longer on the slate>) drops the hash and lands on the slate
@@ -153,11 +161,13 @@ function PublicApp() {
   const drawerBook = openedGame ? pageBook : filters.book;
   const setDrawerBook = (b: string) => (openedGame ? setGameBook(b) : setFilters({ ...filters, book: b }));
   const hasOdds = Object.keys(m.odds).length > 0;
-  const latestOdds = Object.values(m.odds).map((o) => o.fetched_at).sort().at(-1);
+  const latestOdds = oddsAt;
+  const pricedPage = !!openedGame || tab === "games" || tab === "picks" || tab === "parlays";
+  const href = (t: Tab) => leaguePath("nfl", SLUGS[t]);
 
   return (
     <div className="wrap">
-      <TopBar tabs={TABS} more={MORE} tab={tab} onTab={goTab} />
+      <TopBar tabs={TABS} more={MORE} tab={tab} onTab={goTab} href={href} />
       <p className="statusline">
         {m.run ? `${m.run.season} Week ${m.run.week} · projections ${timeAgo(m.run.created_at)}` : "No projections yet"}
         {latestOdds && <> · <Freshness at={latestOdds} /></>}
@@ -168,6 +178,9 @@ function PublicApp() {
       {m.run && !hasOdds && (tab === "games" || tab === "picks" || tab === "parlays") && (
         <div className="banner">No sportsbook lines are loaded yet, so there are no picks. Books post props mid-week; the scheduled syncs fetch them as they appear.</div>
       )}
+      {stale && pricedPage && <StaleBanner at={latestOdds!} />}
+
+      <div className={stale ? "odds-stale" : undefined}>
 
       {openedGame ? (
         <GameOverview key={openedGame.game_id} game={openedGame} books={m.books} book={pageBook} onBook={setGameBook} marketWeight={debounced.marketWeight} fit={m.weather}
@@ -180,7 +193,7 @@ function PublicApp() {
           : TITLE[tab]} />
       <TopTiles tiles={tiles} />
 
-      {tab === "games" && <Games games={m.games} picks={slatePicks.data ?? []} moneylines={moneylines.data ?? []} injuries={injuries.data} onOpen={openGame} />}
+      {tab === "games" && <Games games={m.games} nextGames={m.next_games} picks={slatePicks.data ?? []} moneylines={moneylines.data ?? []} injuries={injuries.data} onOpen={openGame} />}
       {tab !== "games" && tab !== "model" && tab !== "parlays" && tab !== "admin" && tab !== "injuries" && tab !== "compare" && <Controls filters={filters} onChange={setFilters} games={m.games} showPickControls={tab === "picks"} />}
       {tab === "picks" && <HowToRead />}
       {(tab === "picks" || tab === "projections") && selectedGame && <GameWeather game={selectedGame} fit={m.weather} />}
@@ -188,7 +201,7 @@ function PublicApp() {
       {tab === "picks" && (picks.isLoading ? <Skeleton kind="rows" /> :
         <PicksTable picks={picks.data ?? []} weather={weatherByGame} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
       {tab === "parlays" && (board.loading ? <Skeleton kind="cards" /> :
-        <ParlayTiles book={board.book} games={m.games} selectedGames={chosenGames} onGames={setParlayGames} parlays={board.parlays} tdParlays={board.tdParlays}
+        <ParlayTiles book={board.book} parlayCounts={board.parlayCounts} onBook={board.setBook} games={m.games} selectedGames={chosenGames} onGames={setParlayGames} parlays={board.parlays} tdParlays={board.tdParlays}
           ladders={board.ladders} altProps={board.altProps} laddersLoading={board.laddersLoading} />)}
       {tab === "injuries" && (injuries.isLoading ? <Skeleton kind="cards" count={2} /> : injuries.error ? <p className="err">Couldn't load the injury report.</p> :
         <Injuries report={injuries.data!} games={m.games} onSelect={(id, kind) => setSelected({ id, kind })} />)}
@@ -196,13 +209,13 @@ function PublicApp() {
         <ProjectionsTable rows={projections.data ?? []} weather={weatherByGame} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
       {tab === "compare" && <PlayerCompare weather={weatherByGame} onSelect={(id, kind) => setSelected({ id, kind })} />}
       {tab === "model" && <ModelCheck meta={m} />}
+      {tab === "model" && <Methodology />}
       {tab === "admin" && <Suspense fallback={<Skeleton kind="cards" />}><AdminPage embedded /></Suspense>}
       </>}
+      </div>
 
       <footer>
-        Yards (and receptions) = volume × efficiency, recency-weighted and shrunk to position means, adjusted for opponent, game
-        script and, at outdoor stadiums, kickoff wind and cold. Win probabilities come from the backtest's own error distribution, blended with the
-        market's no-vig price. Team win chances come from point-margin ratings and lean heavily on the moneyline market. Large edges usually mean the model is missing context. Not betting advice.
+        Projections and win chances, not betting advice.{tab !== "model" && <> <a href={href("model")} onClick={routeClick(() => goTab("model"))}>How the numbers work →</a></>}
         <span className="signoff">Bread from air, picks from stats. Built by JD Haber.</span>
         <ResponsibleGaming />
       </footer>

@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api, type Meta } from "../api";
 import { decimals, marketLabel, unit, signed, timeAgo, weatherText, wxEffect } from "../format";
 import type { Kind } from "../api";
-import GradesCard from "./GradesCard";
+import GradesCard, { TrackRecord } from "./GradesCard";
 
 function RedistributionCard({ r }: { r: NonNullable<Meta["redistribution"]> }) {
   const rush = r.by_kind.rush;
@@ -119,6 +119,8 @@ export default function ModelCheck({ meta }: { meta: Meta }) {
   const kinds = Object.keys(meta.backtest) as Kind[];
   return (
     <div className="stack">
+      <TrackRecord />
+      <h3 className="sub-h">Projection accuracy <small className="mut">backtest: every past game, projected with only what was known before it</small></h3>
       <div className="grid">
         {kinds.map((k) => {
           const b = meta.backtest[k];
@@ -135,8 +137,11 @@ export default function ModelCheck({ meta }: { meta: Meta }) {
                   ? `vs ${b.mae_naive.toFixed(3)} for always giving the home team its usual win rate (${better.toFixed(1)}% better; lower is better)`
                   : brier
                   ? `vs ${b.mae_naive.toFixed(3)} for always predicting the average TD rate (${better.toFixed(1)}% better; lower is better)`
-                  : `vs ${b.mae_naive.toFixed(count ? 2 : 1)} for a last-5 average (${better.toFixed(1)}% better)`} · bias {signed(b.bias, brier ? 3 : count ? 2 : 1)}
+                  : `vs ${b.mae_naive.toFixed(count ? 2 : 1)} for a last-5 average (${better.toFixed(1)}% better)`}{(brier || ml) && <> · bias {signed(b.bias, 3)}</>}
               </div>
+              {!brier && !ml && Math.abs(b.bias) >= (count ? 0.05 : 0.5) && (
+                <div className="mut">Bias {signed(b.bias, count ? 2 : 1)}: results ran {Math.abs(b.bias).toFixed(count ? 2 : 1)} {unit(k)} {b.bias > 0 ? "above" : "below"} the projection on average, so projections run a little {b.bias > 0 ? "low" : "high"}.</div>
+              )}
               {ml && b.mae_market != null && b.mae_model_market_games != null && (
                 <div className="mut">
                   The closing moneyline scored <b>{b.mae_market.toFixed(3)}</b> on the {b.n_market?.toLocaleString()} games that have one
