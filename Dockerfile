@@ -12,8 +12,9 @@ COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/app ./app
 COPY --from=web /web/dist /srv/frontend/dist
-ENV NFLPROPS_CACHE=/srv/backend/.cache DATABASE_URL=sqlite:////srv/backend/data/app.db
+ENV NFLPROPS_CACHE=/srv/backend/data/nfl_cache DATABASE_URL=sqlite:////srv/backend/data/app.db
 # Mount persistent storage at /srv/backend/data (docker run -v, or a Railway volume). No VOLUME line: Railway rejects it.
+# The NFL cache (schedule, stats, play-by-play) lives there too, beside the NBA's, so a deploy doesn't start it empty.
 EXPOSE 8000
 # Hosts like Railway assign the port in $PORT
 CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

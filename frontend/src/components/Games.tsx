@@ -16,6 +16,8 @@ interface Props {
   games: Game[];
   /** Next week's schedule, previewed under a slate that's down to its last game or two. */
   nextGames?: Game[];
+  /** Teams on bye that week, shown under its games. */
+  nextByes?: { team: string; record?: string | null }[];
   /** Positive-EV plays across the slate, any order. */
   picks: Pick[];
   moneylines: MoneylineGame[];
@@ -78,7 +80,7 @@ function Tile({ g, picks, ml, injuries, onOpen }: { g: Game; picks: Pick[]; ml?:
 const PREVIEW_UNDER = 3;
 
 /** Next week's games, kickoff and matchup only: no projections or lines until the week's first sync. */
-function NextWeek({ games }: { games: Game[] }) {
+function NextWeek({ games, byes = [] }: { games: Game[]; byes?: Props["nextByes"] }) {
   const days = new Map<string, Game[]>();
   for (const g of games) days.set(g.gameday, [...(days.get(g.gameday) ?? []), g]);
   const dayName = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
@@ -104,16 +106,26 @@ function NextWeek({ games }: { games: Game[] }) {
             </ul>
           </div>
         ))}
+        {byes.length > 0 && (
+          <div className="nw-day nw-byes">
+            <h3>Bye</h3>
+            <ul>
+              {byes.map((b) => (
+                <li key={b.team}><span className="nw-team"><TeamLogo team={b.team} size={22} /><b>{b.team}</b>{b.record && <small className="mut">{b.record}</small>}</span></li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </section>
   );
 }
 
 /** The slate: one tile per game with its win chances, top prop and injury count. A tile opens that game's overview. */
-export default function Games({ games, nextGames = [], picks, moneylines, injuries, onOpen }: Props) {
+export default function Games({ games, nextGames = [], nextByes = [], picks, moneylines, injuries, onOpen }: Props) {
   if (!games.length) return <>
     <div className="card empty">No games on the slate yet. They appear after the next scheduled sync.</div>
-    {nextGames.length > 0 && <NextWeek games={nextGames} />}
+    {nextGames.length > 0 && <NextWeek games={nextGames} byes={nextByes} />}
   </>;
   const nba = getLeague() === "nba";
   const byGame = new Map<string, Pick[]>();
@@ -124,7 +136,7 @@ export default function Games({ games, nextGames = [], picks, moneylines, injuri
     <section className="gt-grid" aria-label={nba ? "Upcoming games" : "This week's games"}>
       {games.map((g) => <Tile key={g.game_id} g={g} picks={byGame.get(g.game_id) ?? []} ml={mlByGame.get(g.game_id)} injuries={injuries} onOpen={onOpen} />)}
     </section>
-    {games.length < PREVIEW_UNDER && nextGames.length > 0 && <NextWeek games={nextGames} />}
+    {games.length < PREVIEW_UNDER && nextGames.length > 0 && <NextWeek games={nextGames} byes={nextByes} />}
     </>
   );
 }

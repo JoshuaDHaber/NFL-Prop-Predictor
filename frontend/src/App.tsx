@@ -193,7 +193,7 @@ function PublicApp() {
           : TITLE[tab]} />
       <TopTiles tiles={tiles} />
 
-      {tab === "games" && <Games games={m.games} nextGames={m.next_games} picks={slatePicks.data ?? []} moneylines={moneylines.data ?? []} injuries={injuries.data} onOpen={openGame} />}
+      {tab === "games" && <Games games={m.games} nextGames={m.next_games} nextByes={m.next_byes} picks={slatePicks.data ?? []} moneylines={moneylines.data ?? []} injuries={injuries.data} onOpen={openGame} />}
       {tab !== "games" && tab !== "model" && tab !== "parlays" && tab !== "admin" && tab !== "injuries" && tab !== "compare" && <Controls filters={filters} onChange={setFilters} games={m.games} showPickControls={tab === "picks"} />}
       {tab === "picks" && <HowToRead />}
       {(tab === "picks" || tab === "projections") && selectedGame && <GameWeather game={selectedGame} fit={m.weather} />}
