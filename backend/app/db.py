@@ -1,5 +1,6 @@
 """SQLAlchemy models. SQLite locally; swap DATABASE_URL for Postgres in deployment."""
 import json
+import math
 import os
 import weakref
 from datetime import datetime
@@ -406,11 +407,27 @@ def _sqlite_pragmas(dbapi_conn, _record):
     cur.close()
 
 
+def _finite(v):
+    if isinstance(v, float) and not math.isfinite(v):
+        return None
+    if isinstance(v, dict):
+        return {k: _finite(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_finite(x) for x in v]
+    return v
+
+
+def _json_dumps(v) -> str:
+    """Postgres refuses NaN and Infinity in JSON (SQLite stored them); write them as null so a sync can't fail on one."""
+    return json.dumps(_finite(v))
+
+
 def make_engine(url=None):
     url = url or config.DATABASE_URL
     if url.startswith("sqlite:///") and not url.endswith(":memory:"):
         os.makedirs(os.path.dirname(url.replace("sqlite:///", "")), exist_ok=True)
-    kwargs = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {"pool_pre_ping": True, "pool_recycle": 300}
+    kwargs = ({"connect_args": {"check_same_thread": False}} if url.startswith("sqlite")
+              else {"pool_pre_ping": True, "pool_recycle": 300, "json_serializer": _json_dumps})
     if url.endswith(":memory:"):
         from sqlalchemy.pool import StaticPool
         kwargs["poolclass"] = StaticPool
@@ -440,7 +457,7 @@ def proj_frame(session, run_id: int):
     """A run's projections as a DataFrame (the shape engine.picks expects)."""
     import pandas as pd
     from sqlalchemy import select
-    rows = session.scalars(select(Projection).where(Projection.run_id == run_id)).all()
+    rows = session.scalars(select(Projection).where(Projection.run_id == run_id).order_by(Projection.id)).all()
     return pd.DataFrame([{c.name: getattr(r, c.name) for c in Projection.__table__.columns} for r in rows])
 
 
@@ -460,7 +477,7 @@ def current_lines(session, table=None):
     hit = per_engine.get(table.__tablename__)
     if hit and hit[0] == version:
         return hit[1]
-    rows = session.scalars(select(table)).all()
+    rows = session.scalars(select(table).order_by(table.id)).all()   # id order, as SQLite gave it: ties break the same way on Postgres
     newest = {}
     for r in rows:
         k = (r.market, r.game_id)

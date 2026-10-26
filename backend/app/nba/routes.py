@@ -75,7 +75,7 @@ def meta(request: Request, db: Session = Depends(get_db)):
 
 
 def _proj_frame(db: Session, run_id: int) -> pd.DataFrame:
-    rows = db.scalars(select(NbaProjection).where(NbaProjection.run_id == run_id)).all()
+    rows = db.scalars(select(NbaProjection).where(NbaProjection.run_id == run_id).order_by(NbaProjection.id)).all()
     return pd.DataFrame([{c.name: getattr(r, c.name) for c in NbaProjection.__table__.columns} for r in rows])
 
 
@@ -135,7 +135,7 @@ def projections(kind: Optional[NbaKind] = None, game_id: Optional[str] = None, g
     if not run:
         return []
     live = [g["game_id"] for g in _upcoming(run)]
-    stmt = select(NbaProjection).where(NbaProjection.run_id == run.id, NbaProjection.game_id.in_(live)).order_by(NbaProjection.mu.desc())
+    stmt = select(NbaProjection).where(NbaProjection.run_id == run.id, NbaProjection.game_id.in_(live)).order_by(NbaProjection.mu.desc(), NbaProjection.id)
     if kind:
         stmt = stmt.where(NbaProjection.kind == kind)
     if game_id:
@@ -265,7 +265,7 @@ def player_search(q: str = Query("", max_length=60), limit: int = Query(12, ge=1
 @router.get("/players/{player_id}", response_model=PlayerDetail)
 def player(player_id: str, market_weight: Optional[float] = Query(None, ge=0, le=1), db: Session = Depends(get_db)):
     run = latest_run(db)
-    rows = db.scalars(select(NbaProjection).where(NbaProjection.run_id == run.id, NbaProjection.player_id == player_id)).all() if run else []
+    rows = db.scalars(select(NbaProjection).where(NbaProjection.run_id == run.id, NbaProjection.player_id == player_id).order_by(NbaProjection.id)).all() if run else []
     if not rows:
         raise HTTPException(404, "Player has no projection in the current run")
     p = rows[0]
@@ -296,7 +296,7 @@ def player_lines(player_id: str, kind: NbaKind, odds_range: int = Query(300, ge=
     main = current_lines(db, NbaOddsLine)
     key = odds.norm(p.name)
     main = main[(main.market == kind) & (main.player.map(odds.norm) == key) & (main.game_id == p.game_id)].assign(alt=False)
-    alts = [r for r in db.scalars(select(NbaAltLine).where(NbaAltLine.game_id == p.game_id, NbaAltLine.market == kind)).all()
+    alts = [r for r in db.scalars(select(NbaAltLine).where(NbaAltLine.game_id == p.game_id, NbaAltLine.market == kind).order_by(NbaAltLine.id)).all()
             if odds.norm(r.player) == key]
     alt_df = pd.DataFrame([dict(player=r.player, market=r.market, line=r.line, over_odds=r.over_odds, under_odds=r.under_odds,
                                 book=r.book, over_link=r.over_link, under_link=r.under_link, event_link=r.event_link,

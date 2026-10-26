@@ -300,7 +300,7 @@ def projections(kind: Optional[Kind] = None, exclude_kind: Optional[Kind] = None
     run = latest_run(db)
     if not run:
         return []
-    stmt = select(Projection).where(Projection.run_id == run.id).order_by(Projection.mu.desc())
+    stmt = select(Projection).where(Projection.run_id == run.id).order_by(Projection.mu.desc(), Projection.id)
     if kind:
         stmt = stmt.where(Projection.kind == kind)
     if exclude_kind:
@@ -435,7 +435,7 @@ def player(player_id: str, market_weight: Optional[float] = Query(None, ge=0, le
 
 
 def build_player_detail(db: Session, run: Optional[Run], player_id: str, market_weight: Optional[float] = None) -> Optional[PlayerDetail]:
-    rows = db.scalars(select(Projection).where(Projection.run_id == run.id, Projection.player_id == player_id)).all() if run else []
+    rows = db.scalars(select(Projection).where(Projection.run_id == run.id, Projection.player_id == player_id).order_by(Projection.id)).all() if run else []
     if not rows:
         return None
     p = rows[0]
@@ -476,7 +476,7 @@ def build_ladder_out(db: Session, p: Projection, odds_range: int = 0, market_wei
     key, kind = odds.norm(p.name), p.kind
     main = current_lines(db)
     main = main[(main.market == kind) & (main.player.map(odds.norm) == key) & (main.game_id == p.game_id)].assign(alt=False)
-    alts = db.scalars(select(AltLine).where(AltLine.game_id == p.game_id, AltLine.market == kind)).all()
+    alts = db.scalars(select(AltLine).where(AltLine.game_id == p.game_id, AltLine.market == kind).order_by(AltLine.id)).all()
     alt_df = pd.DataFrame([dict(player=r.player, market=r.market, line=r.line, over_odds=r.over_odds,
                                 under_odds=r.under_odds, book=r.book, over_link=r.over_link, under_link=r.under_link,
                                 event_link=r.event_link, alt=True) for r in alts if odds.norm(r.player) == key],
@@ -500,7 +500,7 @@ def fetch_alt_lines(player_id: str, db: Session = Depends(get_db)):
     """Fetch alternate lines (and betslip links) for this player's game. Costs 2 API credits per market the
     player has a projection in."""
     run = latest_run(db)
-    rows = db.scalars(select(Projection).where(Projection.run_id == run.id, Projection.player_id == player_id)).all() if run else []
+    rows = db.scalars(select(Projection).where(Projection.run_id == run.id, Projection.player_id == player_id).order_by(Projection.id)).all() if run else []
     if not rows:
         raise HTTPException(404, "Player has no projection in the current run")
     if not config.ODDS_API_KEY():
