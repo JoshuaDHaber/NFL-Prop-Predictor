@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 
 from app import config, pipeline
-from app.db import AltLine, OddsHistory, OddsLine, SessionLocal
+from app.db import AltLine, EmptyMarket, OddsHistory, OddsLine, SessionLocal
 
 GAME = "2026_99_AWY_HOM"
 
@@ -11,7 +11,8 @@ GAME = "2026_99_AWY_HOM"
 @pytest.fixture(autouse=True)
 def clean_and_stub(monkeypatch):
     with SessionLocal() as s:
-        s.query(AltLine).delete(); s.query(OddsLine).delete(); s.query(OddsHistory).delete(); s.commit()
+        s.query(AltLine).delete(); s.query(OddsLine).delete(); s.query(OddsHistory).delete(); s.query(EmptyMarket).delete()
+        s.commit()
     monkeypatch.setattr(config, "ODDS_API_KEY", lambda: "test-key")
     monkeypatch.setattr(pipeline.config, "ODDS_API_KEY", lambda: "test-key")
     games = pd.DataFrame([dict(game_id=GAME, away_team="AWY", home_team="HOM")])
@@ -255,3 +256,49 @@ def test_credit_floor_switches_to_the_spare_key_and_says_to_rotate(clean_and_stu
     res = pipeline.refresh_odds("missing", log=lambda m: None, credit_floor=75)
     assert used == ["spare-key"] and res["fetched"] == 1 and res["skipped_for_credits"] == 0
     assert res["rotate"] == ["ODDS_API_KEY"] and res["credits_before"] == 530 and res["credits_after"] == 480
+
+
+def test_a_market_no_book_posts_is_not_asked_for_again_until_a_day_later(clean_and_stub, monkeypatch):
+    from datetime import datetime, timedelta
+    fetch, posted = pipeline.odds.fetch_game_odds, {"rlng": False}   # no book posts longest-rush alternates...
+    monkeypatch.setattr(pipeline.odds, "fetch_game_odds", lambda key, event_id, main_kinds, alt_kinds=(): fetch(
+        key, event_id, main_kinds, [k for k in alt_kinds if posted.get(k, True)]))
+    logs = []
+    pipeline.refresh_odds("missing", log=logs.append)
+    assert any("none posted for rlng alt" in m for m in logs)
+    clean_and_stub.clear()
+    pipeline.refresh_odds("missing", log=lambda m: None)
+    assert clean_and_stub == []                                              # not re-asked on every sync
+    with SessionLocal() as s:
+        [row] = s.query(EmptyMarket).all()
+        assert (row.game_id, row.market, row.alt) == (GAME, "rlng", True)
+        row.checked_at = datetime.utcnow() - timedelta(hours=pipeline.EMPTY_RETRY_HOURS + 1)
+        s.commit()
+    posted["rlng"] = True                                                    # ...until one does
+    pipeline.refresh_odds("missing", log=lambda m: None)
+    assert clean_and_stub == [("evt1", [], ["rlng"])]                         # asked again a day later
+    with SessionLocal() as s:
+        assert s.query(EmptyMarket).count() == 0                             # and forgotten once it has quotes
+
+
+def test_a_missing_market_doesnt_stop_game_day_and_thin_refreshes(clean_and_stub, monkeypatch):
+    """Longest-rush alternates are never posted: that one missing market used to make every game 'missing', so the
+    Sunday and daily refreshes only ever asked for it and the board kept Thursday's prices."""
+    from datetime import datetime
+    slate = pd.DataFrame([dict(game_id=GAME, away_team="AWY", home_team="HOM", gameday="2026-10-26", gametime="20:15")])
+    with SessionLocal() as s:
+        s.add_all(OddsLine(fetched_at=datetime(2026, 10, 22), player="P", market=m, line=1.5, over_odds=-110, under_odds=-110,
+                           book="X", game_id=GAME) for m in pipeline.ALL_MARKETS)
+        s.add_all(AltLine(fetched_at=datetime(2026, 10, 22), game_id=GAME, player="P", market=m, line=9.5, book="X")
+                  for m in pipeline.ALT_KINDS - {"rlng"})
+        s.commit()
+        monday_4pm = datetime(2026, 10, 26, 20, 0)                          # 4:00 PM Eastern, in UTC
+        [today] = pipeline.sync_plan(s, slate, "today", now=monday_4pm)["games"]
+        [thin] = pipeline.sync_plan(s, slate, "thin", now=monday_4pm)["games"]   # 19 quotes, four days old
+        s.add(EmptyMarket(game_id=GAME, market="rlng", alt=True, checked_at=monday_4pm))
+        s.commit()
+        [asked_today] = pipeline.sync_plan(s, slate, "today", now=monday_4pm)["games"]
+        assert pipeline.sync_plan(s, slate, "missing", now=monday_4pm)["games"] == []
+    assert today["reason"] == "today" and today["need_main"] == sorted(pipeline.ALL_MARKETS) and today["alt_kinds"] == ["rlng"]
+    assert thin["reason"] == "thin" and thin["need_main"] == sorted(pipeline.ALL_MARKETS) and thin["alt_kinds"] == sorted(pipeline.ALT_KINDS)
+    assert asked_today["reason"] == "today" and asked_today["alt_kinds"] == [] and asked_today["credits"] == 11

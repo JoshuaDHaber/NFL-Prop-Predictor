@@ -2,7 +2,7 @@
 import copy
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 from zoneinfo import ZoneInfo
 
@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from . import config, grading
-from .db import AltLine, OddsHistory, OddsLine, Projection, Run, SessionLocal, clear_lines_cache
+from .db import AltLine, EmptyMarket, OddsHistory, OddsLine, Projection, Run, SessionLocal, clear_lines_cache
 from .engine import data, model, odds
 from .odds_keys import KeyRing
 from .engine import correlation as cm
@@ -282,6 +282,7 @@ def _kicks_off_later_today(g, now_et: datetime) -> bool:
 
 THIN_MIN_QUOTES = 100       # a game with fewer stored quotes than this had its lines fetched early (books post gradually)
 THIN_MIN_AGE_HOURS = 3      # ...and "thin" games are only topped up if their lines are at least this old
+EMPTY_RETRY_HOURS = 24      # a market no book had posted for a game is asked for again after this long (once a day)
 
 
 def sync_plan(session, games: pd.DataFrame, mode: str = "missing", now: datetime = None) -> dict:
@@ -293,7 +294,10 @@ def sync_plan(session, games: pd.DataFrame, mode: str = "missing", now: datetime
     'today':   'missing', plus a fresh pull of the main markets for games kicking off later today (Eastern), so a
                game day's picks are priced against that morning's lines rather than Thursday's. Alternates aren't
                re-bought.
-    'all':     everything for every game."""
+    'all':     everything for every game.
+    'thin' and 'today' add to 'missing' rather than replace it, and a market that came back empty for a game (no book
+    posts it) isn't asked for again until its EmptyMarket row is EMPTY_RETRY_HOURS old: one market books never offer
+    once kept every game 'missing', so game-day refreshes never ran."""
     from sqlalchemy import func
     now = now or datetime.utcnow()
     now_et = now.replace(tzinfo=timezone.utc).astimezone(ET)
@@ -307,6 +311,11 @@ def sync_plan(session, games: pd.DataFrame, mode: str = "missing", now: datetime
     have_alt = {}
     for gid, market in session.query(AltLine.game_id, AltLine.market).distinct():
         have_alt.setdefault(gid, set()).add(market)
+    empty_main, empty_alt = {}, {}
+    retry_after = now - timedelta(hours=EMPTY_RETRY_HOURS)
+    for gid, market, alt in session.query(EmptyMarket.game_id, EmptyMarket.market, EmptyMarket.alt) \
+            .filter(EmptyMarket.checked_at > retry_after):
+        (empty_alt if alt else empty_main).setdefault(gid, set()).add(market)
     out = []
     for g in games.itertuples():
         gid = g.game_id
@@ -314,12 +323,12 @@ def sync_plan(session, games: pd.DataFrame, mode: str = "missing", now: datetime
         if mode == "all":
             need_main, need_alt, reason = sorted(ALL_MARKETS), sorted(ALT_KINDS), "all"
         else:
-            need_main = sorted(ALL_MARKETS - have_main.get(gid, set()))
+            need_main = sorted(ALL_MARKETS - have_main.get(gid, set()) - empty_main.get(gid, set()))
             # a game with no alternates gets all of them; one that has some gets only markets added since (e.g. receptions)
-            need_alt = sorted(ALT_KINDS - have_alt[gid]) if gid in have_alt else sorted(ALT_KINDS)
+            need_alt = sorted(((ALT_KINDS - have_alt[gid]) if gid in have_alt else ALT_KINDS) - empty_alt.get(gid, set()))
             if need_main or need_alt:
                 reason = "missing"
-            elif mode == "thin" and stored.get(gid, 0) < THIN_MIN_QUOTES and gid in last \
+            if mode == "thin" and stored.get(gid, 0) < THIN_MIN_QUOTES and gid in last \
                     and (now - last[gid]).total_seconds() >= THIN_MIN_AGE_HOURS * 3600:
                 need_main, need_alt, reason = sorted(ALL_MARKETS), sorted(ALT_KINDS), "thin"
             elif mode == "today" and _kicks_off_later_today(g, now_et):
@@ -333,6 +342,23 @@ def sync_plan(session, games: pd.DataFrame, mode: str = "missing", now: datetime
     has = first is not None and "season" in games.columns and "week" in games.columns
     return dict(season=int(first.season) if has else None, week=int(first.week) if has else None,
                 total_games=len(games), games=out, credits=sum(g["credits"] for g in out))
+
+
+def note_empty_markets(session, game_id: str, main_kinds, alt_kinds, paired: pd.DataFrame) -> list[str]:
+    """Record the markets just asked for that came back with no quotes (and forget those that came back with some), so
+    sync_plan doesn't ask for them again until EMPTY_RETRY_HOURS have passed. Returns the empty ones, alternates
+    suffixed " alt", for the log."""
+    got = set(zip(paired.market, paired.alt.astype(bool))) if not paired.empty else set()
+    asked = [(m, False) for m in main_kinds] + [(m, True) for m in alt_kinds]
+    if not asked:
+        return []
+    now = datetime.utcnow()
+    for market, alt in asked:
+        session.query(EmptyMarket).filter(EmptyMarket.game_id == game_id, EmptyMarket.market == market,
+                                          EmptyMarket.alt.is_(alt)).delete()
+    empty = [(m, a) for m, a in asked if (m, a) not in got]
+    session.add_all(EmptyMarket(game_id=game_id, market=m, alt=a, checked_at=now) for m, a in empty)
+    return [m + (" alt" if a else "") for m, a in empty]
 
 
 def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[int, int], None] = None,
@@ -389,7 +415,9 @@ def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[in
             is_alt = paired.alt.astype(bool)
             mains.append(paired[~is_alt].assign(game_id=g["game_id"]))
             alts.append(paired[is_alt].assign(game_id=g["game_id"]))
-            log(f"  {g['label']}: {len(paired)} quotes (credits left: {left})")
+            empty = note_empty_markets(s, g["game_id"], g["need_main"], g["alt_kinds"], paired)
+            log(f"  {g['label']}: {len(paired)} quotes (credits left: {left})"
+                + (f"; none posted for {', '.join(empty)}" if empty else ""))
         if progress:
             progress(len(todo), len(todo))
         now = datetime.utcnow()
@@ -408,6 +436,7 @@ def refresh_odds(mode: str = "missing", log: Log = print, progress: Callable[[in
                       for r in alt_df.itertuples())
             archive_quotes(alt_df, s, now, alt=True)
             s.commit()
+        s.commit()   # the EmptyMarket rows, when nothing else was stored
         log(f"Stored {len(main_df)} main and {len(alt_df)} alternate quotes")
     if keys.rotate:
         out["rotate"] = keys.rotate

@@ -113,6 +113,18 @@ class OddsHistory(Base):
     __table_args__ = (Index("ix_odds_history_game_market", "game_id", "market"),)
 
 
+class EmptyMarket(Base):
+    """A market asked for one game that no book had posted (longest-rush alternates never are). A sync only asks
+    again once the row is old (pipeline.EMPTY_RETRY_HOURS), so a market books don't offer can't mark the game as
+    missing odds on every sync. Deleted when the market comes back with quotes."""
+    __tablename__ = "empty_markets"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[str] = mapped_column(String(24), index=True)
+    market: Mapped[str] = mapped_column(String(6))
+    alt: Mapped[bool] = mapped_column(Boolean, default=False)
+    checked_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class NbaRun(Base):
     """One NBA model run: projections for the slate (the next two game dates), team ratings, backtest."""
     __tablename__ = "nba_runs"
