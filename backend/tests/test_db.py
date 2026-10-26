@@ -18,3 +18,8 @@ def test_sqlite_file_uses_wal_so_reads_continue_during_a_sync(tmp_path):
     reader.close()
     with Session(eng) as s:
         assert len(s.scalars(select(OddsLine)).all()) == 1
+
+
+def test_postgres_stores_nan_in_json_as_null():
+    from app.db import _json_dumps
+    assert _json_dumps({"a": float("nan"), "b": [1.5, float("inf")], "c": "NaN"}) == '{"a": null, "b": [1.5, null], "c": "NaN"}'

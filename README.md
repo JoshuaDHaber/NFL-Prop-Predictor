@@ -224,19 +224,20 @@ Requires Python 3.9+ and Node 20+. Everything goes through one script:
 
 **Odds:** get a free key at [the-odds-api.com](https://the-odds-api.com) (about 500 credits a month; a full sync costs about 12 credits per game: seven main markets, including the moneyline, plus five alternate-line markets) and put it in `backend/.env`. Without a key the app still shows projections. In the UI, *Refresh data* fetches only markets that have no stored lines; *Re-fetch all odds* is the explicit paid action.
 
-**Tests and CI:** `./run.sh test` runs the backend suite (pytest: model math, pricing logic, API behavior) and the frontend typecheck and tests. GitHub Actions runs the same on every push.
+**Tests and CI:** `./run.sh test` runs the backend suite (pytest: model math, pricing logic, API behavior) and the frontend typecheck and tests. GitHub Actions runs the same on every push, and runs the backend suite a second time on Postgres. To do that locally, point `TEST_DATABASE_URL` at an empty Postgres database (the suite wipes it first): `TEST_DATABASE_URL=postgresql://postgres@localhost/props_test .venv/bin/python -m pytest -q`.
 
-**Docker** (untested so far): `docker build -t nfl-props . && docker run -p 8000:8000 -v nfl-data:/srv/backend/data nfl-props`. Set `DATABASE_URL` to a Postgres URL (and add a driver such as `psycopg`) when deploying beyond one instance.
+**Docker** (untested so far): `docker build -t nfl-props . && docker run -p 8000:8000 -v nfl-data:/srv/backend/data nfl-props`. Leave `DATABASE_URL` unset for a SQLite file on the volume, or set it to a Postgres URL.
 
 ## Hosting: Railway (one service, no sleep)
 
 The `Dockerfile` builds the React app and the API into one container, so on Railway the whole app is one service at one URL. `.railway/railway.ts` describes the Railway project as code (Railway's Infrastructure as Code): build the `Dockerfile`, health-check `/healthz` with a 120 s timeout, restart on failure, one replica, plus the domain and the data volume. Variables stay on Railway; the file never holds them. Run `npm install --prefix .railway` once, then `railway config plan` (read-only) to see what would change. `railway.json` (the deprecated Config as Code file, read only until 2026-12-01) still governs deploys until the cutover: review `railway config plan`, then run `railway config migrate cutover` and `railway config apply` back to back (so no deploy runs without the health check), and only then delete `railway.json`. `railway config migrate undo` reverses the cutover. Railway doesn't read `.railway/` during deploys; changes to it take effect on `railway config apply`. Use the **Hobby** plan: the Free plan caps a service at 0.5 GB of RAM and $1 of usage a month, which this app outgrows. Leave **Serverless** off so the app never sleeps.
 
 1. **New project → Deploy from GitHub repo** → this repo. Every push to `main` redeploys.
-2. **Volume:** right-click the service → *Attach volume*, mount path `/srv/backend/data`. The SQLite database lives there and survives redeploys.
-3. **Variables:** `ODDS_API_KEY` and `ADMIN_TOKEN` (your admin password, 12+ characters). Leave `DATABASE_URL` unset to use the SQLite file on the volume.
+2. **Database:** *+ New → Database → PostgreSQL* (or `railway add --database postgres`).
+   **Volume:** right-click the service → *Attach volume*, mount path `/srv/backend/data`, for the ESPN cache, which must survive redeploys.
+3. **Variables:** `ODDS_API_KEY`, `ADMIN_TOKEN` (your admin password, 12+ characters), and `DATABASE_URL=${{Postgres.DATABASE_URL}}`. That URL uses Railway's private network, so the database needs no public port. Without `DATABASE_URL` the app uses a SQLite file on the volume.
 4. **Settings → Networking → Generate domain** for a public `*.up.railway.app` URL.
-5. **Bring your data** (optional): in the service's *Console*, copy an existing database onto the volume so the odds you already paid for come along: `python -m app.copy_db --from '<database URL>' --to sqlite:////srv/backend/data/app.db`.
+5. **Bring your data** (optional), so the odds you already paid for come along. From your machine, open a tunnel with `railway connect Postgres --tunnel-only --port 54329`, then run `python -m app.copy_db --from sqlite:///path/to/app.db --to 'postgresql://postgres:<password>@127.0.0.1:54329/railway' --with-history`. The password is the Postgres service's `PGPASSWORD`.
 
 **Scheduled syncs** (`backend/app/scheduler.py`) run inside the web process, on by default on Railway (`AUTO_SYNC=1`) and off elsewhere, so a laptop never spends credits by itself. Times are Eastern:
 

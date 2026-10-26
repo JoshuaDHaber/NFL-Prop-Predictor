@@ -4,13 +4,23 @@ import tempfile
 
 # Must be set before the app is imported: an isolated in-memory DB and no real API key.
 os.environ["NFLPROPS_NO_DOTENV"] = "1"
-os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+# TEST_DATABASE_URL runs the suite on a real Postgres instead (CI does both); that database is wiped first.
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", "sqlite:///:memory:")
 os.environ["NFLPROPS_CACHE"] = tempfile.mkdtemp()
 os.environ["NBA_CACHE"] = tempfile.mkdtemp()
 os.environ.pop("ODDS_API_KEY", None)
 os.environ.pop("ODDS_API_KEY_NBA", None)
 os.environ["AUTO_SYNC"] = "0"  # the schedule never runs in tests unless a test starts it
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+if os.environ.get("TEST_DATABASE_URL"):
+    from sqlalchemy import create_engine, text
+
+    from app.config import normalize_db_url
+    _eng = create_engine(normalize_db_url(os.environ["TEST_DATABASE_URL"]))
+    with _eng.begin() as _c:
+        _c.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public"))
+    _eng.dispose()
 
 
 import pytest
