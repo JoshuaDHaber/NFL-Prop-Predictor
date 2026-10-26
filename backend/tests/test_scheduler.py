@@ -35,6 +35,13 @@ def test_daily_slot_runs_every_day_and_describes_itself():
     assert scheduler.describe(scheduler.BY_ID["sun-lines"]) == "Sun 11:30 AM ET"
 
 
+def test_monday_and_thursday_night_games_get_a_game_day_price_pull():
+    for slot_id, day in (("mon-lines", "Mon"), ("thu-injuries", "Thu"), ("sun-lines", "Sun")):
+        slot = scheduler.BY_ID[slot_id]
+        assert slot.odds == "today" and scheduler.describe(slot).startswith(day)
+    assert scheduler.next_fire(scheduler.BY_ID["mon-lines"], datetime(2026, 10, 26, 13)) == datetime(2026, 10, 26, 20)   # 4 PM EDT
+
+
 def test_a_run_is_logged_with_its_odds_result(monkeypatch):
     monkeypatch.setattr(scheduler.pipeline, "refresh_odds", lambda mode, log=print, **kw: dict(
         games=3, fetched=2, skipped_for_credits=1, credits_before=100, credits_after=88))
@@ -104,7 +111,7 @@ def test_admin_can_run_a_slot_now_and_see_it_in_the_log(monkeypatch):
         assert local.post("/api/admin/run/thu-injuries").status_code == 202
         body = local.get("/api/admin").json()
         run = body["runs"][0]
-        assert (run["slot"], run["trigger"], run["status"], run["label"]) == ("thu-injuries", "manual", "ok", "Thursday injuries")
+        assert (run["slot"], run["trigger"], run["status"], run["label"]) == ("thu-injuries", "manual", "ok", "Thursday injuries + lines")
         assert next(s for s in body["slots"] if s["id"] == "thu-injuries")["last_run"]["id"] == run["id"]
         assert local.get(f"/api/admin/runs/{run['id']}").json()["log"] == ["fake run"]
 
