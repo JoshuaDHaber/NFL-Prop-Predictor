@@ -7,18 +7,21 @@ import BookBadge from "./BookBadge";
 import Sheet from "./Sheet";
 import SidePill from "./SidePill";
 import { isYesNo, KIND_SHORT, americanOdds, pct, playLabel, signedPct, timeAgo } from "../format";
-import { alternativesAtBook, bookCoverage, clusterConflicts, conflicts, bookOptions, groupByBook, combinedLink, legLink, slipLinksText, linkStatus, openProgress, parlay, priceDrift, rebook, sameGame, slipHitChance, toAmerican, toWin, withLinks, type BookOption, type Leg } from "../slip";
+import { alternativesAtBook, bookCoverage, clusterConflicts, conflicts, bookOptions, groupByBook, combinedLink, legLink, slipLinksText, linkStatus, openProgress, parlay, parseStake, priceDrift, rebook, sameGame, slipHitChance, toAmerican, toWin, withLinks, type BookOption, type Leg } from "../slip";
 
 // once per page load: the stored state covers later opens, and "Try again" re-runs it
 let locatedOnce = false;
 
+const QUICK_STAKES = [5, 10, 25, 50];
+
 export default function BetSlip() {
-  const { legs, remove, replace, clear, state, setState, open, setOpen, staleSince, clashCount } = useBetSlip();
+  const { legs, remove, replace, clear, lastRemoved, undoRemove, dismissUndo, stakes, setStake, state, setState, open, setOpen, staleSince, clashCount } = useBetSlip();
   // old odds: the bettor ticks that they'll check prices before a Place button hands the slip to a book (once per odds fetch)
   const [checkedStale, setCheckedStale] = useState<string | null>(null);
   const gated = !!staleSince && checkedStale !== staleSince;
   const close = () => setOpen(false);
-  const [stakes, setStakes] = useState<Record<string, number>>({});
+  // what's in each stake box while it's being typed in ("" or "12."), so the box doesn't fight the bettor
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState<"link" | null>(null);
   const [target, setTarget] = useState<string | null>(null);
   const [placeMsg, setPlaceMsg] = useState<string | null>(null);
@@ -104,7 +107,7 @@ export default function BetSlip() {
   // one player's same market twice at a book: the book won't parlay them, so that book's slip is blocked until one is removed
   const clashes = conflicts(legs);
   const clashBooks = new Set(clashes.map((c) => c[0].book));
-  const keepOnly = (keep: Leg, clash: Leg[]) => clash.forEach((l) => l.id !== keep.id && remove(l.id));
+  const keepOnly = (keep: Leg, clash: Leg[]) => remove(clash.filter((l) => l.id !== keep.id).map((l) => l.id));
   // "Copy slip link" carries every book that can take its legs; a book with a clash is left out until it's fixed
   const links = slipLinksText(legs.filter((l) => !clashBooks.has(l.book)), state);
   const clashSummary = clashes.length ? `Fix ${clashes.length} ${clashes.length === 1 ? "clash" : "clashes"} at ${[...clashBooks].join(" and ")} to place ${clashBooks.size === 1 ? "that parlay" : "those parlays"}.` : "";
@@ -156,6 +159,8 @@ export default function BetSlip() {
   }, [ladders.map((q) => q.dataUpdatedAt).join(",")]);
   // one leg's row; `clash` is set when it's one of several legs on the same player's market at this book
   const legRow = (l: Leg, ls: Leg[], stake: number, clash?: Leg[]) => {
+    // in a parlay the stake rides on every leg together, so a leg's own payout would mislead: that's the group's total below
+    const single = ls.length === 1 && stake > 0;
     const url = legLink(l, state);
     const direct = linkStatus(l, state) === "direct";
     const d = drift[l.id];
@@ -176,7 +181,7 @@ export default function BetSlip() {
               ))}
             </select>
           </label><br />
-          <span className="mut">{pct(l.prob, 0)} model · <span className={l.ev > 0 ? "pos" : ""}>{signedPct(l.ev)} EV</span> · to win ${toWin(l.odds, stake).toFixed(2)}</span>
+          <span className="mut">{pct(l.prob, 0)} model · <span className={l.ev > 0 ? "pos" : ""}>{signedPct(l.ev)} EV</span>{single && <> · to win ${toWin(l.odds, stake).toFixed(2)}</>}</span>
           {d?.kind === "moved" && <><br /><span className={`slip-drift ${d.better ? "pos" : "err"}`}>
             was {americanOdds(d.was)} → now {americanOdds(d.now.odds)} <span className="mut">· {d.better ? "better" : "worse"} for you</span></span></>}
           {d?.kind === "gone" && (
@@ -231,6 +236,77 @@ export default function BetSlip() {
               </p>
             )}
 
+            {groups.map(([book, ls]) => {
+              const stake = stakeFor(book);
+              const prog = openProgress(legs, book, state, []);
+              const p = parlay(ls, stake);
+              const moved = movedIn(ls);
+              return (
+                <section className="slip-group" key={book}>
+                  <div className="slip-book">
+                    <BookBadge book={book} size={28} /><b>{book}</b><span className="mut">{ls.length} {ls.length === 1 ? "selection" : "selections"}</span>
+                  </div>
+                  {prog.skipped > 0 && (
+                    <p className="warn open-msg">{prog.skipped} {prog.skipped === 1 ? "leg" : "legs"} can't be added: {ls.some((l) => linkStatus(l, state) === "needs-state")
+                      ? "needs your state (allow location above)." : "no betslip link yet."}</p>
+                  )}
+                  {clusterConflicts(ls).map((row) => row.length > 1 ? (
+                    <div className="slip-clash" key={row[0].id} role="group" aria-label={`${row[0].name} ${KIND_SHORT[row[0].kind]} clash`}>
+                      <p className="err"><b>{row[0].name} {KIND_SHORT[row[0].kind]}</b> is on this slip {row.length} times. Books usually won't
+                        parlay {row.some((l) => l.side !== row[0].side) ? "both sides of a prop" : "two lines of the same prop"}, so keep one.</p>
+                      {row.map((l) => legRow(l, ls, stake, row))}
+                    </div>
+                  ) : legRow(row[0], ls, stake))}
+                  {moved.length > 0 && (
+                    <div className="slip-drift-bar">
+                      <span className="warn">{moved.length === ls.length && ls.length > 1 ? "Every price" : `${moved.length} ${moved.length === 1 ? "price" : "prices"}`} at {book} moved
+                        since you added {moved.length === 1 ? "it" : "them"}. The payout below still uses the old {moved.length === 1 ? "price" : "prices"}.</span>
+                      <button className="btn" onClick={() => moved.forEach(({ l, now }) => replace(l.id, rebook(l, now)))}>
+                        Update {moved.length} {moved.length === 1 ? "price" : "prices"}
+                      </button>
+                    </div>
+                  )}
+                  <div className="slip-total">
+                    <div className="slip-stake">
+                      <label>Stake $
+                        <input type="text" inputMode="decimal" autoComplete="off" value={drafts[book] ?? (stake ? String(stake) : "")} placeholder="0"
+                          aria-label={`Stake at ${book}`}
+                          onChange={(e) => { setDrafts({ ...drafts, [book]: e.target.value }); setStake(book, parseStake(e.target.value)); }}
+                          onBlur={() => setDrafts(({ [book]: _, ...rest }) => rest)} />
+                      </label>
+                      <span className="chips" role="group" aria-label={`Quick stakes at ${book}`}>
+                        {QUICK_STAKES.map((n) => (
+                          <button key={n} type="button" className="chip-btn" aria-pressed={stake === n}
+                            onClick={() => { setStake(book, n); setDrafts(({ [book]: _, ...rest }) => rest); }}>${n}</button>
+                        ))}
+                      </span>
+                    </div>
+                    {clashBooks.has(book) ? <span className="err">Not a valid parlay yet</span> : !stake ? (
+                      <span className="mut">Enter a stake to see {ls.length > 1 ? `the ${ls.length}-leg payout` : "what it pays"}</span>
+                    ) : ls.length > 1 ? (
+                      <span>{ls.length}-leg parlay <b>{americanOdds(p.american)}</b> → pays <b>${p.payout.toFixed(2)}</b> (profit ${p.profit.toFixed(2)})</span>
+                    ) : <span>Single bet <b>{americanOdds(ls[0].odds)}</b> → pays <b>${(stake + toWin(ls[0].odds, stake)).toFixed(2)}</b></span>}
+                  </div>
+                  {ls.length > 1 && !clashBooks.has(book) && (() => {
+                    const sg = sameGame(ls);
+                    const hit = slipHitChance(ls, positions, sg ? corr : undefined);
+                    const ev = hit * p.decimal - 1;
+                    return (
+                      <p className="mut slip-chance">
+                        Model hit chance <b>{pct(hit, hit < 0.1 ? 1 : 0)}</b>
+                        {sg ? <> · fair odds <b>{americanOdds(toAmerican(1 / Math.max(hit, 1e-6)))}</b></>
+                          : <> · <span className={ev > 0 ? "pos" : ""}>{signedPct(ev)} EV</span></>}
+                      </p>
+                    );
+                  })()}
+                  {ls.length > 1 && !clashBooks.has(book) && sameGame(ls) && (
+                    <p className="warn">Same-game legs: books price these their own way, so the payout is a guide. Take it if the book's price beats the fair odds.</p>
+                  )}
+                </section>
+              );
+            })}
+
+            {/* below the legs, so on a phone the legs come first */}
             {legs.length > 1 && coverage.length > 0 && (
               <label className="statebox">Put every leg at one book
                 <select value="" onChange={(e) => e.target.value && moveAll(e.target.value)} aria-label="Move all legs to a book">
@@ -285,64 +361,6 @@ export default function BetSlip() {
               </section>
             )}
 
-            {groups.map(([book, ls]) => {
-              const stake = stakeFor(book);
-              const prog = openProgress(legs, book, state, []);
-              const p = parlay(ls, stake);
-              const moved = movedIn(ls);
-              return (
-                <section className="slip-group" key={book}>
-                  <div className="slip-book">
-                    <BookBadge book={book} size={28} /><b>{book}</b><span className="mut">{ls.length} {ls.length === 1 ? "selection" : "selections"}</span>
-                  </div>
-                  {prog.skipped > 0 && (
-                    <p className="warn open-msg">{prog.skipped} {prog.skipped === 1 ? "leg" : "legs"} can't be added: {ls.some((l) => linkStatus(l, state) === "needs-state")
-                      ? "needs your state (allow location above)." : "no betslip link yet."}</p>
-                  )}
-                  {clusterConflicts(ls).map((row) => row.length > 1 ? (
-                    <div className="slip-clash" key={row[0].id} role="group" aria-label={`${row[0].name} ${KIND_SHORT[row[0].kind]} clash`}>
-                      <p className="err"><b>{row[0].name} {KIND_SHORT[row[0].kind]}</b> is on this slip {row.length} times. Books usually won't
-                        parlay {row.some((l) => l.side !== row[0].side) ? "both sides of a prop" : "two lines of the same prop"}, so keep one.</p>
-                      {row.map((l) => legRow(l, ls, stake, row))}
-                    </div>
-                  ) : legRow(row[0], ls, stake))}
-                  {moved.length > 0 && (
-                    <div className="slip-drift-bar">
-                      <span className="warn">{moved.length === ls.length && ls.length > 1 ? "Every price" : `${moved.length} ${moved.length === 1 ? "price" : "prices"}`} at {book} moved
-                        since you added {moved.length === 1 ? "it" : "them"}. The payout below still uses the old {moved.length === 1 ? "price" : "prices"}.</span>
-                      <button className="btn" onClick={() => moved.forEach(({ l, now }) => replace(l.id, rebook(l, now)))}>
-                        Update {moved.length} {moved.length === 1 ? "price" : "prices"}
-                      </button>
-                    </div>
-                  )}
-                  <div className="slip-total">
-                    <label>Stake $
-                      <input type="number" min={0} step={1} value={stake}
-                        onChange={(e) => setStakes({ ...stakes, [book]: Math.max(0, Number(e.target.value)) })} />
-                    </label>
-                    {clashBooks.has(book) ? <span className="err">Not a valid parlay yet</span> : ls.length > 1 ? (
-                      <span>{ls.length}-leg parlay <b>{americanOdds(p.american)}</b> → pays <b>${p.payout.toFixed(2)}</b> (profit ${p.profit.toFixed(2)})</span>
-                    ) : <span className="mut">Single bet</span>}
-                  </div>
-                  {ls.length > 1 && !clashBooks.has(book) && (() => {
-                    const sg = sameGame(ls);
-                    const hit = slipHitChance(ls, positions, sg ? corr : undefined);
-                    const ev = hit * p.decimal - 1;
-                    return (
-                      <p className="mut slip-chance">
-                        Model hit chance <b>{pct(hit, hit < 0.1 ? 1 : 0)}</b>
-                        {sg ? <> · fair odds <b>{americanOdds(toAmerican(1 / Math.max(hit, 1e-6)))}</b></>
-                          : <> · <span className={ev > 0 ? "pos" : ""}>{signedPct(ev)} EV</span></>}
-                      </p>
-                    );
-                  })()}
-                  {ls.length > 1 && !clashBooks.has(book) && sameGame(ls) && (
-                    <p className="warn">Same-game legs: books price these their own way, so the payout is a guide. Take it if the book's price beats the fair odds.</p>
-                  )}
-                </section>
-              );
-            })}
-
             {legs.length > 0 && staleSince && (
               <label className="stale-ack">
                 <input type="checkbox" checked={!gated} onChange={(e) => setCheckedStale(e.target.checked ? staleSince : null)} />
@@ -362,13 +380,26 @@ export default function BetSlip() {
                   title={!links && clashes.length ? "Keep one leg of each clash first" : links ? "Copies the sportsbook link so you can open the slip on another device" : "No betslip links to copy yet"}>
                   {copied === "link" ? "Link copied" : "Copy slip link"}
                 </button>
-                <button className="primary outline" onClick={clear}>Clear all</button>
               </div>
             )}
             {placeMsg && <p className="mut slip-place-msg" aria-live="polite">{placeMsg}</p>}
+            {legs.length > 1 && (
+              <p className="slip-clear-row"><button className="link slip-clear" onClick={clear}>Clear all {legs.length} legs</button></p>
+            )}
             <p className="mut slip-disclaimer">
               This app doesn't place bets: you sign in and confirm at the sportsbook. Check the line and price first.
             </p>
+            {/* always mounted so the removal is announced; sticks to the bottom of the slip so it shows wherever it's scrolled */}
+            <div className="slip-undo-wrap" role="status" aria-live="polite">
+              {lastRemoved && (
+                <div className="slip-undo">
+                  <span>Removed {lastRemoved.length === 1 ? `${lastRemoved[0].leg.name} ${playLabel(lastRemoved[0].leg.kind, lastRemoved[0].leg.side, lastRemoved[0].leg.line)}`
+                    : `${lastRemoved.length} legs`}</span>
+                  <button className="link" onClick={undoRemove}>Undo</button>
+                  <button className="slip-undo-x" onClick={dismissUndo} aria-label="Dismiss">×</button>
+                </div>
+              )}
+            </div>
         </Sheet>
       )}
     </>

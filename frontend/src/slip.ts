@@ -285,3 +285,30 @@ export function slipFromHash(hash: string): { legs: Leg[]; state: string } | nul
   const m = /^#slip=([A-Za-z0-9_-]+)$/.exec(hash);
   return m ? decodeSlip(m[1]) : null;
 }
+
+/** Legs taken off the slip, each with the position it held, so an undo can put them back where they were. */
+export type Removed = { leg: Leg; index: number }[];
+
+export const removedFrom = (legs: Leg[], ids: string[]): Removed =>
+  legs.flatMap((leg, index) => (ids.includes(leg.id) ? [{ leg, index }] : []));
+
+/** Puts removed legs back at their old positions (in order, so earlier ones land first); any already back on the slip are skipped. */
+export function restoreLegs(legs: Leg[], removed: Removed): Leg[] {
+  const out = [...legs];
+  [...removed].sort((a, b) => a.index - b.index).forEach(({ leg, index }) => {
+    if (!out.some((l) => l.id === leg.id)) out.splice(Math.min(index, out.length), 0, leg);
+  });
+  return out;
+}
+
+/** A typed stake in dollars: "$12.50" and "1,000" read as you'd expect; blank, junk or negative is 0. Rounded to cents. */
+export function parseStake(text: string): number {
+  const n = Number(text.replace(/[$,\s]/g, ""));
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
+}
+
+/** Per-book stakes as saved with the slip; older slips have none, and anything that isn't a sane amount is dropped. */
+export function cleanStakes(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return Object.fromEntries(Object.entries(raw).filter(([, v]) => typeof v === "number" && Number.isFinite(v) && v >= 0));
+}

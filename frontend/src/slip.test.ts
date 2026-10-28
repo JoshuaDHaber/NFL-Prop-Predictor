@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Leg } from "./slip";
-import { clashesWith, clusterConflicts, priceDrift, withLinks, conflicts, decodeSlip, encodeSlip, isBookUrl, shareUrl, slipFromHash, slipLinksText, combinedLink, openProgress, linkStatus, alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipHitChance, slipText, toAmerican, toDecimal, toWin } from "./slip";
+import { cleanStakes, parseStake, removedFrom, restoreLegs, clashesWith, clusterConflicts, priceDrift, withLinks, conflicts, decodeSlip, encodeSlip, isBookUrl, shareUrl, slipFromHash, slipLinksText, combinedLink, openProgress, linkStatus, alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipHitChance, slipText, toAmerican, toDecimal, toWin } from "./slip";
 
 const leg = (o: Partial<Leg> = {}): Leg => ({
   id: "x", playerId: "p1", name: "Test Back", team: "AAA", opp: "BBB", home: true, kind: "rush", side: "Over", line: 60.5,
@@ -327,5 +327,40 @@ describe("price drift", () => {
   it("attaches fresh links without touching the price", () => {
     expect(withLinks(at({ odds: 100 }), { link: "https://dk/o", eventLink: "https://dk/e" }))
       .toMatchObject({ odds: 100, link: "https://dk/o", eventLink: "https://dk/e" });
+  });
+});
+
+describe("undoing a removal", () => {
+  const [a, b, c, d] = ["a", "b", "c", "d"].map((id) => leg({ id }));
+  it("puts removed legs back where they were", () => {
+    const removed = removedFrom([a, b, c, d], ["b", "d"]);
+    expect(removed.map((r) => [r.leg.id, r.index])).toEqual([["b", 1], ["d", 3]]);
+    expect(restoreLegs([a, c], removed).map((l) => l.id)).toEqual(["a", "b", "c", "d"]);
+  });
+  it("restores a cleared slip in its original order", () => {
+    expect(restoreLegs([], removedFrom([a, b, c], ["a", "b", "c"])).map((l) => l.id)).toEqual(["a", "b", "c"]);
+  });
+  it("keeps legs added since, and skips any already back", () => {
+    const e = leg({ id: "e" });
+    expect(restoreLegs([e, b], removedFrom([a, b, c], ["a", "b", "c"])).map((l) => l.id)).toEqual(["a", "e", "c", "b"]);
+  });
+});
+
+describe("stakes", () => {
+  it("reads typed amounts", () => {
+    expect(parseStake("10")).toBe(10);
+    expect(parseStake("$12.505")).toBe(12.51);
+    expect(parseStake("1,000")).toBe(1000);
+    expect(parseStake(" .5 ")).toBe(0.5);
+  });
+  it("treats blank, junk and negatives as no stake", () => {
+    expect(parseStake("")).toBe(0);
+    expect(parseStake("abc")).toBe(0);
+    expect(parseStake("-5")).toBe(0);
+  });
+  it("loads saved stakes, and none from older slips", () => {
+    expect(cleanStakes(undefined)).toEqual({});
+    expect(cleanStakes([5])).toEqual({});
+    expect(cleanStakes({ DraftKings: 25, FanDuel: "x", BetMGM: -1, Caesars: NaN, Fanatics: 0 })).toEqual({ DraftKings: 25, Fanatics: 0 });
   });
 });
