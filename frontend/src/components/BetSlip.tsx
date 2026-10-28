@@ -7,7 +7,7 @@ import BookBadge from "./BookBadge";
 import Sheet from "./Sheet";
 import SidePill from "./SidePill";
 import { isYesNo, KIND_SHORT, americanOdds, pct, playLabel, signedPct, timeAgo } from "../format";
-import { alternativesAtBook, bookCoverage, clusterConflicts, conflicts, bookOptions, groupByBook, combinedLink, legLink, slipLinksText, linkStatus, openProgress, parlay, rebook, sameGame, slipHitChance, toAmerican, toWin, type BookOption, type Leg } from "../slip";
+import { alternativesAtBook, bookCoverage, clusterConflicts, conflicts, bookOptions, groupByBook, combinedLink, legLink, slipLinksText, linkStatus, openProgress, parlay, priceDrift, rebook, sameGame, slipHitChance, toAmerican, toWin, withLinks, type BookOption, type Leg } from "../slip";
 
 // once per page load: the stored state covers later opens, and "Try again" re-runs it
 let locatedOnce = false;
@@ -49,6 +49,12 @@ export default function BetSlip() {
   const ladderFor = (l: { playerId: string; kind: string }) => ladders[keys.findIndex((k) => k.playerId === l.playerId && k.kind === l.kind)]?.data;
   const options: Record<string, BookOption[]> = Object.fromEntries(legs.map((l) => [l.id, bookOptions(ladderFor(l), l)]));
   const coverage = bookCoverage(options);
+  // the leg's own book quoting it at a new price, or no longer offering it, since it was added
+  const drift = Object.fromEntries(legs.map((l) => [l.id, priceDrift(ladderFor(l), l)]));
+  const movedIn = (ls: Leg[]) => ls.flatMap((l) => { const d = drift[l.id]; return d?.kind === "moved" ? [{ l, now: d.now }] : []; });
+  const nMoved = movedIn(legs).length, nGone = legs.filter((l) => drift[l.id]?.kind === "gone").length;
+  const priceSummary = [nMoved && `${nMoved} ${nMoved === 1 ? "price has" : "prices have"} changed since you added ${nMoved === 1 ? "it" : "them"}.`,
+    nGone && `${nGone} ${nGone === 1 ? "leg is" : "legs are"} no longer offered at ${nGone === 1 ? "its" : "their"} book.`].filter(Boolean).join(" ");
   const moveAll = (book: string) => {
     setTarget(book);
     legs.forEach((l) => {
@@ -139,12 +145,12 @@ export default function BetSlip() {
       setLinking(null);
     } catch (e) { setLinking(`Couldn't fetch links: ${(e as Error).message}`); }
   };
-  // once fresh quotes arrive, attach their links to legs that had none (same book, line and side)
+  // once fresh quotes arrive, attach their links to legs that had none (same book, line and side); a new price is shown, not swapped in
   useEffect(() => {
     legs.forEach((l) => {
       if (l.link) return;
       const o = bookOptions(ladderFor(l), l).find((x) => x.book === l.book);
-      if (o?.link) replace(l.id, rebook(l, o));
+      if (o?.link) replace(l.id, withLinks(l, o));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ladders.map((q) => q.dataUpdatedAt).join(",")]);
@@ -152,6 +158,8 @@ export default function BetSlip() {
   const legRow = (l: Leg, ls: Leg[], stake: number, clash?: Leg[]) => {
     const url = legLink(l, state);
     const direct = linkStatus(l, state) === "direct";
+    const d = drift[l.id];
+    const alts = d?.kind === "gone" ? alternativesAtBook(ladderFor(l), l, l.book) : [];
     return (
       <div className="slip-leg" key={l.id}>
         <div>
@@ -169,6 +177,26 @@ export default function BetSlip() {
             </select>
           </label><br />
           <span className="mut">{pct(l.prob, 0)} model · <span className={l.ev > 0 ? "pos" : ""}>{signedPct(l.ev)} EV</span> · to win ${toWin(l.odds, stake).toFixed(2)}</span>
+          {d?.kind === "moved" && <><br /><span className={`slip-drift ${d.better ? "pos" : "err"}`}>
+            was {americanOdds(d.was)} → now {americanOdds(d.now.odds)} <span className="mut">· {d.better ? "better" : "worse"} for you</span></span></>}
+          {d?.kind === "gone" && (
+            <div className="slip-gone">
+              <span className="err">No longer offered at {l.book}.</span>{" "}
+              {alts.length ? <span className="mut">Nearest lines there:</span>
+                : <span className="mut">{options[l.id]?.length ? "Pick another book above, or remove it." : "Remove it, or check back after the next odds sync."}</span>}
+              {alts.length > 0 && (
+                <div className="chips">
+                  {alts.map((o) => (
+                    <button key={o.line} className="chip-btn" onClick={() => replace(l.id, rebook(l, o))}
+                      title={`Swap to ${playLabel(l.kind, l.side, o.line)} at ${l.book}`}>
+                      {playLabel(l.kind, l.side, o.line)} <b>{americanOdds(o.odds)}</b>
+                      <span className={o.ev > 0 ? "pos" : "mut"}> {signedPct(o.ev)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="slip-actions">
           {/* a book's only leg goes through "Place bet" below */}
@@ -261,6 +289,7 @@ export default function BetSlip() {
               const stake = stakeFor(book);
               const prog = openProgress(legs, book, state, []);
               const p = parlay(ls, stake);
+              const moved = movedIn(ls);
               return (
                 <section className="slip-group" key={book}>
                   <div className="slip-book">
@@ -277,6 +306,15 @@ export default function BetSlip() {
                       {row.map((l) => legRow(l, ls, stake, row))}
                     </div>
                   ) : legRow(row[0], ls, stake))}
+                  {moved.length > 0 && (
+                    <div className="slip-drift-bar">
+                      <span className="warn">{moved.length === ls.length && ls.length > 1 ? "Every price" : `${moved.length} ${moved.length === 1 ? "price" : "prices"}`} at {book} moved
+                        since you added {moved.length === 1 ? "it" : "them"}. The payout below still uses the old {moved.length === 1 ? "price" : "prices"}.</span>
+                      <button className="btn" onClick={() => moved.forEach(({ l, now }) => replace(l.id, rebook(l, now)))}>
+                        Update {moved.length} {moved.length === 1 ? "price" : "prices"}
+                      </button>
+                    </div>
+                  )}
                   <div className="slip-total">
                     <label>Stake $
                       <input type="number" min={0} step={1} value={stake}
@@ -315,6 +353,8 @@ export default function BetSlip() {
             <p id="slip-clash-msg" className="err slip-clash-msg" aria-live="polite">
               {clashSummary && <button className="link err" onClick={showClash}>{clashSummary} Show me</button>}
             </p>
+            {/* always mounted, like the clash message: a price moving while the slip is open is announced */}
+            <p id="slip-price-msg" className="warn slip-price-msg" aria-live="polite">{priceSummary}</p>
             {legs.length > 0 && (
               <div className="slip-footer">
                 {groups.map(([book]) => placeButton(book))}

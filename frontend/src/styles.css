@@ -99,6 +99,10 @@ button.primary:disabled { opacity: .55; cursor: default; }
 .slip-clash { border-left: 3px solid var(--bad); background: color-mix(in srgb, var(--bad) 7%, transparent); }
 .slip-clash > .err { margin: 0; padding: 10px 12px 0; font-size: 12px; }
 .slip-clash-msg { margin: 12px 0 0; font-size: 13px; } .slip-clash-msg:empty { display: none; } .slip-clash-msg .link { color: var(--bad); font-size: 13px; text-align: left; text-decoration: underline; }
+.slip-drift { font-size: 12px; } .slip-gone { margin-top: 4px; font-size: 12px; }
+.slip-drift-bar { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 10px 12px 0; }
+.slip-drift-bar .warn { padding: 0; flex: 1 1 200px; }
+.slip-price-msg { margin: 12px 0 0; padding: 0; font-size: 13px; } .slip-price-msg:empty { display: none; }
 .slip-alert { display: inline-block; margin-left: 6px; min-width: 20px; border-radius: 999px; background: var(--bad); color: #fff; text-align: center; }
 .add.clash { border-color: var(--bad); color: var(--bad); }
 .slip-footer { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0; } .slip-place-msg { font-size: 12px; margin: -4px 0 0; } .slip-disclaimer { margin-top: 18px; }
