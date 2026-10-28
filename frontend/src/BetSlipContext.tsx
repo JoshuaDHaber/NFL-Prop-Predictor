@@ -1,10 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { detectState } from "./geoState";
-import { slipFromHash, type Leg } from "./slip";
+import { clashesWith, conflicts, slipFromHash, type Leg } from "./slip";
 
 interface SlipCtx {
   legs: Leg[];
   has: (id: string) => boolean;
+  /** How many same-player, same-market clashes the slip holds (books won't parlay them). */
+  clashCount: number;
+  /** Whether adding this leg would put a clash on the slip. */
+  wouldClash: (leg: Leg) => boolean;
   toggle: (leg: Leg) => void;
   remove: (id: string) => void;
   replace: (oldId: string, leg: Leg) => void;
@@ -69,9 +73,11 @@ export function BetSlipProvider({ children }: { children: ReactNode }) {
     ls.some((l) => l.id === leg.id && l.id !== oldId) ? ls.filter((l) => l.id !== oldId) : ls.map((l) => (l.id === oldId ? leg : l))), []);
   const clear = useCallback(() => setLegs([]), []);
   const has = useCallback((id: string) => legs.some((l) => l.id === id), [legs]);
+  const clashCount = useMemo(() => conflicts(legs).length, [legs]);
+  const wouldClash = useCallback((leg: Leg) => clashesWith(legs, leg), [legs]);
 
-  const value = useMemo(() => ({ legs, has, toggle, remove, replace, clear, state, setState, allBooks, setAllBooks, open, setOpen, staleSince, setStaleSince }),
-    [legs, has, toggle, remove, replace, clear, state, allBooks, open, staleSince]);
+  const value = useMemo(() => ({ legs, has, clashCount, wouldClash, toggle, remove, replace, clear, state, setState, allBooks, setAllBooks, open, setOpen, staleSince, setStaleSince }),
+    [legs, has, clashCount, wouldClash, toggle, remove, replace, clear, state, allBooks, open, staleSince]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

@@ -7,13 +7,13 @@ import BookBadge from "./BookBadge";
 import Sheet from "./Sheet";
 import SidePill from "./SidePill";
 import { isYesNo, KIND_SHORT, americanOdds, pct, playLabel, signedPct, timeAgo } from "../format";
-import { alternativesAtBook, bookCoverage, bookOptions, groupByBook, combinedLink, legLink, slipLinksText, linkStatus, openProgress, parlay, rebook, sameGame, slipHitChance, toAmerican, toWin, type BookOption } from "../slip";
+import { alternativesAtBook, bookCoverage, clusterConflicts, conflicts, bookOptions, groupByBook, combinedLink, legLink, slipLinksText, linkStatus, openProgress, parlay, rebook, sameGame, slipHitChance, toAmerican, toWin, type BookOption, type Leg } from "../slip";
 
 // once per page load: the stored state covers later opens, and "Try again" re-runs it
 let locatedOnce = false;
 
 export default function BetSlip() {
-  const { legs, remove, replace, clear, state, setState, open, setOpen, staleSince } = useBetSlip();
+  const { legs, remove, replace, clear, state, setState, open, setOpen, staleSince, clashCount } = useBetSlip();
   // old odds: the bettor ticks that they'll check prices before a Place button hands the slip to a book (once per odds fetch)
   const [checkedStale, setCheckedStale] = useState<string | null>(null);
   const gated = !!staleSince && checkedStale !== staleSince;
@@ -73,7 +73,6 @@ export default function BetSlip() {
   const copyText = async (text: string, tag: "link") => {
     try { await navigator.clipboard.writeText(text); setCopied(tag); setTimeout(() => setCopied(null), 1800); } catch { /* clipboard blocked */ }
   };
-  const links = slipLinksText(legs, state);
   // All of a book's linked legs in a single tab (only for books whose multi-selection link format we know)
   const combineFor = (book: string) => {
     const direct = openProgress(legs, book, state, []).direct.flatMap((l) => {
@@ -96,11 +95,24 @@ export default function BetSlip() {
       : `All ${p.direct.length} legs opened at ${book}. Check the slip there before placing.`);
   };
   const groups = groupByBook(legs);
+  // one player's same market twice at a book: the book won't parlay them, so that book's slip is blocked until one is removed
+  const clashes = conflicts(legs);
+  const clashBooks = new Set(clashes.map((c) => c[0].book));
+  const keepOnly = (keep: Leg, clash: Leg[]) => clash.forEach((l) => l.id !== keep.id && remove(l.id));
+  // "Copy slip link" carries every book that can take its legs; a book with a clash is left out until it's fixed
+  const links = slipLinksText(legs.filter((l) => !clashBooks.has(l.book)), state);
+  const clashSummary = clashes.length ? `Fix ${clashes.length} ${clashes.length === 1 ? "clash" : "clashes"} at ${[...clashBooks].join(" and ")} to place ${clashBooks.size === 1 ? "that parlay" : "those parlays"}.` : "";
+  const showClash = () => {
+    const el = document.querySelector<HTMLElement>(".slip-clash");
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    el?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
+  };
   // "Place bet": every linked leg in one tab where the book's multi-selection link is known, otherwise one leg per click
   const placeButton = (book: string) => {
     const prog = openProgress(legs, book, state, opened[book] ?? []);
     if (!prog.direct.length) return null;
     const label = <><BookBadge book={book} size={20} />{groups.length > 1 ? `Place at ${book}` : "Place bet"}</>;
+    if (clashBooks.has(book)) return <button key={book} className="primary" disabled aria-describedby="slip-clash-msg">{label} ↗</button>;
     if (gated) return <button key={book} className="primary" disabled title="Tick the box above first: these prices are old">{label} ↗</button>;
     const combine = combineFor(book);
     // a real link (not window.open), so phones hand it to the sportsbook app
@@ -136,10 +148,48 @@ export default function BetSlip() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ladders.map((q) => q.dataUpdatedAt).join(",")]);
+  // one leg's row; `clash` is set when it's one of several legs on the same player's market at this book
+  const legRow = (l: Leg, ls: Leg[], stake: number, clash?: Leg[]) => {
+    const url = legLink(l, state);
+    const direct = linkStatus(l, state) === "direct";
+    return (
+      <div className="slip-leg" key={l.id}>
+        <div>
+          <b>{l.name}</b> <span className="mut">{l.team} {l.home ? "vs" : "@"} {l.opp}</span><br />
+          <SidePill kind={l.kind} side={l.side} line={l.line} /> {!isYesNo(l.kind) && KIND_SHORT[l.kind]}
+          {l.alt && <span className="alt">alt</span>}<br />
+          <label className="bookpick">
+            <BookBadge book={l.book} size={20} />
+            <select value={l.book} aria-label={`Book for ${l.name} ${playLabel(l.kind, l.side, l.line)}`}
+              onChange={(e) => { const o = options[l.id]?.find((x) => x.book === e.target.value); if (o) replace(l.id, rebook(l, o)); }}>
+              {!options[l.id]?.some((o) => o.book === l.book) && <option value={l.book}>{l.book} {americanOdds(l.odds)}</option>}
+              {(options[l.id] ?? []).map((o) => (
+                <option key={o.book} value={o.book}>{o.book} {americanOdds(o.odds)}</option>
+              ))}
+            </select>
+          </label><br />
+          <span className="mut">{pct(l.prob, 0)} model · <span className={l.ev > 0 ? "pos" : ""}>{signedPct(l.ev)} EV</span> · to win ${toWin(l.odds, stake).toFixed(2)}</span>
+        </div>
+        <div className="slip-actions">
+          {/* a book's only leg goes through "Place bet" below */}
+          {url && !(ls.length === 1 && direct) && gated && <button className="btn" disabled title="Tick the box below first: these prices are old">{direct ? "Add at book ↗" : "Open book ↗"}</button>}
+          {url && !(ls.length === 1 && direct) && !gated && <a href={url} target="_blank" rel="noopener noreferrer" className="btn"
+            title={direct ? "Adds this selection to your betslip at the sportsbook" : "Opens the sportsbook's page (no betslip link for this selection yet)"}>
+            {direct ? "Add at book ↗" : "Open book ↗"}
+          </a>}
+          {/* in a pair, removing one is keeping the other: "Keep this" only earns its place from three legs up */}
+          {clash && clash.length > 2 && <button className="link" onClick={() => keepOnly(l, clash)}
+            aria-label={`Keep only ${playLabel(l.kind, l.side, l.line)}, remove the other ${clash.length - 1}`}>Keep this</button>}
+          <button className="link" onClick={() => remove(l.id)} aria-label={`Remove ${l.name} ${playLabel(l.kind, l.side, l.line)}`}>Remove</button>
+        </div>
+      </div>
+    );
+  };
   return (
     <>
-      <button className="slip-fab" onClick={() => setOpen(true)} aria-label={`Open betslip, ${legs.length} selections`}>
-        Betslip <span className="count">{legs.length}</span>
+      <button className="slip-fab" onClick={() => setOpen(true)}
+        aria-label={`Open betslip, ${legs.length} selections${clashCount ? `, ${clashCount} to fix` : ""}`}>
+        Betslip <span className="count">{legs.length}</span>{clashCount > 0 && <span className="slip-alert" aria-hidden>!</span>}
       </button>
       {open && (
         <Sheet label="Betslip" overlayClass="slip-overlay" onClose={close}>
@@ -220,49 +270,23 @@ export default function BetSlip() {
                     <p className="warn open-msg">{prog.skipped} {prog.skipped === 1 ? "leg" : "legs"} can't be added: {ls.some((l) => linkStatus(l, state) === "needs-state")
                       ? "needs your state (allow location above)." : "no betslip link yet."}</p>
                   )}
-                  {ls.map((l) => {
-                    const url = legLink(l, state);
-                    const direct = linkStatus(l, state) === "direct";
-                    return (
-                      <div className="slip-leg" key={l.id}>
-                        <div>
-                          <b>{l.name}</b> <span className="mut">{l.team} {l.home ? "vs" : "@"} {l.opp}</span><br />
-                          <SidePill kind={l.kind} side={l.side} line={l.line} /> {!isYesNo(l.kind) && KIND_SHORT[l.kind]}
-                          {l.alt && <span className="alt">alt</span>}<br />
-                          <label className="bookpick">
-                            <BookBadge book={l.book} size={20} />
-                            <select value={l.book} aria-label={`Book for ${l.name} ${playLabel(l.kind, l.side, l.line)}`}
-                              onChange={(e) => { const o = options[l.id]?.find((x) => x.book === e.target.value); if (o) replace(l.id, rebook(l, o)); }}>
-                              {!options[l.id]?.some((o) => o.book === l.book) && <option value={l.book}>{l.book} {americanOdds(l.odds)}</option>}
-                              {(options[l.id] ?? []).map((o) => (
-                                <option key={o.book} value={o.book}>{o.book} {americanOdds(o.odds)}</option>
-                              ))}
-                            </select>
-                          </label><br />
-                          <span className="mut">{pct(l.prob, 0)} model · <span className={l.ev > 0 ? "pos" : ""}>{signedPct(l.ev)} EV</span> · to win ${toWin(l.odds, stake).toFixed(2)}</span>
-                        </div>
-                        <div className="slip-actions">
-                          {/* a book's only leg goes through "Place bet" below */}
-                          {url && !(ls.length === 1 && direct) && gated && <button className="btn" disabled title="Tick the box below first: these prices are old">{direct ? "Add at book ↗" : "Open book ↗"}</button>}
-                          {url && !(ls.length === 1 && direct) && !gated && <a href={url} target="_blank" rel="noopener noreferrer" className="btn"
-                            title={direct ? "Adds this selection to your betslip at the sportsbook" : "Opens the sportsbook's page (no betslip link for this selection yet)"}>
-                            {direct ? "Add at book ↗" : "Open book ↗"}
-                          </a>}
-                          <button className="link" onClick={() => remove(l.id)}>Remove</button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {clusterConflicts(ls).map((row) => row.length > 1 ? (
+                    <div className="slip-clash" key={row[0].id} role="group" aria-label={`${row[0].name} ${KIND_SHORT[row[0].kind]} clash`}>
+                      <p className="err"><b>{row[0].name} {KIND_SHORT[row[0].kind]}</b> is on this slip {row.length} times. Books usually won't
+                        parlay {row.some((l) => l.side !== row[0].side) ? "both sides of a prop" : "two lines of the same prop"}, so keep one.</p>
+                      {row.map((l) => legRow(l, ls, stake, row))}
+                    </div>
+                  ) : legRow(row[0], ls, stake))}
                   <div className="slip-total">
                     <label>Stake $
                       <input type="number" min={0} step={1} value={stake}
                         onChange={(e) => setStakes({ ...stakes, [book]: Math.max(0, Number(e.target.value)) })} />
                     </label>
-                    {ls.length > 1 ? (
+                    {clashBooks.has(book) ? <span className="err">Not a valid parlay yet</span> : ls.length > 1 ? (
                       <span>{ls.length}-leg parlay <b>{americanOdds(p.american)}</b> → pays <b>${p.payout.toFixed(2)}</b> (profit ${p.profit.toFixed(2)})</span>
                     ) : <span className="mut">Single bet</span>}
                   </div>
-                  {ls.length > 1 && (() => {
+                  {ls.length > 1 && !clashBooks.has(book) && (() => {
                     const sg = sameGame(ls);
                     const hit = slipHitChance(ls, positions, sg ? corr : undefined);
                     const ev = hit * p.decimal - 1;
@@ -274,7 +298,7 @@ export default function BetSlip() {
                       </p>
                     );
                   })()}
-                  {ls.length > 1 && sameGame(ls) && (
+                  {ls.length > 1 && !clashBooks.has(book) && sameGame(ls) && (
                     <p className="warn">Same-game legs: books price these their own way, so the payout is a guide. Take it if the book's price beats the fair odds.</p>
                   )}
                 </section>
@@ -287,11 +311,15 @@ export default function BetSlip() {
                 <span><b>These prices are {timeAgo(staleSince).replace(" ago", "")} old</b> and have probably moved. I'll check each one at the book before betting.</span>
               </label>
             )}
+            {/* always mounted so a clash appearing (or being fixed) is announced, but opening the slip isn't */}
+            <p id="slip-clash-msg" className="err slip-clash-msg" aria-live="polite">
+              {clashSummary && <button className="link err" onClick={showClash}>{clashSummary} Show me</button>}
+            </p>
             {legs.length > 0 && (
               <div className="slip-footer">
                 {groups.map(([book]) => placeButton(book))}
                 <button className="primary outline" disabled={!links} onClick={() => copyText(links, "link")}
-                  title={links ? "Copies the sportsbook link so you can open the slip on another device" : "No betslip links to copy yet"}>
+                  title={!links && clashes.length ? "Keep one leg of each clash first" : links ? "Copies the sportsbook link so you can open the slip on another device" : "No betslip links to copy yet"}>
                   {copied === "link" ? "Link copied" : "Copy slip link"}
                 </button>
                 <button className="primary outline" onClick={clear}>Clear all</button>

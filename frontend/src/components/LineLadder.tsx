@@ -69,10 +69,12 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange, marketWe
     if (!c) return <td className="lcell none">–</td>;
     const id = legId({ playerId: ctx.playerId, kind, side: c.side, line: c.row.line, book: c.row.book });
     const inSlip = slip.has(id);
+    const clash = !inSlip && slip.wouldClash(toLeg(c));
+    const clashNote = `already on your slip at ${c.row.book}: books usually won't parlay both`;
     return (
       <td className={`lcell ${c.q.ev > 0 ? "plus" : ""}`}>
-        <button className={`add ${inSlip ? "on" : ""}`} onClick={() => slip.toggle(toLeg(c))}
-          aria-label={`${inSlip ? "Remove" : "Add"} ${playLabel(kind, c.side, c.row.line)} at ${c.row.book}`}>{inSlip ? "✓" : "+"}</button>
+        <button className={`add ${inSlip ? "on" : ""}${clash ? " clash" : ""}`} onClick={() => slip.toggle(toLeg(c))} title={clash ? `Another ${KIND_LABEL[kind]} line is ${clashNote}` : undefined}
+          aria-label={`${inSlip ? "Remove" : "Add"} ${playLabel(kind, c.side, c.row.line)} at ${c.row.book}${clash ? `. Another line of this prop is ${clashNote}` : ""}`}>{inSlip ? "✓" : "+"}</button>
         <span className="lc-main"><span className="odds">{americanOdds(c.q.odds)}</span>
           <span className={c.q.ev > 0 ? "pos" : "mut"}> {signedPct(c.q.ev)}</span>
           {(c.q.off_curve ?? 0) >= BEATS_LADDER && <span className="beats" title={`The books' own ladder puts this at ${pct(c.q.p_curve ?? 0)}; at ${americanOdds(c.q.odds)} that's ${signedPct(c.q.off_curve!)} EV before the model has a say.`}>beats ladder</span>}<br />

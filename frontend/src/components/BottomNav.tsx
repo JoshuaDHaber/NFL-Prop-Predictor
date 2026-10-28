@@ -12,7 +12,7 @@ const SLOTS = 3;
 
 /** Phones: the main sections and the bet slip along the bottom, where a thumb reaches. */
 export default function BottomNav<T extends string>({ tabs, tab, onTab, href }: { tabs: [T, string][]; tab?: T; onTab?: (t: T) => void; href?: (t: T) => string }) {
-  const { legs, setOpen } = useBetSlip();
+  const { legs, setOpen, clashCount } = useBetSlip();
   const main = tabs.slice(0, SLOTS);
   const rest = tabs.slice(SLOTS);
   const inRest = rest.find(([k]) => k === tab);
@@ -27,8 +27,8 @@ export default function BottomNav<T extends string>({ tabs, tab, onTab, href }: 
   return (
     <nav className="bnav" aria-label="Sections">
       {main.map(([k, label]) => item(k, label))}
-      <button className="bnav-item" onClick={() => setOpen(true)} aria-label={`Betslip, ${legs.length} selections`}>
-        <span className="bnav-ico"><IconReceipt size={22} stroke={1.75} aria-hidden />{legs.length > 0 && <span className="bnav-badge">{legs.length}</span>}</span>
+      <button className="bnav-item" onClick={() => setOpen(true)} aria-label={`Betslip, ${legs.length} selections${clashCount ? `, ${clashCount} to fix` : ""}`}>
+        <span className="bnav-ico"><IconReceipt size={22} stroke={1.75} aria-hidden />{legs.length > 0 && <span className={`bnav-badge${clashCount ? " clash" : ""}`}>{clashCount ? "!" : legs.length}</span>}</span>
         <span>Slip</span>
       </button>
       <Menu placement="up" align="end" buttonClass={`bnav-item${inRest ? " on" : ""}`} caret={false}

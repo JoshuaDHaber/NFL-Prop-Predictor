@@ -65,13 +65,16 @@ function AltProps({ props }: { props: ParlayLeg[] }) {
         {props.map((l) => {
           const leg = pickToLeg(l);
           const on = slip.has(leg.id);
+          const clash = !on && slip.wouldClash(leg);
           return (
             <li key={leg.id}>
               <Avatar name={l.name} size={26} />
               <span className="leg-main"><b>{l.name}</b> <SidePill kind={l.kind} side={l.side} line={l.line} />{l.alt && <span className="alt">alt</span>}
                 <small>{KIND_LABEL[l.kind]} · {l.team} {l.home ? "vs" : "@"} {l.opp}</small></span>
               <span className="leg-odds">{americanOdds(l.odds)}<small>{pct(l.prob, 0)} chance</small></span>
-              <button className={`add ${on ? "on" : ""}`} onClick={() => slip.toggle(leg)} aria-label={on ? "Remove from slip" : "Add to slip"} aria-pressed={on}>{on ? "✓" : "+"}</button>
+              <button className={`add ${on ? "on" : ""}${clash ? " clash" : ""}`} onClick={() => slip.toggle(leg)} aria-pressed={on}
+                title={clash ? `Another line of this prop is already on your slip at ${leg.book}` : undefined}
+                aria-label={on ? "Remove from slip" : clash ? `Add to slip. Another line of this prop is already on your slip at ${leg.book}` : "Add to slip"}>{on ? "✓" : "+"}</button>
             </li>
           );
         })}
