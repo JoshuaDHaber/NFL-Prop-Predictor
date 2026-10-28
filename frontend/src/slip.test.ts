@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Leg } from "./slip";
-import { clashesWith, clusterConflicts, conflicts, decodeSlip, encodeSlip, isBookUrl, shareUrl, slipFromHash, slipLinksText, combinedLink, openProgress, linkStatus, alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipHitChance, slipText, toAmerican, toDecimal, toWin } from "./slip";
+import { clashesWith, clusterConflicts, priceDrift, withLinks, conflicts, decodeSlip, encodeSlip, isBookUrl, shareUrl, slipFromHash, slipLinksText, combinedLink, openProgress, linkStatus, alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipHitChance, slipText, toAmerican, toDecimal, toWin } from "./slip";
 
 const leg = (o: Partial<Leg> = {}): Leg => ({
   id: "x", playerId: "p1", name: "Test Back", team: "AAA", opp: "BBB", home: true, kind: "rush", side: "Over", line: 60.5,
@@ -296,5 +296,36 @@ describe("same-player clashes", () => {
   });
   it("groups a clash's legs together where the first one was", () => {
     expect(clusterConflicts([a, e, c, d]).map((r) => r.map((l) => l.id))).toEqual([["a", "c"], ["e"], ["d"]]);
+  });
+});
+
+describe("price drift", () => {
+  const at = (o: Partial<Leg>) => leg({ line: 60.5, side: "Over", ...o });
+  it("says nothing while loading, when the price is unchanged, or when no book prices the market", () => {
+    expect(priceDrift(undefined, at({ odds: -110 }))).toBeNull();
+    expect(priceDrift(ladder as any, at({ odds: -110 }))).toBeNull();
+    expect(priceDrift({ ...ladder, quotes: [] } as any, at({ odds: -110 }))).toBeNull();
+  });
+  it("reports a new price at the leg's book, better or worse for the bettor", () => {
+    const worse = priceDrift(ladder as any, at({ odds: 100 }));
+    expect(worse).toMatchObject({ kind: "moved", was: 100, better: false, now: { book: "DraftKings", odds: -110, link: "https://dk/o" } });
+    expect(priceDrift(ladder as any, at({ odds: -125 }))).toMatchObject({ kind: "moved", was: -125, better: true });
+    expect(priceDrift(ladder as any, at({ book: "FanDuel", odds: -110 }))).toMatchObject({ kind: "moved", better: true, now: { odds: -105 } });
+  });
+  it("updating to the new quote keeps the leg's id", () => {
+    const l = at({ odds: 100 });
+    const l2 = { ...l, id: legId(l) };
+    const d = priceDrift(ladder as any, l2);
+    expect(d?.kind).toBe("moved");
+    if (d?.kind === "moved") expect(rebook(l2, d.now)).toMatchObject({ id: l2.id, odds: -110, prob: 0.4 });
+  });
+  it("marks a line the book no longer offers: another line, the other side, or the book gone", () => {
+    expect(priceDrift(ladder as any, at({ line: 70.5 }))).toEqual({ kind: "gone" });
+    expect(priceDrift(ladder as any, at({ side: "Under", book: "FanDuel" }))).toEqual({ kind: "gone" });
+    expect(priceDrift(ladder as any, at({ book: "Caesars" }))).toEqual({ kind: "gone" });
+  });
+  it("attaches fresh links without touching the price", () => {
+    expect(withLinks(at({ odds: 100 }), { link: "https://dk/o", eventLink: "https://dk/e" }))
+      .toMatchObject({ odds: 100, link: "https://dk/o", eventLink: "https://dk/e" });
   });
 });

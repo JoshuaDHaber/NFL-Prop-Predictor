@@ -131,6 +131,21 @@ export function rebook(leg: Leg, o: BookOption): Leg {
   return { ...next, id: legId(next) };
 }
 
+/** How a leg's book quotes it now, against the price it was added at: `moved` when the same line and side has a new
+ *  price, `gone` when the book no longer offers that line. Null while the ladder is loading, when nothing changed, or when
+ *  the ladder has no quotes at all (no book prices the market, e.g. a thin projection), which says nothing about this book. */
+export type PriceDrift = { kind: "moved"; was: number; now: BookOption; better: boolean } | { kind: "gone" };
+export function priceDrift(ladder: Ladder | undefined, leg: Pick<Leg, "line" | "side" | "book" | "odds">): PriceDrift | null {
+  if (!ladder?.quotes.length) return null;
+  const now = bookOptions(ladder, leg).find((o) => o.book === leg.book);
+  if (!now) return { kind: "gone" };
+  // American odds order the same way as payout (+150 beats +120 beats -110 beats -125)
+  return now.odds === leg.odds ? null : { kind: "moved", was: leg.odds, now, better: now.odds > leg.odds };
+}
+
+/** A leg with the link from a fresh quote, keeping the price it was added at (a price change is shown, never swapped in silently). */
+export const withLinks = (leg: Leg, o: Pick<BookOption, "link" | "eventLink">): Leg => ({ ...leg, link: o.link, eventLink: o.eventLink });
+
 /** Books that could carry every leg, with how many legs each can take. */
 export function bookCoverage(options: Record<string, BookOption[]>): { book: string; count: number }[] {
   const counts = new Map<string, number>();
