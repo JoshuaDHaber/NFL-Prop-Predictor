@@ -106,6 +106,17 @@ button.primary:disabled { opacity: .55; cursor: default; }
 .slip-alert { display: inline-block; margin-left: 6px; min-width: 20px; border-radius: 999px; background: var(--bad); color: #fff; text-align: center; }
 .add.clash { border-color: var(--bad); color: var(--bad); }
 .slip-footer { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0; } .slip-place-msg { font-size: 12px; margin: -4px 0 0; } .slip-disclaimer { margin-top: 18px; }
+.slip-stake { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } .slip-stake .chips { margin: 0; gap: 4px; }
+.slip-stake .chip-btn { padding: 4px 8px; } .chip-btn[aria-pressed="true"] { border-color: var(--acc); background: var(--chip); font-weight: 600; }
+/* a quiet destructive action, kept apart from Place and Copy */
+.slip-clear-row { margin: 14px 0 0; padding-top: 10px; border-top: 1px solid var(--line); text-align: right; }
+.slip-clear { color: var(--bad); font-size: 13px; padding: 6px 0; min-height: 32px; } .slip-clear:hover { text-decoration: underline; }
+.slip-undo-wrap { position: sticky; bottom: 0; z-index: 4; } .slip-undo-wrap:empty { display: none; }
+.slip-undo { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 10px 8px 10px 14px; border-radius: 10px; background: var(--ink); color: var(--bg);
+  font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.25); animation: undo-in .18s ease; }
+.slip-undo span { flex: 1; min-width: 0; } .slip-undo .link { color: var(--bg); font-size: 13px; font-weight: 700; text-decoration: underline; padding: 6px 4px; }
+.slip-undo-x { background: none; border: 0; color: var(--bg); opacity: .7; font-size: 18px; line-height: 1; padding: 4px 6px; cursor: pointer; }
+@keyframes undo-in { from { transform: translateY(8px); opacity: 0; } }
 .lcell { display: table-cell; } .lcell .add { float: left; margin-top: 4px; } .lc-main { display: inline-block; line-height: 1.25; font-size: 13px; }
 .bookpick { display: inline-flex; align-items: center; gap: 6px; margin: 3px 0; } .bookpick select, .statebox select { border: 1px solid var(--line); background: var(--card); color: var(--ink); padding: 4px 6px; border-radius: 7px; font: inherit; font-size: 12px; }
 .statebox select { font-size: 13px; padding: 6px 8px; }
