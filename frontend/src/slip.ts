@@ -73,6 +73,33 @@ export function slipText(legs: Leg[]) {
   return groupByBook(legs).map(([book, ls]) => `${book}\n${ls.map((l) => `  - ${legText(l)}`).join("\n")}`).join("\n\n");
 }
 
+/** Legs a book won't parlay together: one player's same market more than once at the same book (both sides of a line, or
+ *  two lines of it). Each group is one such clash; different markets for one player are an ordinary same-game parlay. */
+export function conflicts(legs: Leg[]): Leg[][] {
+  const m = new Map<string, Leg[]>();
+  for (const l of legs) {
+    const k = `${l.book}|${l.playerId}|${l.kind}`;
+    m.set(k, [...(m.get(k) ?? []), l]);
+  }
+  return [...m.values()].filter((g) => g.length > 1);
+}
+
+/** Whether adding `leg` would clash with a different leg already on the slip (see `conflicts`). */
+export const clashesWith = (legs: Leg[], leg: Pick<Leg, "id" | "book" | "playerId" | "kind">) =>
+  legs.some((l) => l.id !== leg.id && l.book === leg.book && l.playerId === leg.playerId && l.kind === leg.kind);
+
+/** The legs in slip order as rows to show: a leg on its own, or a clash's legs together where its first leg was. */
+export function clusterConflicts(legs: Leg[]): Leg[][] {
+  const groups = conflicts(legs);
+  const seen = new Set<string>();
+  return legs.flatMap((l) => {
+    if (seen.has(l.id)) return [];
+    const g = groups.find((c) => c.includes(l)) ?? [l];
+    g.forEach((x) => seen.add(x.id));
+    return [g];
+  });
+}
+
 export const sameGame = (legs: Leg[]) => new Set(legs.map((l) => l.gameId)).size < legs.length;
 
 /** The chance every leg hits. Legs in one game are priced with the same-game correlations (copula.ts), which need each

@@ -96,6 +96,11 @@ button.primary:disabled { opacity: .55; cursor: default; }
 .slip-total { padding: 10px 12px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 13px; }
 .slip-total input { width: 70px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; }
 .warn { margin: 0; padding: 0 12px 10px; font-size: 12px; color: var(--warn); }
+.slip-clash { border-left: 3px solid var(--bad); background: color-mix(in srgb, var(--bad) 7%, transparent); }
+.slip-clash > .err { margin: 0; padding: 10px 12px 0; font-size: 12px; }
+.slip-clash-msg { margin: 12px 0 0; font-size: 13px; } .slip-clash-msg:empty { display: none; } .slip-clash-msg .link { color: var(--bad); font-size: 13px; text-align: left; text-decoration: underline; }
+.slip-alert { display: inline-block; margin-left: 6px; min-width: 20px; border-radius: 999px; background: var(--bad); color: #fff; text-align: center; }
+.add.clash { border-color: var(--bad); color: var(--bad); }
 .slip-footer { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0; } .slip-place-msg { font-size: 12px; margin: -4px 0 0; } .slip-disclaimer { margin-top: 18px; }
 .lcell { display: table-cell; } .lcell .add { float: left; margin-top: 4px; } .lc-main { display: inline-block; line-height: 1.25; font-size: 13px; }
 .bookpick { display: inline-flex; align-items: center; gap: 6px; margin: 3px 0; } .bookpick select, .statebox select { border: 1px solid var(--line); background: var(--card); color: var(--ink); padding: 4px 6px; border-radius: 7px; font: inherit; font-size: 12px; }
@@ -611,6 +616,7 @@ input[type="search"] { font-weight: 400; }
   .bnav-ico { position: relative; display: inline-flex; }
   .bnav-badge { position: absolute; top: -5px; right: -10px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--acc2); color: var(--on-acc2);
     font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+  .bnav-badge.clash { background: var(--bad); color: #fff; }
   .bnav .menu-pop { min-width: 210px; }
 
   /* sheets */

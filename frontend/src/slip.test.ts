@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Leg } from "./slip";
-import { decodeSlip, encodeSlip, isBookUrl, shareUrl, slipFromHash, slipLinksText, combinedLink, openProgress, linkStatus, alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipHitChance, slipText, toAmerican, toDecimal, toWin } from "./slip";
+import { clashesWith, clusterConflicts, conflicts, decodeSlip, encodeSlip, isBookUrl, shareUrl, slipFromHash, slipLinksText, combinedLink, openProgress, linkStatus, alternativesAtBook, bookCoverage, bookOptions, groupByBook, legId, rebook, legLink, parlay, sameGame, slipHitChance, slipText, toAmerican, toDecimal, toWin } from "./slip";
 
 const leg = (o: Partial<Leg> = {}): Leg => ({
   id: "x", playerId: "p1", name: "Test Back", team: "AAA", opp: "BBB", home: true, kind: "rush", side: "Over", line: 60.5,
@@ -272,5 +272,29 @@ describe("NBA same-game slip", () => {
     const qb = leg({ playerId: "qb", kind: "pass", gameId: "n1", prob: 0.5 }), wr = leg({ playerId: "wr", kind: "rec", gameId: "n1", prob: 0.5 });
     const both = slipHitChance([pts, threes, qb, wr], { g1: "PG", qb: "QB", wr: "WR" }, merged);
     expect(both).toBeCloseTo(slipHitChance([pts, threes], { g1: "PG" }, merged) * slipHitChance([qb, wr], { qb: "QB", wr: "WR" }, merged), 12);
+  });
+});
+
+describe("same-player clashes", () => {
+  const a = leg({ id: "a", side: "Over", line: 60.5 });
+  const b = leg({ id: "b", side: "Under", line: 60.5 });
+  const c = leg({ id: "c", side: "Over", line: 70.5 });
+  const d = leg({ id: "d", kind: "td", line: 0.5 });
+  const e = leg({ id: "e", playerId: "p2" });
+  it("flags one player's same market twice at a book: both sides, or two lines", () => {
+    expect(conflicts([a, b, e]).map((g) => g.map((l) => l.id))).toEqual([["a", "b"]]);
+    expect(conflicts([a, c]).map((g) => g.map((l) => l.id))).toEqual([["a", "c"]]);
+  });
+  it("allows different markets for a player, and the same bet at different books", () => {
+    expect(conflicts([a, d, e])).toEqual([]);
+    expect(conflicts([a, leg({ id: "f", book: "FanDuel" })])).toEqual([]);
+  });
+  it("says whether adding a leg would clash", () => {
+    expect(clashesWith([a, e], b)).toBe(true);
+    expect(clashesWith([a, e], a)).toBe(false);
+    expect(clashesWith([a, e], d)).toBe(false);
+  });
+  it("groups a clash's legs together where the first one was", () => {
+    expect(clusterConflicts([a, e, c, d]).map((r) => r.map((l) => l.id))).toEqual([["a", "c"], ["e"], ["d"]]);
   });
 });
