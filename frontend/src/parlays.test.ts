@@ -72,6 +72,17 @@ describe("recommendParlays", () => {
     expect(keys).toEqual(["safest"]); // value is the same three legs; overs and the 5-leg don't have enough
   });
 
+  it("keeps the 3-leg tiles to one shared player, and says the 5-leg extends the likeliest", () => {
+    const tiles = recommendParlays(slate(10, (i) => ({ side: i % 3 ? "Under" : "Over" })));
+    const threes = tiles.filter((p) => p.legs.length === 3);
+    for (const a of threes) for (const b of threes) {
+      if (a === b) continue;
+      expect(a.legs.filter((l) => b.legs.some((m) => m.player_id === l.player_id)).length).toBeLessThanOrEqual(1);
+    }
+    expect(tiles[0].title).toBe("Likeliest 3-leg");
+    expect(tiles.find((p) => p.key === "payout")?.extends).toBe("safest");
+  });
+
   it("only offers an overs parlay when there are three overs", () => {
     const rows = slate(6, (i) => ({ side: i % 2 ? "Over" : "Under" }));
     expect(recommendParlays(rows).some((p) => p.key === "overs")).toBe(true);
@@ -184,6 +195,17 @@ describe("ladder parlays", () => {
   it("returns nothing when no combination reaches +100, and only reads the chosen book", () => {
     expect(buildLadderParlays([entry("a", rung(10.5, -400, 0.85)), entry("b", rung(10.5, -400, 0.85))], "DraftKings")).toEqual([]);
     expect(buildLadderParlays([entry("a", rung(30.5, -150, 0.7)), entry("b", rung(30.5, -150, 0.7))], "FanDuel")).toEqual([]);
+  });
+
+  it("varies the players from one band's ladder to the next when it can", () => {
+    const ids = ["a", "b", "c", "d", "e", "f"];
+    const entries = ids.map((id, i) => entry(id, rung(30.5, -200 + i * 10, 0.74 - i * 0.01), rung(40.5, -130 + i * 5, 0.64 - i * 0.005)));
+    const ladders = buildLadderParlays(entries, "DraftKings");
+    expect(ladders.length).toBeGreaterThan(1);
+    for (let i = 1; i < ladders.length; i++) for (let j = 0; j < i; j++) {
+      const shared = ladders[i].legs.filter((l) => ladders[j].legs.some((m) => m.player_id === l.player_id)).length;
+      expect(shared).toBeLessThanOrEqual(1);
+    }
   });
 
   it("prices the combined odds from the rung prices", () => {

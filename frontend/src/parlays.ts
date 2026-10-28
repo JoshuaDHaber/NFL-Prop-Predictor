@@ -9,8 +9,8 @@ export const MIN_LEG_ODDS = -300;
 /** Lowest win probability a leg needs to be considered "high probability". */
 export const MIN_LEG_PROB = 0.6;
 
-/** A parlay leg: a priced pick, plus the betslip link when it came from a line ladder. */
-export interface ParlayLeg extends Pick { link?: string | null; eventLink?: string | null; alt?: boolean }
+/** A parlay leg: a priced pick, plus the betslip link when it came from a line ladder (and the player's main line, to show how far down the rung is). */
+export interface ParlayLeg extends Pick { link?: string | null; eventLink?: string | null; alt?: boolean; mainLine?: number }
 
 export interface Parlay {
   key: string;
@@ -27,7 +27,16 @@ export interface Parlay {
   ev: number;
   /** The sportsbook every leg is priced at, so the parlay can be placed as shown. */
   book: string;
+  /** The tile it extends with more legs (the 5-leg builds on the likeliest 3), so the overlap reads as deliberate. */
+  extends?: string;
 }
+
+/** At most this many players in common between two tiles of a section, so the tiles are different bets to choose between. */
+export const MAX_SHARED_PLAYERS = 1;
+const players = (legs: Pick[]) => new Set(legs.map((l) => l.player_id));
+const shared = (a: Set<string>, legs: Pick[]) => legs.filter((l) => a.has(l.player_id)).length;
+/** True when `legs` shares more than MAX_SHARED_PLAYERS players with any of `earlier`. */
+export const overlapsAny = (legs: Pick[], earlier: Pick[][]) => earlier.some((e) => shared(players(e), legs) > MAX_SHARED_PLAYERS);
 
 export const pickKey = (p: Pick) => `${p.player_id}|${p.kind}|${p.side}|${p.line}|${p.book}`;
 
@@ -36,14 +45,15 @@ export function candidates(picks: Pick[]): Pick[] {
   return picks.filter((p) => !p.flagged && !isYesNo(p.kind) && p.prob >= MIN_LEG_PROB && p.odds >= MIN_LEG_ODDS);
 }
 
-/** Take legs in order, at most one per player (a player's other lines and markets would be the same bet twice).
+/** Take legs in order, at most one per player (a player's other lines and markets would be the same bet twice), skipping any
+ *  that would share more than MAX_SHARED_PLAYERS players with one of the `avoid` tiles.
  *  Several legs may share a game; the parlay is flagged `sameGame` then, since the book prices those its own way. */
-function onePerPlayer(sorted: Pick[], n: number): Pick[] {
-  const players = new Set<string>();
+function onePerPlayer(sorted: Pick[], n: number, avoid: Pick[][] = []): Pick[] {
+  const used = new Set<string>();
   const legs: Pick[] = [];
   for (const p of sorted) {
-    if (players.has(p.player_id)) continue;
-    players.add(p.player_id);
+    if (used.has(p.player_id) || overlapsAny([...legs, p], avoid)) continue;
+    used.add(p.player_id);
     legs.push(p);
     if (legs.length === n) break;
   }
@@ -66,15 +76,18 @@ const byEv = (a: Pick, b: Pick) => b.ev - a.ev || b.prob - a.prob;
 /** The recommended parlays. `picks` must all be quotes from one sportsbook. A tile is dropped when there aren't enough eligible legs or it repeats an earlier tile. */
 export function recommendParlays(picks: Pick[], corr?: CorrTable): Parlay[] {
   const pool = candidates(picks);
-  const specs: { key: string; title: string; blurb: string; n: number; legs: Pick[] }[] = [
-    { key: "safest", title: "Safest 3-leg", blurb: "The three likeliest plays on the board.",
-      n: 3, legs: onePerPlayer([...pool].sort(byProb), 3) },
-    { key: "value", title: "Best value 3-leg", blurb: "Highest expected return among high-probability plays.",
-      n: 3, legs: onePerPlayer([...pool].sort(byEv), 3) },
-    { key: "overs", title: "Overs only", blurb: "Three likely overs.",
-      n: 3, legs: onePerPlayer(pool.filter((p) => p.side === "Over").sort(byProb), 3) },
-    { key: "payout", title: "Bigger payout 5-leg", blurb: "Five likely plays, each from a different player.",
-      n: 5, legs: onePerPlayer([...pool].sort(byProb), 5) },
+  // each 3-leg tile shares at most one player with the ones before it, so they're different bets; the 5-leg openly extends the first
+  const likeliest = onePerPlayer([...pool].sort(byProb), 3);
+  const value = onePerPlayer([...pool].sort(byEv), 3, [likeliest]);
+  const overs = onePerPlayer(pool.filter((p) => p.side === "Over").sort(byProb), 3, [likeliest, value].filter((l) => l.length === 3));
+  const five = onePerPlayer([...pool].sort(byProb), 5);
+  const extendsFirst = likeliest.length === 3 && likeliest.every((l, i) => five[i] === l);
+  const specs: { key: string; title: string; blurb: string; n: number; legs: Pick[]; extends?: string }[] = [
+    { key: "safest", title: "Likeliest 3-leg", blurb: "The three likeliest plays on the board.", n: 3, legs: likeliest },
+    { key: "value", title: "Best value 3-leg", blurb: "Highest expected return among high-probability plays, mostly different players from the likeliest.", n: 3, legs: value },
+    { key: "overs", title: "Overs only", blurb: "Three likely overs.", n: 3, legs: overs },
+    { key: "payout", title: "Bigger payout 5-leg", n: 5, legs: five, extends: extendsFirst ? "safest" : undefined,
+      blurb: extendsFirst ? "The likeliest 3-leg plus the next two likeliest plays, each from a different player." : "Five likely plays, each from a different player." },
   ];
   const seen = new Set<string>();
   const out: Parlay[] = [];
@@ -83,7 +96,7 @@ export function recommendParlays(picks: Pick[], corr?: CorrTable): Parlay[] {
     const sig = s.legs.map(pickKey).sort().join("&");
     if (seen.has(sig)) continue;
     seen.add(sig);
-    out.push({ key: s.key, title: s.title, blurb: s.blurb, legs: s.legs, ...priceParlay(s.legs, corr) });
+    out.push({ key: s.key, title: s.title, blurb: s.blurb, legs: s.legs, extends: s.extends, ...priceParlay(s.legs, corr) });
   }
   return out;
 }
@@ -178,7 +191,7 @@ export function ladderRungs(base: Pick, ladder: Ladder | undefined, book: string
     const cur = byLine.get(r.line);
     if (cur && cur.odds >= q.odds) continue;
     byLine.set(r.line, { ...base, side: "Over", line: r.line, odds: q.odds, book, p_model: q.prob, p_mkt: 1 / dec, prob, ev: prob * dec - 1,
-      link: q.link, eventLink: r.event_link, alt: r.alt });
+      link: q.link, eventLink: r.event_link, alt: r.alt, mainLine: base.line });
   }
   return [...byLine.values()].sort((a, b) => a.line - b.line);
 }
@@ -186,13 +199,18 @@ export function ladderRungs(base: Pick, ladder: Ladder | undefined, book: string
 type Band = { key: string; title: string; lo: number; hi: number };
 type LadderEntry = { base: Pick; ladder: Ladder | undefined };
 
+/** How many of each band's likeliest combinations the search keeps, to choose ladders that don't repeat each other's players. */
+const LADDER_KEEP = 40;
+
 /** For each band, the likeliest combination of 2-4 different players' rungs (one rung each) whose combined price lands in it.
  *  With `corr`, "likeliest" counts same-game correlation: a player's rungs share a market and side, so the players'
- *  correlations are looked up once and every candidate is priced from that matrix. */
+ *  correlations are looked up once and every candidate is priced from that matrix.
+ *  Bands are filled in order, each from its likeliest combinations sharing at most MAX_SHARED_PLAYERS players with the ladders
+ *  already chosen (and with `avoid`), so the tiles are different bets; a band falls back to its likeliest combination when
+ *  every one of them would repeat. */
 function searchLadders(players: ParlayLeg[][], bands: Band[], valid: (legs: ParlayLeg[]) => boolean = () => true, corr?: CorrTable,
-  maxLegs = LADDER_MAX_LEGS): (ParlayLeg[] | null)[] {
-  const best: (ParlayLeg[] | null)[] = bands.map(() => null);
-  const bestProb = bands.map(() => 0);
+  maxLegs = LADDER_MAX_LEGS, avoid: Pick[][] = []): (ParlayLeg[] | null)[] {
+  const kept: { legs: ParlayLeg[]; p: number }[][] = bands.map(() => []);
   const top = Math.max(...bands.map((b) => b.hi));
   const rho = corr ? players.map((a) => players.map((b) => (a === b ? 1 : legRho(a[0], b[0], corr)))) : null;
   const correlated = !!rho && rho.some((row, i) => row.some((v, j) => i !== j && v !== 0));
@@ -206,8 +224,12 @@ function searchLadders(players: ParlayLeg[][], bands: Band[], valid: (legs: Parl
     if (chosen.length >= 2) {
       const b = bands.findIndex((x) => dec >= x.lo && dec < x.hi);
       if (b >= 0 && valid(chosen)) {
-        const p = chanceOf(chosen, prob);
-        if (p > bestProb[b]) { best[b] = [...chosen]; bestProb[b] = p; }
+        const p = chanceOf(chosen, prob), list = kept[b];
+        if (list.length < LADDER_KEEP || p > list[list.length - 1].p) {
+          const at = list.findIndex((x) => x.p < p);
+          list.splice(at < 0 ? list.length : at, 0, { legs: [...chosen], p });
+          if (list.length > LADDER_KEEP) list.pop();
+        }
       }
     }
     if (chosen.length === maxLegs) return;
@@ -224,7 +246,12 @@ function searchLadders(players: ParlayLeg[][], bands: Band[], valid: (legs: Parl
     }
   };
   dfs(0, [], 1, 1);
-  return best;
+  const chosen: ParlayLeg[][] = [];
+  return kept.map((list) => {
+    const pick = list.find((c) => !overlapsAny(c.legs, [...avoid, ...chosen]))?.legs ?? list[0]?.legs ?? null;
+    if (pick) chosen.push(pick);
+    return pick;
+  });
 }
 
 const ladderBlurb = () => `Likely ${getLeague() === "nba" ? "points, rebounds, assists and threes" : "rushing and receiving"} overs, on alternate lines where needed, stacked to a modest price.`;
@@ -270,7 +297,7 @@ export function buildThreesLadders(entries: LadderEntry[], book: string, existin
   const out: Parlay[] = [];
   for (const band of THREES_BANDS) {
     const players = rungs.map((r) => r.filter((l) => l.prob >= band.minProb)).filter((r) => r.length);
-    const [legs] = searchLadders(players, [band], undefined, corr, band.maxLegs);
+    const [legs] = searchLadders(players, [band], undefined, corr, band.maxLegs, out.map((p) => p.legs));
     if (!legs) continue;
     const sig = legs.map(pickKey).sort().join("&");
     if (seen.has(sig)) continue;

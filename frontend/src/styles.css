@@ -749,9 +749,10 @@ footer a { color: var(--ink); font-weight: 600; text-decoration: none; } footer 
 .pd-mini .mut { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pd-mini b { white-space: nowrap; }
 .market-tabs { margin-bottom: 0; }
-.market-tabs.fade-r { mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); }
-.market-tabs.fade-l { mask-image: linear-gradient(to left, #000 calc(100% - 36px), transparent); }
-.market-tabs.fade-l.fade-r { mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent); }
+/* a sideways-scrolling row (tabs, game pills) fades at an edge with more to scroll to */
+.seg.fade-r, .pills.fade-r { mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); }
+.seg.fade-l, .pills.fade-l { mask-image: linear-gradient(to left, #000 calc(100% - 36px), transparent); }
+.seg.fade-l.fade-r, .pills.fade-l.fade-r { mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent); }
 .ev-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--good); display: inline-block; }
 .seg button.on .ev-dot { background: var(--acc2); box-shadow: 0 0 0 1.5px var(--bg); }
 /* the verdict: the play, its price and chances, and a button to slip it */
@@ -801,3 +802,37 @@ footer a { color: var(--ink); font-weight: 600; text-decoration: none; } footer 
   .drawer.sheet .wx-line { font-size: 12px; margin-bottom: 4px; }
   .drawer .facts { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ---------- parlays page ---------- */
+.parlay, .parlay-h { scroll-margin-top: 76px; }
+.parlay-warn { margin: 0 0 12px; font-size: 13px; color: var(--ink); padding: 8px 12px; border-radius: 10px; background: var(--warn-bg); max-width: 80ch; }
+.parlay-stats dt { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+.parlay-stats dd small { display: block; font-size: 11px; font-weight: 400; color: var(--mut); }
+.parlay.losing { border-style: dashed; box-shadow: none; }
+.parlay-flag { margin: 0; font-size: 12px; line-height: 1.4; padding: 6px 10px; border-radius: 8px; background: var(--chip); color: var(--ink); }
+.parlay-flag.neg { background: color-mix(in srgb, var(--bad) 10%, var(--card)); }
+.parlay-act { margin-top: auto; display: grid; gap: 6px; }
+.parlay-act button.primary, .parlay-off { height: 40px; }
+.parlay-act .link { font-size: 13px; justify-self: center; }
+.parlay-off { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 10px; font: inherit; font-weight: 600; cursor: pointer; padding: 0 14px; }
+.parlay-clash { margin: 0; font-size: 12px; color: var(--bad); }
+.leg-name { font-size: 13px; font-weight: 700; color: var(--ink); text-align: left; }
+.leg-name:hover { text-decoration: underline; }
+/* every tile on one screen: a row per tile, jumping to it */
+.parlay-compare { padding: 4px 0; margin-bottom: 6px; overflow-x: auto; }
+.parlay-compare table { width: 100%; font-size: 13px; }
+.parlay-compare th, .parlay-compare td { padding: 6px 12px; text-align: right; white-space: nowrap; }
+.parlay-compare th:first-child, .parlay-compare td:first-child { text-align: left; white-space: normal; }
+.parlay-compare tbody tr:not(.pc-sec) { cursor: pointer; } .parlay-compare tbody tr:not(.pc-sec):hover td { background: var(--chip); }
+.parlay-compare .pc-sec th { padding-top: 10px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; text-align: left; }
+.parlay-compare .pc-sec .link { font-size: 11px; font-weight: 700; color: var(--mut); letter-spacing: inherit; text-transform: inherit; }
+.parlay-compare td .link { font-size: 13px; font-weight: 600; color: var(--ink); text-align: left; }
+.parlay-compare tr.losing td { color: var(--mut); }
+.altprops-note { margin: 10px 0 4px; font-size: 12px; }
+.altprops .add { width: 32px; height: 32px; flex: none; }
+/* old odds: the parlays' prices grey out like the rest of the page */
+.odds-stale .parlay-odds, .odds-stale .parlay-stats dd, .odds-stale .leg-odds, .odds-stale .parlay-compare td:nth-child(2), .odds-stale .parlay-compare td:nth-child(4) { filter: grayscale(1); opacity: .55; }
+.odds-stale .parlay-stats::after { content: "Old prices: check each leg at the book"; grid-column: 1 / -1; font-size: 11px; font-weight: 700; color: var(--bad); }
+@media (pointer: coarse) { .altprops .add { width: 40px; height: 40px; } }
+.parlay-compare td .link { white-space: nowrap; } .parlay-compare .pc-meta { display: block; font-size: 11px; }
+@media (max-width: 480px) { .parlay-compare th, .parlay-compare td { padding: 6px 8px; } }
