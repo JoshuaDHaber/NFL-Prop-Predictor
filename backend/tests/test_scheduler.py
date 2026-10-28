@@ -101,7 +101,7 @@ def test_admin_page_needs_the_password(monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert {s["id"] for s in body["slots"]} == {s.id for s in scheduler.SLOTS}
-    assert body["credits"] == {**body["credits"], "error": "No ODDS_API_KEY set", "floor": 75}
+    assert body["credits"] == {**body["credits"], "error": "No ODDS_API_KEY set", "floor": 10}
 
 
 def test_admin_can_run_a_slot_now_and_see_it_in_the_log(monkeypatch):

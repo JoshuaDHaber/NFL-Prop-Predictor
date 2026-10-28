@@ -47,5 +47,5 @@ NBA_CACHE = os.environ.get("NBA_CACHE") or os.path.join(BASE_DIR, "data", "nba_c
 # Scheduled syncs (app/scheduler.py): on by default on Railway, off elsewhere so a laptop never spends credits by itself
 AUTO_SYNC = lambda: os.environ.get("AUTO_SYNC", "1" if os.environ.get("RAILWAY_ENVIRONMENT_NAME") else "0") == "1"
 # odds fetches stop before a key drops under this many credits; a sync then switches to the spare key, and the admin page says which key to rotate
-ODDS_CREDIT_FLOOR = lambda: int(os.environ.get("ODDS_CREDIT_FLOOR", "75"))
+ODDS_CREDIT_FLOOR = lambda: int(os.environ.get("ODDS_CREDIT_FLOOR", "10"))
 FRONTEND_DIST = os.path.join(os.path.dirname(BASE_DIR), "frontend", "dist")
