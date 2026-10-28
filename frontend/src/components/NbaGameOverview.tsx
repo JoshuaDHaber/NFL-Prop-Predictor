@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import BookSelect from "./BookSelect";
 import { useMemo, useState } from "react";
 import { api, type Game, type Kind, type NbaKind } from "../api";
+import type { DrawerPick } from "../playerHash";
 import { KIND_SHORT, NBA_MARKET_TABS, SUB_LABEL, groupOf, scrollBehavior } from "../format";
 import { useParlayBoard } from "../useParlayBoard";
 import GamePlayerSearch from "./GamePlayerSearch";
@@ -21,7 +22,8 @@ interface Props {
   onBook: (book: string) => void;
   marketWeight: number | null;
   onBack: () => void;
-  onSelect: (id: string, kind: Kind) => void;
+  /** A player picked; `pick` is the play when a priced row was clicked, so the drawer can lead with it. */
+  onSelect: (id: string, kind: Kind, pick?: DrawerPick) => void;
 }
 
 const SECTIONS: [string, string][] = [["go-props", "Best props"], ["go-parlays", "Parlays"], ["go-proj", "Projections"], ["go-inj", "Injuries"]];
@@ -87,7 +89,7 @@ export default function NbaGameOverview({ game, books, book, onBook, marketWeigh
         <KindSeg value={propKind} onChange={setPropKind} />
         {picks.isLoading ? <Skeleton kind="rows" /> : <>
           <PicksTable key={propKind} picks={picks.data ?? []} limit={PROPS_SHOWN} empty="No positive-EV props for this game yet. Books post NBA props the day of the game; the 10 AM, 2 PM and 6 PM ET syncs pick them up."
-            onSelect={(p) => onSelect(p.player_id, p.kind)} />
+            onSelect={(p) => onSelect(p.player_id, p.kind, { side: p.side, line: p.line, book: p.book })} />
         </>}
       </section>
 

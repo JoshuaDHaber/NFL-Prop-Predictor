@@ -7,11 +7,18 @@ import Info from "./Info";
 const when = (iso: string) => new Date(iso.endsWith("Z") ? iso : `${iso}Z`).toLocaleString(undefined, { weekday: "short", hour: "numeric" });
 
 /** How a player's market moved through the week: the consensus line, and the books' fair chance of the over at today's line
- *  (so a moved line and a moved price read on one scale). Nothing with fewer than two odds fetches. */
+ *  (so a moved line and a moved price read on one scale). A note in its place with only one odds fetch. */
 export default function LineMovement({ playerId, kind }: { playerId: string; kind: Kind }) {
   const { data } = useQuery({ queryKey: ["history", playerId, kind], queryFn: () => api.history(playerId, kind) });
   const pts = (data ?? []).filter((p) => p.p_now_line != null);
-  if (pts.length < 2) return null;
+  if (!pts.length) return null;
+  // one fetch has nothing to compare: a line says so, rather than the section coming and going from player to player
+  if (pts.length < 2) return (
+    <section className="line-move">
+      <h3>Line movement <Info term="move" /></h3>
+      <p className="mut">One odds fetch so far ({when(pts[0].at)}), so no movement yet. It shows here after the next sync.</p>
+    </section>
+  );
   const first = pts[0], last = pts[pts.length - 1];
   const yes = isYesNo(kind);
   const move = last.p_now_line! - first.p_now_line!;

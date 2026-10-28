@@ -10,9 +10,10 @@ import Skeleton from "./Skeleton";
 
 export interface PlayerCtx { playerId: string; name: string; team: string; opp: string; home: boolean; gameId: string }
 
-interface Cell { side: "Over" | "Under"; row: LadderRow; q: QuoteSide }
+/** One side of one rung: the price, and the quote row it came from (its book, links and alt flag). */
+export interface Cell { side: "Over" | "Under"; row: LadderRow; q: QuoteSide }
 
-const bestOf = (rows: LadderRow[], side: "over" | "under"): Cell | null => {
+export const bestOf = (rows: LadderRow[], side: "over" | "under"): Cell | null => {
   let best: Cell | null = null;
   for (const row of rows) {
     const q = row[side];
@@ -20,6 +21,22 @@ const bestOf = (rows: LadderRow[], side: "over" | "under"): Cell | null => {
   }
   return best;
 };
+
+/** A rung as a betslip leg. */
+export const legFor = (ctx: PlayerCtx, kind: Kind, c: Cell): Leg => {
+  const base = { playerId: ctx.playerId, kind, side: c.side, line: c.row.line, book: c.row.book };
+  return { id: legId(base), ...base, name: ctx.name, team: ctx.team, opp: ctx.opp, home: ctx.home, odds: c.q.odds,
+    link: c.q.link, eventLink: c.row.event_link, alt: c.row.alt, prob: c.q.prob, ev: c.q.ev, gameId: ctx.gameId };
+};
+
+/** Each line's best price per side, one row per line (and per book when `perBook`): a main line and its alternate twin at the
+ *  same number collapse into one row, which keeps the better price on each side. */
+export function ladderRows(quotes: LadderRow[], perBook: boolean) {
+  const groups = new Map<string, LadderRow[]>();
+  quotes.forEach((r) => { const k = perBook ? `${r.line}|${r.book}` : String(r.line); groups.set(k, [...(groups.get(k) ?? []), r]); });
+  return [...groups.entries()].map(([key, rs]) => ({ key, line: rs[0].line, alt: rs.every((r) => r.alt), over: bestOf(rs, "over"), under: bestOf(rs, "under") }))
+    .sort((a, b) => a.line - b.line || (a.over?.row.book ?? "").localeCompare(b.over?.row.book ?? ""));
+}
 
 export const ODDS_RANGE = 300; // prices shown by default: -300 to +300
 const BEATS_LADDER = 0.03;      // a rung priced 3%+ better than the books' own ladder implies is marked
@@ -42,23 +59,13 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange, marketWe
   });
 
   const onlyBook = book !== "all";
-  const rows = useMemo(() => {
-    const quotes = (ladder.data?.quotes ?? []).filter((q) => !onlyBook || q.book === book);
-    if (allBooks || onlyBook) return quotes.map((r) => ({ key: `${r.line}-${r.book}-${r.alt}`, line: r.line, alt: r.alt, over: bestOf([r], "over"), under: bestOf([r], "under") }));
-    const byLine = new Map<number, LadderRow[]>();
-    quotes.forEach((r) => byLine.set(r.line, [...(byLine.get(r.line) ?? []), r]));
-    return [...byLine.entries()].sort((a, b) => a[0] - b[0]).map(([line, rs]) => ({
-      key: String(line), line, alt: rs.every((r) => r.alt), over: bestOf(rs, "over"), under: bestOf(rs, "under"),
-    }));
-  }, [ladder.data, allBooks, onlyBook, book]);
+  const rows = useMemo(() => ladderRows((ladder.data?.quotes ?? []).filter((q) => !onlyBook || q.book === book), allBooks || onlyBook),
+    [ladder.data, allBooks, onlyBook, book]);
   const shown = onlyEv ? rows.filter((r) => (r.over?.q.ev ?? -1) > 0 || (r.under?.q.ev ?? -1) > 0) : rows;
   const hasAlt = (ladder.data?.quotes ?? []).some((q) => q.alt);
-
-  const toLeg = (c: Cell): Leg => {
-    const base = { playerId: ctx.playerId, kind, side: c.side, line: c.row.line, book: c.row.book };
-    return { id: legId(base), ...base, name: ctx.name, team: ctx.team, opp: ctx.opp, home: ctx.home, odds: c.q.odds,
-      link: c.q.link, eventLink: c.row.event_link, alt: c.row.alt, prob: c.q.prob, ev: c.q.ev, gameId: ctx.gameId };
-  };
+  // alternate ladders are often priced on one side only: a column of dashes says nothing, so it's left out
+  const showOver = !shown.length || shown.some((r) => r.over), showUnder = !shown.length || shown.some((r) => r.under);
+  const toLeg = (c: Cell) => legFor(ctx, kind, c);
 
   const cost = 2; // main + alternate market for this stat
   const load = () => {
@@ -73,7 +80,7 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange, marketWe
     const clashNote = `already on your slip at ${c.row.book}: books usually won't parlay both`;
     return (
       <td className={`lcell ${c.q.ev > 0 ? "plus" : ""}`}>
-        <button className={`add ${inSlip ? "on" : ""}${clash ? " clash" : ""}`} onClick={() => slip.toggle(toLeg(c))} title={clash ? `Another ${KIND_LABEL[kind]} line is ${clashNote}` : undefined}
+        <button className={`add ${inSlip ? "on" : ""}${clash ? " clash" : ""}`} type="button" onClick={() => slip.toggle(toLeg(c))} title={clash ? `Another ${KIND_LABEL[kind]} line is ${clashNote}` : undefined}
           aria-label={`${inSlip ? "Remove" : "Add"} ${playLabel(kind, c.side, c.row.line)} at ${c.row.book}${clash ? `. Another line of this prop is ${clashNote}` : ""}`}>{inSlip ? "✓" : "+"}</button>
         <span className="lc-main"><span className="odds">{americanOdds(c.q.odds)}</span>
           <span className={c.q.ev > 0 ? "pos" : "mut"}> {signedPct(c.q.ev)}</span>
@@ -105,7 +112,8 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange, marketWe
               <button className="link" onClick={() => onBookChange("all")}>Show all books</button>
             </div>
           )}
-          <div className="mut ladder-note">
+          <details className="mut ladder-note">
+            <summary>How these are priced</summary>
             {isDouble(kind) ? `Model chance of a ${KIND_LABEL[kind].toLowerCase()} ${(mu * 100).toFixed(0)}%. Win probability and EV here use the model alone (no market blend).`
               : isTd ? `Model chance ${kind === "ftd" ? "of the game's first TD" : "of a TD"} ${(mu * 100).toFixed(0)}%. Win probability and EV lean at least 60% on the market's chance, since the model is a weak signal here.`
               : ladder.data.curve && ladder.data.w != null
@@ -113,15 +121,15 @@ export default function LineLadder({ ctx, kind, mu, book, onBookChange, marketWe
                   (market median {fmtProj(kind, ladder.data.curve.median)}), {pct(ladder.data.w, 0)} market.</>
                 : `Win probability and EV here use the model alone (no market blend). Projection ${fmtProj(kind, mu)} ${unit(kind)}.`}
             {ladder.data.alt_fetched_at && ` Alternates fetched ${timeAgo(ladder.data.alt_fetched_at)}.`}
-          </div>
+          </details>
           <div className="scroll ladder">
             <table>
-              <thead><tr><th>{isTd ? "Market" : "Line"}</th><th>{isTd ? "Yes" : "Over"}</th><th>{isTd ? "No" : "Under"}</th></tr></thead>
+              <thead><tr><th>{isTd ? "Market" : "Line"}</th>{showOver && <th>{isTd ? "Yes" : "Over"}</th>}{showUnder && <th>{isTd ? "No" : "Under"}</th>}</tr></thead>
               <tbody>
                 {shown.map((r) => (
                   <tr key={r.key} className={!isTd && Math.abs(r.line - mu) < (isNba(kind) ? 1.5 : 5) ? "near" : ""}>
                     <td><b>{isTd ? KIND_LABEL[kind] : r.line}</b>{r.alt && <span className="alt">alt</span>}</td>
-                    {cell(r.over)}{cell(r.under)}
+                    {showOver && cell(r.over)}{showUnder && cell(r.under)}
                   </tr>
                 ))}
                 {!shown.length && <tr><td colSpan={3} className="mut">No {onlyBook ? `${book} ` : ""}quotes{onlyEv ? " with positive EV" : ""} for this player.</td></tr>}
