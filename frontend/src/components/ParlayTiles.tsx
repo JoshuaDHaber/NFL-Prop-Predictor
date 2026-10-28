@@ -1,8 +1,9 @@
-import type { Game } from "../api";
+import type { Game, Kind } from "../api";
 import { useBetSlip } from "../BetSlipContext";
-import { americanOdds, pct, signedPct, KIND_LABEL } from "../format";
+import { americanOdds, isYesNo, pct, signedPct, KIND_LABEL } from "../format";
 import { getLeague } from "../league";
 import { pickToLeg, type Parlay, type ParlayLeg } from "../parlays";
+import type { DrawerPick } from "../playerHash";
 import { toAmerican } from "../slip";
 import Avatar from "./Avatar";
 import GamePills from "./GamePills";
@@ -11,16 +12,60 @@ import Info from "./Info";
 import SidePill from "./SidePill";
 
 const STAKE = 10;
+/** A parlay EV above this is mostly small leg edges compounding, so the tile says to read it as an upper bound. */
+const BIG_EV = 0.3;
 
-function ParlayCard({ p, lead }: { p: Parlay; lead: boolean }) {
+type OnSelect = (id: string, kind: Kind, pick?: DrawerPick) => void;
+
+/** The odds that break even on the hit chance: what a same-game parlay has to pay to be worth it. */
+const fairOdds = (p: Parlay) => toAmerican(1 / Math.max(p.prob, 1e-6));
+/** "about 1 in 3" */
+const oneIn = (prob: number) => `about 1 in ${Math.max(1, Math.round(1 / Math.max(prob, 1e-6)))}`;
+/** A tile the model expects to lose money on (a same-game parlay is priced by the book, so it has no EV of its own here). */
+const losing = (p: Parlay) => !p.sameGame && p.ev < 0;
+const tileId = (p: Parlay) => `parlay-${p.key}`;
+const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+/** A player's name in a leg row: opens the player drawer on that exact play, when the page can open one. */
+function LegName({ l, onSelect }: { l: ParlayLeg; onSelect?: OnSelect }) {
+  if (!onSelect) return <b>{l.name}</b>;
+  return <button type="button" className="link leg-name" onClick={() => onSelect(l.player_id, l.kind, { side: l.side, line: l.line, book: l.book })}
+    title={`Open ${l.name}: why this play`}>{l.name}</button>;
+}
+
+/** Add the whole parlay to the slip, or take it off again. With other legs already on the slip it says they'd be combined,
+ *  and offers to start a fresh slip with just these (the slip can undo that). */
+function SlipButton({ p, quiet }: { p: Parlay; quiet: boolean }) {
   const slip = useBetSlip();
-  const added = p.legs.every((l) => slip.has(pickToLeg(l).id));
-  const addAll = () => {
-    p.legs.map(pickToLeg).filter((l) => !slip.has(l.id)).forEach(slip.toggle);
-    slip.setOpen(true);
-  };
+  const legs = p.legs.map(pickToLeg);
+  const ids = new Set(legs.map((l) => l.id));
+  const missing = legs.filter((l) => !slip.has(l.id));
+  const others = slip.legs.filter((l) => !ids.has(l.id)).length;
+  const clashes = missing.filter((l) => slip.wouldClash(l)).length;
+  const add = () => { missing.forEach(slip.toggle); slip.setOpen(true); };
+  const fresh = () => { slip.remove(slip.legs.filter((l) => !ids.has(l.id)).map((l) => l.id)); missing.forEach(slip.toggle); slip.setOpen(true); };
+  if (!missing.length) return (
+    <div className="parlay-act">
+      <button type="button" className="parlay-off" onClick={() => slip.remove([...ids])}>✓ On your slip · Remove</button>
+    </div>
+  );
   return (
-    <article className={`parlay${lead ? " lead" : ""}`}>
+    <div className="parlay-act">
+      <button type="button" className={quiet ? "parlay-off" : "primary"} onClick={add}>
+        {others ? `Add ${missing.length} to your ${others}-leg slip` : quiet ? "Add anyway" : "Add all to slip"}
+      </button>
+      {others > 0 && <button type="button" className="link" onClick={fresh}>Start a new slip with {missing.length === legs.length ? "these" : "just these"}</button>}
+      {clashes > 0 && <p className="parlay-clash">{clashes === 1 ? "1 leg clashes" : `${clashes} legs clash`} with your slip at {p.book}: books won't take another line of the same prop.</p>}
+    </div>
+  );
+}
+
+function ParlayCard({ p, lead, onSelect }: { p: Parlay; lead: boolean; onSelect?: OnSelect }) {
+  const lose = losing(p);
+  const big = !p.sameGame && p.ev > BIG_EV;
+  const mixedAlt = p.legs.some((l) => l.alt) && p.legs.some((l) => !l.alt);
+  return (
+    <article id={tileId(p)} className={`parlay${lead ? " lead" : ""}${lose ? " losing" : ""}`}>
       <header>
         <div>
           <span className="tile-label">{lead && <Star />}{p.title}</span>
@@ -31,36 +76,43 @@ function ParlayCard({ p, lead }: { p: Parlay; lead: boolean }) {
           {p.legs.length} legs
         </span>
       </header>
-      <div className="parlay-odds">{americanOdds(p.american)}<small>{p.sameGame ? "legs multiplied" : "combined odds"}</small></div>
+      {p.sameGame ? (
+        // the book prices a same-game parlay its own way, usually below the legs multiplied: what matters is the price that breaks even
+        <div className="parlay-odds">{americanOdds(fairOdds(p))}<small>or better is worth it. Check {p.book}'s same-game price.</small></div>
+      ) : (
+        <div className="parlay-odds">{americanOdds(p.american)}<small>combined odds</small></div>
+      )}
       <dl className="parlay-stats">
-        <div><dt>Hit chance <Info term="hit" /></dt><dd>{pct(p.prob, 0)}</dd></div>
+        <div><dt>Hit chance<Info term="hit" /></dt><dd>{pct(p.prob, 0)}<small>{oneIn(p.prob)}</small></dd></div>
         {p.sameGame
-          // a same-game parlay is paid at the book's own price, not the legs multiplied, so an EV here would be made up
-          ? <div><dt>Fair odds <Info term="fair" /></dt><dd>{americanOdds(toAmerican(1 / Math.max(p.prob, 1e-6)))}</dd></div>
-          : <div><dt>Model EV <Info term="modelEv" /></dt><dd className={p.ev >= 0 ? "pos" : "under"}>{signedPct(p.ev)}</dd></div>}
-        <div><dt>${STAKE} pays{p.sameGame ? ", legs multiplied" : ""}</dt><dd>${(STAKE * p.decimal).toFixed(2)}</dd></div>
+          ? <div><dt>Legs multiplied</dt><dd>{americanOdds(p.american)}<small>not what the book pays</small></dd></div>
+          : <div><dt>Model EV<Info term="modelEv" /></dt><dd className={p.ev >= 0 ? "pos" : "under"}>{signedPct(p.ev)}</dd></div>}
+        <div><dt>${STAKE} pays</dt><dd>${(STAKE * (p.sameGame ? 1 / Math.max(p.prob, 1e-6) : p.decimal)).toFixed(2)}{p.sameGame && <small>at {americanOdds(fairOdds(p))}</small>}</dd></div>
       </dl>
+      {lose && <p className="parlay-flag neg">The model expects this to lose money ({signedPct(p.ev)}). It's here for fun, not value.</p>}
+      {big && <p className="parlay-flag">Each leg's edge multiplies into a big EV, and so does any miss in the model. Read it as an upper bound.</p>}
       <ul className="parlay-legs">
         {p.legs.map((l) => (
           <li key={`${l.player_id}-${l.kind}-${l.side}-${l.line}`}>
             <Avatar name={l.name} size={26} />
-            <span className="leg-main"><b>{l.name}</b> <SidePill kind={l.kind} side={l.side} line={l.line} />
-              {l.alt && <span className="alt">alt</span>}
-              <small>{`${KIND_LABEL[l.kind]} · `}{pct(l.prob, 0)} · {l.team} {l.home ? "vs" : "@"} {l.opp}</small></span>
+            <span className="leg-main"><LegName l={l} onSelect={onSelect} /> <SidePill kind={l.kind} side={l.side} line={l.line} />
+              {mixedAlt && l.alt && <span className="alt">alt</span>}
+              <small>{isYesNo(l.kind) ? "" : `${KIND_LABEL[l.kind]} · `}{pct(l.prob, 0)} · {l.team} {l.home ? "vs" : "@"} {l.opp}</small></span>
             <span className="leg-odds">{americanOdds(l.odds)}</span>
           </li>
         ))}
       </ul>
-      <button className="primary" onClick={addAll} disabled={added}>{added ? "On your slip" : "Add all to slip"}</button>
+      <SlipButton p={p} quiet={lose} />
     </article>
   );
 }
 
-/** The likeliest single alternate-line overs, each with a button to put just that prop on the slip. */
-function AltProps({ props }: { props: ParlayLeg[] }) {
+/** The likeliest single alternate-line overs, each with its main line, EV and a button to put just that prop on the slip. */
+function AltProps({ props, onSelect }: { props: ParlayLeg[]; onSelect?: OnSelect }) {
   const slip = useBetSlip();
   return (
     <section className="card altprops" aria-label="Likely alternate props">
+      <p className="mut altprops-note">Lower lines than the book's main one, each at least 65% likely. Short prices pay little alone; use them to build your own parlay.</p>
       <ul className="parlay-legs">
         {props.map((l) => {
           const leg = pickToLeg(l);
@@ -69,9 +121,9 @@ function AltProps({ props }: { props: ParlayLeg[] }) {
           return (
             <li key={leg.id}>
               <Avatar name={l.name} size={26} />
-              <span className="leg-main"><b>{l.name}</b> <SidePill kind={l.kind} side={l.side} line={l.line} />{l.alt && <span className="alt">alt</span>}
-                <small>{KIND_LABEL[l.kind]} · {l.team} {l.home ? "vs" : "@"} {l.opp}</small></span>
-              <span className="leg-odds">{americanOdds(l.odds)}<small>{pct(l.prob, 0)} chance</small></span>
+              <span className="leg-main"><LegName l={l} onSelect={onSelect} /> <SidePill kind={l.kind} side={l.side} line={l.line} />
+                <small>{KIND_LABEL[l.kind]}{l.mainLine != null && l.mainLine !== l.line ? ` · main line ${l.mainLine}` : ""} · {l.team} {l.home ? "vs" : "@"} {l.opp}</small></span>
+              <span className="leg-odds">{americanOdds(l.odds)}<small>{pct(l.prob, 0)} · <span className={l.ev > 0 ? "pos ev-text" : "ev-text"}>{signedPct(l.ev)} EV</span></small></span>
               <button className={`add ${on ? "on" : ""}${clash ? " clash" : ""}`} onClick={() => slip.toggle(leg)} aria-pressed={on}
                 title={clash ? `Another line of this prop is already on your slip at ${leg.book}` : undefined}
                 aria-label={on ? "Remove from slip" : clash ? `Add to slip. Another line of this prop is already on your slip at ${leg.book}` : "Add to slip"}>{on ? "✓" : "+"}</button>
@@ -92,6 +144,36 @@ function ladderRows(ladders: Parlay[], nba: boolean): { key: string; label: stri
   return [...rows].map(([key, tiles]) => ({ key, label: labels[key], tiles }));
 }
 
+/** The first tile of a section worth a star: one the model doesn't expect to lose on. */
+const leadOf = (ps: Parlay[]) => ps.find((p) => !losing(p))?.key;
+
+/** Every tile on one screen to compare: price, hit chance and EV, each row jumping to its tile. */
+function Compare({ sections }: { sections: { id: string; label: string; tiles: Parlay[] }[] }) {
+  const shown = sections.filter((s) => s.tiles.length);
+  if (shown.reduce((n, s) => n + s.tiles.length, 0) < 3) return null;
+  return (
+    <div className="card parlay-compare">
+      <table>
+        <thead><tr><th>Parlay</th><th>Odds</th><th>Hits</th><th>EV</th></tr></thead>
+        {shown.map((s) => (
+          <tbody key={s.id}>
+            <tr className="pc-sec"><th colSpan={4} scope="colgroup"><button type="button" className="link" onClick={() => scrollTo(s.id)}>{s.label}</button></th></tr>
+            {s.tiles.map((p) => (
+              <tr key={p.key} className={losing(p) ? "losing" : ""} onClick={() => scrollTo(tileId(p))}>
+                <td><button type="button" className="link" onClick={(e) => { e.stopPropagation(); scrollTo(tileId(p)); }}>{p.title}</button>
+                  <small className="mut pc-meta">{p.legs.length} legs{p.sameGame ? " · same game" : ""}</small></td>
+                <td>{p.sameGame ? <>{americanOdds(fairOdds(p))}<small className="mut pc-meta">fair</small></> : americanOdds(p.american)}</td>
+                <td>{pct(p.prob, 0)}</td>
+                <td>{p.sameGame ? <span className="mut" title="Books price same-game parlays their own way">n/a</span> : <span className={`ev-text ${p.ev >= 0 ? "pos" : "under"}`}>{signedPct(p.ev)}</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        ))}
+      </table>
+    </div>
+  );
+}
+
 interface Props {
   book: string | null;
   games: Game[]; selectedGames: string[];
@@ -101,6 +183,8 @@ interface Props {
   /** Likely-play parlays per book, and a way to switch book, so an empty section can point at a book that has some. */
   parlayCounts?: Record<string, number>;
   onBook?: (b: string) => void;
+  /** Open a leg's player drawer on that play. */
+  onSelect?: OnSelect;
 }
 
 /** "Try DraftKings (3 parlays)": the book with the most likely-play parlays, as a button, when it isn't the one on screen. */
@@ -110,42 +194,63 @@ function TryBook({ book, counts, onBook }: { book: string | null; counts?: Recor
   return <> <button className="link" onClick={() => onBook(best[0])}>Try {best[0]} ({best[1]} parlay{best[1] === 1 ? "" : "s"})</button></>;
 }
 
+/** A section's tiles in one sideways row, so a section is one screen tall on a phone and never leaves a lone tile on a desktop. */
+const Row = ({ tiles, onSelect, label }: { tiles: Parlay[]; onSelect?: OnSelect; label: string }) => {
+  const lead = leadOf(tiles);
+  return <div className="parlay-row" role="region" aria-label={label}>{tiles.map((p) => <ParlayCard key={p.key} p={p} lead={p.key === lead} onSelect={onSelect} />)}</div>;
+};
+
 /** Recommended parlays at one sportsbook: tiles of high-probability plays, then ladder-style tiles, each with the combined odds. */
-export default function ParlayTiles({ book, games, selectedGames, onGames, parlays, tdParlays, ladders, altProps, laddersLoading, parlayCounts, onBook }: Props) {
+export default function ParlayTiles({ book, games, selectedGames, onGames, parlays, tdParlays, ladders, altProps, laddersLoading, parlayCounts, onBook, onSelect }: Props) {
   const nba = getLeague() === "nba";
   const ladderMarkets = nba ? "points, rebounds, assists, threes, combos, steals and blocks" : "rushing and receiving";
+  const all = [...parlays, ...tdParlays, ...ladders];
+  const likeliest = all.reduce<Parlay | null>((b, p) => (!b || p.prob > b.prob ? p : b), null);
+  const rows = ladderRows(ladders, nba);
   return (
     <>
       {onGames && <GamePills games={games} selected={selectedGames} onChange={onGames} multi label="Games to build from" />}
-      {book && (parlays.length > 0 || tdParlays.length > 0 || ladders.length > 0) && <p className="mut parlay-book">Every leg of these parlays is priced at {book}, so the odds are what you'd get there.</p>}
+      {book && all.length > 0 && (
+        <p className="mut parlay-book">
+          Every leg is priced at {book}, so the odds are what you'd get there.
+          {onGames && selectedGames.length > 0 && <> Built from <b>{selectedGames.length} of {games.length}</b> games.</>}
+        </p>
+      )}
+      {likeliest && <p className="parlay-warn">Parlays multiply misses: the likeliest one here hits {oneIn(likeliest.prob)}. Expect most to lose.</p>}
 
-      <h2 className="parlay-h">Likely plays <Info term="likely" /></h2>
+      <Compare sections={[
+        { id: "parlays-likely", label: "Likely plays", tiles: parlays },
+        { id: "parlays-td", label: "Touchdowns", tiles: nba ? [] : tdParlays },
+        { id: "parlays-ladders", label: "Ladders", tiles: ladders },
+      ]} />
+
+      <h2 className="parlay-h" id="parlays-likely">Likely plays <Info term="likely" /></h2>
       {parlays.length
-        ? <section className="parlays" aria-label="Recommended parlays">{parlays.map((p, i) => <ParlayCard key={p.key} p={p} lead={i === 0} />)}</section>
+        ? <Row tiles={parlays} onSelect={onSelect} label="Recommended parlays" />
         : <div className="card empty">Not enough likely plays at {book ?? "one sportsbook"} to build one. These need at least three high-probability plays from different players{selectedGames.length ? " in the selected games" : ""}.<TryBook book={book} counts={parlayCounts} onBook={onBook} /></div>}
 
       {!nba && <>
-      <h2 className="parlay-h">Touchdowns <Info term="tdParlay" /></h2>
+      <h2 className="parlay-h" id="parlays-td">Touchdowns <Info term="tdParlay" /></h2>
       {tdParlays.length
-        ? <section className="parlays" aria-label="Touchdown parlays">{tdParlays.map((p, i) => <ParlayCard key={p.key} p={p} lead={i === 0} />)}</section>
+        ? <Row tiles={tdParlays} onSelect={onSelect} label="Touchdown parlays" />
         : <div className="card empty">No anytime-TD prices at {book ?? "this sportsbook"} to parlay{selectedGames.length === 1 ? " for this game" : ""} yet. Books usually post them a day or two before kickoff.</div>}
       </>}
 
-      <h2 className="parlay-h">Ladders <Info term="ladder" /></h2>
+      <h2 className="parlay-h" id="parlays-ladders">Ladders <Info term="ladder" /></h2>
       {ladders.length
-        ? ladderRows(ladders, nba).map((row, r, rows) => (
+        ? rows.map((row) => (
           <section key={row.key} aria-label={`${row.label} ladders`}>
             {rows.length > 1 && <h3 className="ladder-row-h">{row.label} <small>{row.tiles.length}</small></h3>}
-            <div className="parlay-row">{row.tiles.map((p, i) => <ParlayCard key={p.key} p={p} lead={r === 0 && i === 0} />)}</div>
+            <Row tiles={row.tiles} onSelect={onSelect} label={`${row.label} ladders`} />
           </section>))
         : <div className="card empty">{laddersLoading ? "Loading alternate lines…" : `No ${ladderMarkets} over combinations with betslip links at ${book ?? "this sportsbook"} land between +100 and +300. ${nba ? "NBA alternate lines come with the day-of props syncs. " : ""}Not every book publishes links for alternate lines; try another book.`}</div>}
 
       {altProps.length > 0 && <>
-        <h2 className="parlay-h">Likely alternate props <Info term="altProps" /></h2>
-        <AltProps props={altProps} />
+        <h2 className="parlay-h" id="parlays-alt">Likely alternate props <Info term="altProps" /></h2>
+        <AltProps props={altProps} onSelect={onSelect} />
       </>}
 
-      <p className="td-note">Hit chance multiplies each leg's win probability (the model blended with the book's price){nba ? "" : ", except legs in the same game, which are priced with how they moved together in past games (Model check has the details)"}. Models miss context and parlays compound that: expect these to lose most of the time. Not betting advice.</p>
+      <p className="td-note">Hit chance multiplies each leg's win probability (the model blended with the book's price){nba ? "" : ", except legs in the same game, which are priced with how they moved together in past games (Model check has the details)"}. Models miss context and parlays compound that. Not betting advice.</p>
     </>
   );
 }

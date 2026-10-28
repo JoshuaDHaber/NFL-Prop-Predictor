@@ -203,7 +203,7 @@ function PublicApp() {
         <PicksTable picks={picks.data ?? []} weather={weatherByGame} onSelect={(p) => select({ id: p.player_id, kind: p.kind, pick: { side: p.side, line: p.line, book: p.book } })} />)}
       {tab === "parlays" && (board.loading ? <Skeleton kind="cards" /> :
         <ParlayTiles book={board.book} parlayCounts={board.parlayCounts} onBook={board.setBook} games={m.games} selectedGames={chosenGames} onGames={setParlayGames} parlays={board.parlays} tdParlays={board.tdParlays}
-          ladders={board.ladders} altProps={board.altProps} laddersLoading={board.laddersLoading} />)}
+          ladders={board.ladders} altProps={board.altProps} laddersLoading={board.laddersLoading} onSelect={(id, kind, pick) => select({ id, kind, pick })} />)}
       {tab === "injuries" && (injuries.isLoading ? <Skeleton kind="cards" count={2} /> : injuries.error ? <p className="err">Couldn't load the injury report.</p> :
         <Injuries report={injuries.data!} games={m.games} onSelect={(id, kind) => select({ id, kind })} />)}
       {tab === "projections" && (projections.isLoading ? <Skeleton kind="rows" /> :

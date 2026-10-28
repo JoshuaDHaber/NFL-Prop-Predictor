@@ -107,7 +107,7 @@ export default function GameOverview({ game, books, book, onBook, marketWeight, 
         <h2 className="parlay-h">Parlays <small>built from this game only</small></h2>
         {board.loading ? <Skeleton kind="cards" /> :
           <ParlayTiles book={board.book} games={[game]} selectedGames={chosen} parlays={board.parlays}
-            tdParlays={board.tdParlays} ladders={board.ladders} altProps={board.altProps} laddersLoading={board.laddersLoading} />}
+            tdParlays={board.tdParlays} ladders={board.ladders} altProps={board.altProps} laddersLoading={board.laddersLoading} onSelect={onSelect} />}
       </section>
 
       <section id="go-proj" className="go-sec">

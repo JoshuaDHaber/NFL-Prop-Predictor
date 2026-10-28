@@ -201,7 +201,7 @@ export default function NbaApp() {
           <PicksTable picks={picks.data ?? []} onSelect={(p) => select(p.player_id, p.kind, { side: p.side, line: p.line, book: p.book })} />)}
         {tab === "parlays" && (board.loading ? <Skeleton kind="cards" /> :
           <ParlayTiles book={board.book} parlayCounts={board.parlayCounts} onBook={board.setBook} games={dateGames} selectedGames={chosenGames} onGames={setParlayGames} parlays={board.parlays}
-            tdParlays={board.tdParlays} ladders={board.ladders} altProps={board.altProps} laddersLoading={board.laddersLoading} />)}
+            tdParlays={board.tdParlays} ladders={board.ladders} altProps={board.altProps} laddersLoading={board.laddersLoading} onSelect={select} />)}
         {tab === "injuries" && (injuries.isLoading ? <Skeleton kind="cards" count={2} /> : injuries.error || !injuries.data ? <p className="err">Couldn't load the injury report.</p> :
           <NbaInjuries report={injuries.data} games={dateGames} onSelect={select} />)}
         {tab === "projections" && (projections.isLoading ? <Skeleton kind="rows" /> :

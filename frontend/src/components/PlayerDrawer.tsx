@@ -6,6 +6,7 @@ import { useBetSlip } from "../BetSlipContext";
 import { DOUBLE_NEED, isDouble, isYesNo, KIND_LABEL, KIND_SHORT, americanOdds, effText, fmtEdge, fmtProj, fmtSd, isCount, isNba, matchup, pct, playLabel, signedPct,
   timeAgo, unit, volLabel, weatherText, wxEffect } from "../format";
 import { hitRate, hits, seasonStarts, withGaps, type LogBar } from "../gameLog";
+import { useOverflowFade } from "../useOverflowFade";
 import type { DrawerPick } from "../playerHash";
 import Avatar from "./Avatar";
 import { BookName } from "./BookBadge";
@@ -221,21 +222,7 @@ function LogTick({ x, y, bar, compact }: { x: number; y: number; bar?: LogBar; c
 
 /** The markets as tabs: arrow keys move between them, and a fade at either edge says there are more to scroll to. */
 function MarketTabs({ kinds, kind, hasEv, onPick }: { kinds: Kind[]; kind: Kind; hasEv: (k: Kind) => boolean; onPick: (k: Kind) => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [fade, setFade] = useState({ l: false, r: false });
-  const measure = () => {
-    const el = ref.current;
-    if (el) setFade({ l: el.scrollLeft > 4, r: el.scrollLeft + el.clientWidth < el.scrollWidth - 4 });
-  };
-  useEffect(() => {
-    const el = ref.current, on = el?.querySelector<HTMLElement>("[aria-selected=true]");
-    if (el && on && (on.offsetLeft < el.scrollLeft || on.offsetLeft + on.offsetWidth > el.scrollLeft + el.clientWidth)) el.scrollLeft = on.offsetLeft - 16;
-    measure();
-  }, [kinds, kind]);
-  useEffect(() => {
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, []);
+  const { ref, onScroll, className: fade } = useOverflowFade<HTMLDivElement>("[aria-selected=true]", [kinds, kind]);
   const keys = (e: KeyboardEvent) => {
     const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
     if (!step) return;
@@ -245,7 +232,7 @@ function MarketTabs({ kinds, kind, hasEv, onPick }: { kinds: Kind[]; kind: Kind;
     requestAnimationFrame(() => ref.current?.querySelector<HTMLElement>("[aria-selected=true]")?.focus());
   };
   return (
-    <div ref={ref} className={`seg small market-tabs${fade.l ? " fade-l" : ""}${fade.r ? " fade-r" : ""}`} role="tablist" aria-label="Markets" onScroll={measure} onKeyDown={keys}>
+    <div ref={ref} className={`seg small market-tabs${fade}`} role="tablist" aria-label="Markets" onScroll={onScroll} onKeyDown={keys}>
       {kinds.map((k) => (
         <button key={k} role="tab" aria-selected={k === kind} tabIndex={k === kind ? 0 : -1} className={k === kind ? "on" : ""} onClick={() => onPick(k)}>
           {KIND_SHORT[k]}{hasEv(k) && <i className="ev-dot" title="A +EV price is posted" aria-label="(+EV price posted)" />}
