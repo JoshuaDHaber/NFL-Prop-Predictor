@@ -735,3 +735,69 @@ footer a { color: var(--ink); font-weight: 600; text-decoration: none; } footer 
 .book-weights { display: flex; flex-wrap: wrap; gap: 6px; }
 .book-weights .chip { background: var(--chip); border-radius: 999px; padding: 2px 10px; font-size: 12px; }
 .line-move p { margin: 4px 0 6px; font-size: 13px; }
+
+/* ---------- player drawer ---------- */
+.drawer:focus { outline: none; }
+/* the close button rides a zero-height sticky holder, so it stays in the corner while the panel scrolls */
+.sheet-close { position: sticky; top: 0; height: 0; z-index: 4; }
+.sheet-close .close { top: -10px; right: -6px; width: 36px; height: 36px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; }
+.sheet-close .close:hover { background: var(--chip); color: var(--ink); }
+/* market tabs (and a compact name once the header scrolls away) stick to the top of the panel */
+.pd-sticky { position: sticky; top: -22px; z-index: 3; background: var(--bg); margin: 0 -20px 4px; padding: 8px 20px 2px; }
+.pd-mini { display: flex; align-items: center; gap: 8px; max-height: 0; overflow: hidden; opacity: 0; padding-right: 40px; transition: max-height .18s ease, opacity .18s ease, margin .18s ease; font-size: 14px; }
+.pd-mini.on { max-height: 40px; opacity: 1; margin-bottom: 6px; }
+.pd-mini .mut { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pd-mini b { white-space: nowrap; }
+.market-tabs { margin-bottom: 0; }
+.market-tabs.fade-r { mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); }
+.market-tabs.fade-l { mask-image: linear-gradient(to left, #000 calc(100% - 36px), transparent); }
+.market-tabs.fade-l.fade-r { mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent); }
+.ev-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--good); display: inline-block; }
+.seg button.on .ev-dot { background: var(--acc2); box-shadow: 0 0 0 1.5px var(--bg); }
+/* the verdict: the play, its price and chances, and a button to slip it */
+.verdict { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; margin: 10px 0 4px; display: grid; gap: 6px;
+  box-shadow: 0 1px 2px rgba(15,23,42,.05), 0 8px 24px -12px rgba(15,23,42,.12); }
+.verdict.plus { border-color: color-mix(in srgb, var(--good) 45%, var(--line)); background: color-mix(in srgb, var(--good) 5%, var(--card)); }
+.verdict.none { font-size: 13px; line-height: 1.45; }
+.v-label { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--mut); }
+.verdict.plus .v-label { color: var(--good); }
+.v-main { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.v-play { font-size: 20px; letter-spacing: -.01em; } .v-play .mut { font-size: 14px; }
+.v-price { display: flex; align-items: center; gap: 8px; font-size: 13px; } .v-price .odds { font-size: 18px; font-weight: 700; }
+.v-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--mut); } .v-stats b { color: var(--ink); } .v-stats b.pos { color: var(--good); }
+.v-stale { margin: 0; font-size: 12px; color: var(--bad); font-weight: 600; }
+.v-add { justify-self: start; margin-top: 2px; height: 36px; padding: 0 14px; border-radius: 10px; font: inherit; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+.v-add.on { background: var(--chip); border-color: var(--chip); }
+.v-add.clash { border-color: var(--bad); color: var(--bad); }
+.facts { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); margin: 10px 0 6px; }
+.facts .neg { color: var(--bad); }
+.model-details { font-size: 12px; margin: 0 0 4px; } .model-details b { color: var(--ink); font-weight: 600; }
+/* game log: bars coloured by whether the play would have cashed, with the count in the heading */
+.log-h { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 10px; }
+.hit-sum { font-size: 12px; font-weight: 500; color: var(--mut); } .hit-sum b { color: var(--ink); }
+.chart-key { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; margin: 0 0 6px; }
+.chart-key span { display: inline-flex; align-items: center; gap: 5px; }
+.chart-key i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.chart-key .k-hit { background: var(--good); } .chart-key .k-miss { background: var(--mut); opacity: .4; }
+.chart-key .k-proj, .chart-key .k-line { width: 14px; height: 0; border-radius: 0; border-top: 2px dashed var(--acc2); }
+.chart-key .k-line { border-top: 2px dotted var(--bad); }
+/* ladder */
+.ladder-note summary { cursor: pointer; font-size: 12px; width: fit-content; }
+.ladder-note[open] { font-size: 12px; line-height: 1.45; } .ladder-note[open] summary { margin-bottom: 4px; }
+.add { width: 28px; height: 28px; }
+.line-move { margin-top: 6px; }
+/* old odds: the drawer greys its prices the way the page does */
+.odds-stale .verdict.plus { border-color: var(--line); background: var(--card); }
+.odds-stale .verdict .v-label, .odds-stale .lcell .lc-main, .odds-stale .verdict .odds { filter: grayscale(1); opacity: .55; }
+.odds-stale .lcell.plus { background: transparent; }
+@media (pointer: coarse) { .add { width: 36px; height: 36px; } .v-add { height: 44px; } }
+@media (max-width: 700px) {
+  .drawer.sheet .sheet-close .close { top: 2px; }
+  .drawer.sheet .pd-sticky { top: 15px; }   /* tucked under the grip's fade, clear of its handle */
+  .drawer.sheet .player-head { gap: 12px; margin-top: 0; }
+  .drawer.sheet .player-head .avatar { width: 56px !important; height: 56px !important; font-size: 20px !important; }
+  .drawer.sheet .player-head h2 { font-size: 21px; }
+  .drawer.sheet .wx-line { font-size: 12px; margin-bottom: 4px; }
+  .drawer .facts { grid-template-columns: repeat(2, 1fr); }
+}

@@ -7,6 +7,7 @@ import Freshness, { StaleBanner, latestFetch, oddsLevel } from "./components/Fre
 import Methodology from "./components/Methodology";
 import { routeClick } from "./components/NavLink";
 import { useBetSlip } from "./BetSlipContext";
+import { type DrawerPick, useSelectedPlayer } from "./playerHash";
 import HowToRead from "./components/HowToRead";
 import PageHead from "./components/PageHead";
 import ResponsibleGaming from "./components/ResponsibleGaming";
@@ -71,7 +72,7 @@ export default function NbaApp() {
   };
   const goTab = (t: Tab) => { pushedGame.current = false; setGameId(null); goSection(t); window.scrollTo({ top: 0 }); };
   const [filters, setFilters] = useState<Filters>(filtersFromUrl);
-  const [selected, setSelected] = useState<{ id: string; kind: Kind } | null>(null);
+  const { selected, open: openPlayer, close: closePlayer, remember: rememberKind } = useSelectedPlayer();
   const [gameBook, setGameBookState] = useState<string>(() => storedGameBook() ?? PREFERRED_GAME_BOOK);
   const setGameBook = (b: string) => { setGameBookState(b); try { localStorage.setItem(GAME_BOOK_KEY, b); } catch { /* not remembered */ } };
   // which game date to show: null follows today (or the next date with games), "all" shows both
@@ -129,13 +130,13 @@ export default function NbaApp() {
     </div>
   );
   const m = meta.data;
-  const select = (id: string, kind: Kind) => setSelected({ id, kind });
+  const select = (id: string, kind: Kind, pick?: DrawerPick) => openPlayer({ id, kind, pick });
   const tiles: Tile[] = tab === "picks"
     // by Kelly, not EV: EV makes a 1-point edge on a +2500 long shot look like the best play on the board
     ? [...(picks.data ?? [])].sort((a, b) => b.kelly - a.kelly).slice(0, 3).map((p) => ({
       key: `${p.player_id}-${p.kind}-${p.side}`, label: KIND_LABEL[p.kind], name: p.name, meta: `${p.pos} ${p.team} ${matchup(p.opp, p.home)}`,
       value: <>{playLabel(p.kind, p.side, p.line)} <em>{signedPct(p.ev)} EV</em></>, caption: `${americanOdds(p.odds)} at ${p.book}`,
-      onClick: () => select(p.player_id, p.kind),
+      onClick: () => select(p.player_id, p.kind, { side: p.side, line: p.line, book: p.book }),
     }))
     : tab === "projections"
       ? (filters.kind === "all" ? NBA_KINDS.map((k) => (projections.data ?? []).filter((p) => p.kind === k).sort((a, b) => b.mu - a.mu)[0])
@@ -197,7 +198,7 @@ export default function NbaApp() {
         {(tab === "picks" || tab === "projections") && <Controls filters={filters} onChange={setFilters} games={dateGames} showPickControls={tab === "picks"} />}
       {tab === "picks" && <HowToRead />}
         {tab === "picks" && (picks.isLoading ? <Skeleton kind="rows" /> :
-          <PicksTable picks={picks.data ?? []} onSelect={(p) => select(p.player_id, p.kind)} />)}
+          <PicksTable picks={picks.data ?? []} onSelect={(p) => select(p.player_id, p.kind, { side: p.side, line: p.line, book: p.book })} />)}
         {tab === "parlays" && (board.loading ? <Skeleton kind="cards" /> :
           <ParlayTiles book={board.book} parlayCounts={board.parlayCounts} onBook={board.setBook} games={dateGames} selectedGames={chosenGames} onGames={setParlayGames} parlays={board.parlays}
             tdParlays={board.tdParlays} ladders={board.ladders} altProps={board.altProps} laddersLoading={board.laddersLoading} />)}
@@ -220,8 +221,8 @@ export default function NbaApp() {
 
       {selected && (
         <Suspense fallback={null}>
-          <PlayerDrawer playerId={selected.id} initialKind={selected.kind} marketWeight={debounced.marketWeight} book={drawerBook} onBookChange={setDrawerBook}
-            onClose={() => setSelected(null)} />
+          <PlayerDrawer playerId={selected.id} initialKind={selected.kind} pick={selected.pick} marketWeight={debounced.marketWeight} book={drawerBook} onBookChange={setDrawerBook}
+            onKindChange={rememberKind} onClose={closePlayer} />
         </Suspense>
       )}
       <BetSlip />

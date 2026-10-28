@@ -25,6 +25,7 @@ import { importOrReload } from "./staleChunk";
 import { localWhen } from "./sync";
 import { filterParams, filtersFromUrl, leaguePath, param, setParams, useSection } from "./route";
 import { useBetSlip } from "./BetSlipContext";
+import { useSelectedPlayer } from "./playerHash";
 import Methodology from "./components/Methodology";
 import { useDebounced } from "./useDebounced";
 import { routeClick } from "./components/NavLink";
@@ -77,7 +78,7 @@ function PublicApp() {
   };
   const goTab = (t: Tab) => { pushedGame.current = false; setGameId(null); goSection(t); window.scrollTo({ top: 0 }); };
   const [filters, setFilters] = useState<Filters>(filtersFromUrl);
-  const [selected, setSelected] = useState<{ id: string; kind: Kind } | null>(null);
+  const { selected, open: select, close: closePlayer, remember: rememberKind } = useSelectedPlayer();
   const [gameBook, setGameBookState] = useState<string>(() => storedGameBook() ?? PREFERRED_GAME_BOOK);
   const setGameBook = (b: string) => { setGameBookState(b); try { localStorage.setItem(GAME_BOOK_KEY, b); } catch { /* private mode: not remembered */ } };
   const debounced = useDebounced(filters, 250);
@@ -135,7 +136,7 @@ function PublicApp() {
     ? [...(picks.data ?? [])].sort((a, b) => b.ev - a.ev).slice(0, 3).map((p) => ({
       key: `${p.player_id}-${p.kind}-${p.side}`, label: KIND_LABEL[p.kind], name: p.name, meta: `${p.pos} ${p.team} ${matchup(p.opp, p.home)}`,
       value: <>{playLabel(p.kind, p.side, p.line)} <em>{signedPct(p.ev)} EV</em></>, caption: `${americanOdds(p.odds)} at ${p.book}`,
-      onClick: () => setSelected({ id: p.player_id, kind: p.kind }),
+      onClick: () => select({ id: p.player_id, kind: p.kind, pick: { side: p.side, line: p.line, book: p.book } }),
     }))
     : tab === "games" || tab === "parlays" || tab === "admin" || tab === "injuries" || tab === "compare" ? []
     : tab === "projections"
@@ -143,7 +144,7 @@ function PublicApp() {
         : [...(projections.data ?? [])].sort((a, b) => b.mu - a.mu).slice(0, 3)).filter(Boolean).map((p) => ({
         key: `${p.player_id}-${p.kind}`, label: filters.kind === "all" ? `Top ${KIND_LABEL[p.kind]}` : KIND_LABEL[p.kind], name: p.name, meta: `${p.pos} ${p.team} ${matchup(p.opp, p.home)}`,
         value: <>{fmtProj(p.kind, p.mu)} {!isYesNo(p.kind) && <em>{fmtSd(p.kind, p.sd)}</em>}</>, caption: projCaption(p.kind),
-        onClick: () => setSelected({ id: p.player_id, kind: p.kind }),
+        onClick: () => select({ id: p.player_id, kind: p.kind }),
       }))
       // the moneyline beats a naive baseline but not the market, so it isn't held up as a "best" market
       : Object.entries(m.backtest).filter(([k]) => k !== "ml").map(([k, b]) => ({ k, b, gain: (b.mae_naive - b.mae_model) / b.mae_naive * 100 }))
@@ -185,7 +186,7 @@ function PublicApp() {
       {openedGame ? (
         <GameOverview key={openedGame.game_id} game={openedGame} books={m.books} book={pageBook} onBook={setGameBook} marketWeight={debounced.marketWeight} fit={m.weather}
           onBack={() => (pushedGame.current ? window.history.back() : openGame(null))}
-          onSelect={(id, kind) => setSelected({ id, kind })} />
+          onSelect={(id, kind, pick) => select({ id, kind, pick })} />
       ) : <>
       <PageHead title={
         tab === "picks" ? <>Best props at <BookSelect inline books={m.books} book={filters.book} allLabel="every book" onChange={(b) => setFilters({ ...filters, book: b })} /></>
@@ -199,15 +200,15 @@ function PublicApp() {
       {(tab === "picks" || tab === "projections") && selectedGame && <GameWeather game={selectedGame} fit={m.weather} />}
 
       {tab === "picks" && (picks.isLoading ? <Skeleton kind="rows" /> :
-        <PicksTable picks={picks.data ?? []} weather={weatherByGame} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
+        <PicksTable picks={picks.data ?? []} weather={weatherByGame} onSelect={(p) => select({ id: p.player_id, kind: p.kind, pick: { side: p.side, line: p.line, book: p.book } })} />)}
       {tab === "parlays" && (board.loading ? <Skeleton kind="cards" /> :
         <ParlayTiles book={board.book} parlayCounts={board.parlayCounts} onBook={board.setBook} games={m.games} selectedGames={chosenGames} onGames={setParlayGames} parlays={board.parlays} tdParlays={board.tdParlays}
           ladders={board.ladders} altProps={board.altProps} laddersLoading={board.laddersLoading} />)}
       {tab === "injuries" && (injuries.isLoading ? <Skeleton kind="cards" count={2} /> : injuries.error ? <p className="err">Couldn't load the injury report.</p> :
-        <Injuries report={injuries.data!} games={m.games} onSelect={(id, kind) => setSelected({ id, kind })} />)}
+        <Injuries report={injuries.data!} games={m.games} onSelect={(id, kind) => select({ id, kind })} />)}
       {tab === "projections" && (projections.isLoading ? <Skeleton kind="rows" /> :
-        <ProjectionsTable rows={projections.data ?? []} weather={weatherByGame} onSelect={(p) => setSelected({ id: p.player_id, kind: p.kind })} />)}
-      {tab === "compare" && <PlayerCompare weather={weatherByGame} onSelect={(id, kind) => setSelected({ id, kind })} />}
+        <ProjectionsTable rows={projections.data ?? []} weather={weatherByGame} onSelect={(p) => select({ id: p.player_id, kind: p.kind })} />)}
+      {tab === "compare" && <PlayerCompare weather={weatherByGame} onSelect={(id, kind) => select({ id, kind })} />}
       {tab === "model" && <ModelCheck meta={m} />}
       {tab === "model" && <Methodology />}
       {tab === "admin" && <Suspense fallback={<Skeleton kind="cards" />}><AdminPage embedded /></Suspense>}
@@ -222,9 +223,9 @@ function PublicApp() {
 
       {selected && (
         <Suspense fallback={null}>
-          <PlayerDrawer playerId={selected.id} initialKind={selected.kind} marketWeight={debounced.marketWeight}
-            book={drawerBook} onBookChange={setDrawerBook}
-            onClose={() => setSelected(null)} />
+          <PlayerDrawer playerId={selected.id} initialKind={selected.kind} pick={selected.pick} marketWeight={debounced.marketWeight}
+            book={drawerBook} onBookChange={setDrawerBook} onKindChange={rememberKind}
+            onClose={closePlayer} />
         </Suspense>
       )}
       <BetSlip />

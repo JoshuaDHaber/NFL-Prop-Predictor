@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import BookSelect from "./BookSelect";
 import { useMemo, useState } from "react";
 import { api, type Game, type Kind, type WeatherFit } from "../api";
+import type { DrawerPick } from "../playerHash";
 import { KIND_SHORT, MARKET_TABS, SUB_LABEL, groupOf, scrollBehavior } from "../format";
 import { PARLAY_FILTERS, useParlayBoard } from "../useParlayBoard";
 import GameWeather from "./GameWeather";
@@ -22,7 +23,8 @@ interface Props {
   marketWeight: number | null;
   fit?: WeatherFit | null;
   onBack: () => void;
-  onSelect: (id: string, kind: Kind) => void;
+  /** A player picked; `pick` is the play when a priced row was clicked, so the drawer can lead with it. */
+  onSelect: (id: string, kind: Kind, pick?: DrawerPick) => void;
 }
 
 const SECTIONS: [string, string][] = [["go-props", "Best props"], ["go-parlays", "Parlays"], ["go-proj", "Projections"], ["go-inj", "Injuries"]];
@@ -97,7 +99,7 @@ export default function GameOverview({ game, books, book, onBook, marketWeight, 
         <h2 className="parlay-h">Best props <small>positive EV for this game{book !== "all" ? ` at ${book}` : ""}</small></h2>
         <KindSeg value={propKind} onChange={setPropKind} />
         {picks.isLoading ? <Skeleton kind="rows" /> : <>
-          <PicksTable key={propKind} picks={picks.data ?? []} limit={PROPS_SHOWN} weather={{ [id]: game.weather }} empty="No positive-EV props for this game yet. Books post props mid-week; the scheduled syncs pick them up." onSelect={(p) => onSelect(p.player_id, p.kind)} />
+          <PicksTable key={propKind} picks={picks.data ?? []} limit={PROPS_SHOWN} weather={{ [id]: game.weather }} empty="No positive-EV props for this game yet. Books post props mid-week; the scheduled syncs pick them up." onSelect={(p) => onSelect(p.player_id, p.kind, { side: p.side, line: p.line, book: p.book })} />
         </>}
       </section>
 
