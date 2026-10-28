@@ -836,3 +836,10 @@ footer a { color: var(--ink); font-weight: 600; text-decoration: none; } footer 
 @media (pointer: coarse) { .altprops .add { width: 40px; height: 40px; } }
 .parlay-compare td .link { white-space: nowrap; } .parlay-compare .pc-meta { display: block; font-size: 11px; }
 @media (max-width: 480px) { .parlay-compare th, .parlay-compare td { padding: 6px 8px; } }
+.parlay-compare > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 8px 12px; cursor: pointer; font-size: 13px; list-style: none; }
+.parlay-compare > summary::-webkit-details-marker { display: none; }
+.parlay-compare > summary::before { content: "▸"; color: var(--mut); transition: transform .15s ease; display: inline-block; }
+.parlay-compare[open] > summary::before { transform: rotate(90deg); }
+.parlay-compare > summary .mut { font-size: 12px; }
+.parlay-compare[open] > summary { border-bottom: 1px solid var(--line); }
+.odds-stale .parlay-compare > summary .ev-text { filter: grayscale(1); opacity: .55; }

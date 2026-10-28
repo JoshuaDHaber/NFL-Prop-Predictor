@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Game, Kind } from "../api";
 import { useBetSlip } from "../BetSlipContext";
 import { americanOdds, isYesNo, pct, signedPct, KIND_LABEL } from "../format";
@@ -12,6 +13,8 @@ import Info from "./Info";
 import SidePill from "./SidePill";
 
 const STAKE = 10;
+/** Whether the comparison table was left open, remembered per browser. */
+const COMPARE_KEY = "parlayCompareOpen";
 /** A parlay EV above this is mostly small leg edges compounding, so the tile says to read it as an upper bound. */
 const BIG_EV = 0.3;
 
@@ -147,12 +150,22 @@ function ladderRows(ladders: Parlay[], nba: boolean): { key: string; label: stri
 /** The first tile of a section worth a star: one the model doesn't expect to lose on. */
 const leadOf = (ps: Parlay[]) => ps.find((p) => !losing(p))?.key;
 
-/** Every tile on one screen to compare: price, hit chance and EV, each row jumping to its tile. */
+/** Every tile on one screen to compare: price, hit chance and EV, each row jumping to its tile. Folded to one line until opened. */
 function Compare({ sections }: { sections: { id: string; label: string; tiles: Parlay[] }[] }) {
+  // folded by default so the tiles lead the page; opening it is remembered in this browser
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem(COMPARE_KEY) === "1"; } catch { return false; } });
+  const toggle = (o: boolean) => { setOpen(o); try { localStorage.setItem(COMPARE_KEY, o ? "1" : "0"); } catch { /* private mode: not remembered */ } };
   const shown = sections.filter((s) => s.tiles.length);
-  if (shown.reduce((n, s) => n + s.tiles.length, 0) < 3) return null;
+  const tiles = shown.flatMap((s) => s.tiles);
+  if (tiles.length < 3) return null;
+  const bestEv = tiles.filter((p) => !p.sameGame).reduce<number | null>((b, p) => (b == null || p.ev > b ? p.ev : b), null);
+  const likeliest = Math.max(...tiles.map((p) => p.prob));
   return (
-    <div className="card parlay-compare">
+    <details className="card parlay-compare" open={open} onToggle={(e) => toggle(e.currentTarget.open)}>
+      <summary>
+        <b>Compare all {tiles.length} parlays</b>
+        <span className="mut">likeliest hits {pct(likeliest, 0)}{bestEv != null && <> · best EV <span className={`ev-text ${bestEv >= 0 ? "pos" : "under"}`}>{signedPct(bestEv)}</span></>}</span>
+      </summary>
       <table>
         <thead><tr><th>Parlay</th><th>Odds</th><th>Hits</th><th>EV</th></tr></thead>
         {shown.map((s) => (
@@ -170,7 +183,7 @@ function Compare({ sections }: { sections: { id: string; label: string; tiles: P
           </tbody>
         ))}
       </table>
-    </div>
+    </details>
   );
 }
 
