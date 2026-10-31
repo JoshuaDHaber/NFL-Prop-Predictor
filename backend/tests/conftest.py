@@ -11,6 +11,7 @@ os.environ["NBA_CACHE"] = tempfile.mkdtemp()
 os.environ.pop("ODDS_API_KEY", None)
 os.environ.pop("ODDS_API_KEY_NBA", None)
 os.environ["AUTO_SYNC"] = "0"  # the schedule never runs in tests unless a test starts it
+os.environ["SYNC_SUBPROCESS"] = "0"  # jobs run in-process, so tests' stubbed pipelines and in-memory DB apply
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 if os.environ.get("TEST_DATABASE_URL"):
