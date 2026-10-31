@@ -2,8 +2,11 @@
 
 One job runs at a time (model run and/or odds fetch), whether the schedule or the admin page started it. Every job
 is logged as a SyncRun. Odds fetches stop before a key drops under config.ODDS_CREDIT_FLOOR credits, switching to the spare key first.
-The schedule runs in a background thread of the web process: fine on a single always-on instance (Railway Hobby).
+The schedule runs in a background thread of the web process: fine on a single always-on instance (Railway Hobby). The
+job's work runs in a child process (config.SYNC_SUBPROCESS), so its memory goes back to the OS when it finishes.
 """
+import multiprocessing
+import queue
 import threading
 import traceback
 from dataclasses import dataclass
@@ -132,30 +135,12 @@ def run(odds_mode: str, full: bool = False, slot: str = "manual", trigger: str =
         _job["log"].append(msg)
         _job["detail"] = msg.strip()
 
-    def odds_progress(done: int, total: int):
-        _job.update(progress=(done / total) if total else 1.0, detail=f"game {min(done + 1, total)} of {total}")
-
-    res, status, parts, error = {}, "ok", [], None
+    res, status, parts, error = {}, "error", [], None
     try:
-        if nba:
-            _job.update(step=1, stage="Running the NBA model", progress=None)
-            parts.append("NBA model run" if nba_pipeline.run_projections(log=log) else "No NBA games coming up")
-        elif run_model:
-            _job.update(step=1, stage="Running the model" + (" (full recalibration)" if full else ""), progress=None)
-            pipeline.run_projections(log=log, full=full)
-            parts.append("Model recalibrated" if full else "Model run")
-        else:
-            log("Projections run off-server on this host; fetching odds only")
-        if odds_mode != "none":
-            _job.update(step=steps, stage="Fetching odds", detail=None, progress=0.0)
-            refresh = nba_pipeline.refresh_odds if nba else pipeline.refresh_odds
-            res = refresh(odds_mode, log=log, progress=odds_progress, credit_floor=config.ODDS_CREDIT_FLOOR()) or {}
-            parts.append(_odds_summary(res))
-            if res.get("skipped_for_credits") or res.get("failed"):
-                status = "partial"
-        _snapshot(log, nba)
-    except Exception as e:  # surfaced to the UI and the run log
-        status, error = "error", odds_api.redact(f"{type(e).__name__}: {e}")
+        args = (odds_mode, full, nba, run_model, steps)
+        res, parts, status, error = _in_child(args, log) if config.SYNC_SUBPROCESS() else _work(*args, _job.update, log)
+    except Exception as e:  # the child couldn't even start
+        error = odds_api.redact(f"{type(e).__name__}: {e}")
         log(traceback.format_exc(limit=3))
     finally:
         # the log row is written before the job reads as finished, so the admin page never sees one without the other
@@ -178,6 +163,74 @@ def run(odds_mode: str, full: bool = False, slot: str = "manual", trigger: str =
             _job.update(state="done", stage="Done", detail=None, progress=1.0)
         _job["finished_at"] = datetime.utcnow().isoformat()
         after_job()
+
+
+def _work(odds_mode: str, full: bool, nba: bool, run_model: bool, steps: int, update: Callable, log: Callable):
+    """The job itself: the model, then odds, then the grading snapshot. Returns (odds result, summary parts, status, error)."""
+    def odds_progress(done: int, total: int):
+        update(progress=(done / total) if total else 1.0, detail=f"game {min(done + 1, total)} of {total}")
+
+    res, status, parts, error = {}, "ok", [], None
+    try:
+        if nba:
+            update(step=1, stage="Running the NBA model", progress=None)
+            parts.append("NBA model run" if nba_pipeline.run_projections(log=log) else "No NBA games coming up")
+        elif run_model:
+            update(step=1, stage="Running the model" + (" (full recalibration)" if full else ""), progress=None)
+            pipeline.run_projections(log=log, full=full)
+            parts.append("Model recalibrated" if full else "Model run")
+        else:
+            log("Projections run off-server on this host; fetching odds only")
+        if odds_mode != "none":
+            update(step=steps, stage="Fetching odds", detail=None, progress=0.0)
+            refresh = nba_pipeline.refresh_odds if nba else pipeline.refresh_odds
+            res = refresh(odds_mode, log=log, progress=odds_progress, credit_floor=config.ODDS_CREDIT_FLOOR()) or {}
+            parts.append(_odds_summary(res))
+            if res.get("skipped_for_credits") or res.get("failed"):
+                status = "partial"
+        _snapshot(log, nba)
+    except Exception as e:  # surfaced to the UI and the run log
+        status, error = "error", odds_api.redact(f"{type(e).__name__}: {e}")
+        log(traceback.format_exc(limit=3))
+    return res, parts, status, error
+
+
+# ---------- the job's own process ----------
+# Python rarely hands freed memory back to the OS, so every sync run in the web process left it bigger, until one
+# pushed it past the 1 GB host limit and the whole server was killed. A child process gives it all back when it exits,
+# and if it is the one killed for memory, the web process lives on to log the run as failed.
+def _child(q, args: tuple) -> None:
+    """Runs in the spawned process: the job, reporting log lines, progress and the result back over q."""
+    q.put(("done", _work(*args, lambda **kw: q.put(("update", kw)), lambda msg: q.put(("log", msg)))))
+
+
+def _in_child(args: tuple, log: Callable, target: Callable = _child):
+    """Run _work in a fresh process, relaying what it reports to _job; the same result tuple as _work."""
+    ctx = multiprocessing.get_context("spawn")   # not fork: this process has threads and open database connections
+    q = ctx.Queue()
+    p = ctx.Process(target=target, args=(q, args), name="sync-job", daemon=True)
+    p.start()
+    while True:
+        try:
+            kind, payload = q.get(timeout=1)
+        except queue.Empty:
+            if p.is_alive():
+                continue
+            try:   # its last messages can land just after it exits
+                kind, payload = q.get(timeout=1)
+            except queue.Empty:
+                break
+        if kind == "done":
+            p.join()
+            return payload
+        if kind == "log":
+            log(payload)
+        else:
+            _job.update(**payload)
+    p.join()
+    error = f"The sync process died (exit code {p.exitcode}" + (", most likely out of memory)" if p.exitcode == -9 else ")")
+    log(error)
+    return {}, [], "error", error
 
 
 def _snapshot(log, nba: bool = False) -> None:

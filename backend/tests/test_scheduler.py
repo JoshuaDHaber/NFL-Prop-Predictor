@@ -1,4 +1,6 @@
 """The sync schedule: slot times in Eastern time, the run log, catch-up and the admin endpoints."""
+import os
+import signal
 from datetime import datetime
 
 import pytest
@@ -63,6 +65,39 @@ def test_a_failed_run_is_logged_as_an_error(monkeypatch):
     with SessionLocal() as s:
         r = s.query(SyncRun).one()
     assert r.status == "error" and "nflverse down" in r.error
+    assert scheduler._job["state"] == "error"
+
+
+# targets for a real spawned child (module level, so the child can import them)
+def _child_reports_and_finishes(q, args):
+    q.put(("update", dict(stage="Fetching odds", progress=0.5)))
+    q.put(("log", "hello from the child"))
+    q.put(("done", (dict(games=1, fetched=1), ["odds for 1 of 1 games"], "ok", None)))
+
+
+def _child_killed_for_memory(q, args):
+    q.put(("log", "about to run out of memory"))
+    q.close(); q.join_thread()   # a real job's earlier lines are long sent by then; a kill drops only unsent ones
+    os.kill(os.getpid(), signal.SIGKILL)
+
+
+def test_a_child_process_relays_its_log_progress_and_result():
+    lines = []
+    out = scheduler._in_child(("all", False, True, True, 2), lines.append, target=_child_reports_and_finishes)
+    assert out == (dict(games=1, fetched=1), ["odds for 1 of 1 games"], "ok", None)
+    assert lines == ["hello from the child"] and scheduler._job["stage"] == "Fetching odds"
+
+
+def test_a_child_killed_for_memory_is_logged_as_an_error_and_the_server_lives_on(monkeypatch):
+    real = scheduler._in_child
+    monkeypatch.setattr(scheduler.config, "SYNC_SUBPROCESS", lambda: True)
+    monkeypatch.setattr(scheduler, "_in_child", lambda args, log: real(args, log, target=_child_killed_for_memory))
+    assert scheduler.claim()
+    scheduler.run("all", slot="nba-pregame", trigger="schedule", league="nba")
+    with SessionLocal() as s:
+        r = s.query(SyncRun).one()
+    assert r.status == "error" and "out of memory" in r.error
+    assert r.log[0] == "about to run out of memory"
     assert scheduler._job["state"] == "error"
 
 
