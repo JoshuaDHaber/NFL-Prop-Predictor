@@ -133,6 +133,10 @@ class ProjectionOut(BaseModel):
     wx: Optional[float] = None  # weather multiplier already in mu (1 or None: no effect)
     teammate_out: Optional[str] = ""  # same-position rotation receivers in their first game out
     thin: Optional[bool] = False      # thin history (a rookie, or back from IR): shown, never priced
+    parts: Optional[dict] = None      # NBA: what mu is made of (min, rate, opp, tm, tm_min, out); None for the NFL
+    dvp: Optional[float] = None       # matchup grade (engine/dvp.py): the defense's factor against his position
+    dvp_rank: Optional[int] = None    # 1 = the softest matchup of dvp_n
+    dvp_n: Optional[int] = None
 
 
 class PickOut(BaseModel):
@@ -171,6 +175,8 @@ class PickOut(BaseModel):
     open_line: Optional[float] = None  # the consensus line at the first fetch of the week
     move: Optional[float] = None       # market's fair chance of this side since that first fetch (+ = toward it)
     steam: int = 0                     # +1 books moved together toward this side between the last two fetches, -1 against
+    dvp_rank: Optional[int] = None     # matchup grade: 1 = the softest defense for his position and this market, of dvp_n
+    dvp_n: Optional[int] = None
 
 
 class GradeLine(BaseModel):
@@ -260,6 +266,8 @@ class GameLogEntry(BaseModel):
     opp: str
     yards: float
     volume: float
+    season: Optional[int] = None    # for the drawer's hit-rate splits (this season, last season)
+    home: Optional[bool] = None     # NBA only: home or away
 
 
 class PlayerHit(BaseModel):

@@ -24,6 +24,8 @@ export const GLOSSARY = {
   altProps: ["Likely alternate props", "Each player's likeliest over on an alternate line the book links to, to bet on its own rather than in a parlay."],
   ladder: ["Ladder", "Overs on alternate lines, stacked until the parlay pays +100 to +300. Each leg is a lower, likelier line than the main one."],
   sameGame: ["Same-game parlay", "Some legs share a game, and those legs move together, so the hit chance counts how they did in past games instead of multiplying. Books price same-game parlays their own way, usually below the legs multiplied: take it if the book's price beats the fair odds."],
+  matchup: ["Matchup grade", "How this defense does against his position in this market, A (softest fifth of the league) to F (toughest), measured against what the players it faced usually do. Context, not an edge: the projection already uses the defense, and in past seasons the position split added little or nothing."],
+  hitRates: ["Hit rate", "How often this exact play would have cashed in his past games. Useful context, but it knows nothing about minutes, the matchup or who's out; the model's chance does."],
   fair: ["Fair odds", "The odds that would make this parlay break even. If the book offers better, the model likes it."],
 } as const;
 export type Term = keyof typeof GLOSSARY;

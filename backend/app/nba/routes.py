@@ -277,12 +277,15 @@ def player(player_id: str, market_weight: Optional[float] = Query(None, ge=0, le
                         picks=_records(pp), logs=_game_logs(player_id, run.season))
 
 
-def _game_logs(player_id: str, season: int, n: int = 12) -> dict:
-    """The player's last n games per stat (value, with minutes as the volume), from the cached ESPN logs. For double-
-    and triple-doubles the value is how many stats reached double figures."""
-    logs = espn.gamelogs([player_id], [season - 1, season], season, log=lambda _: None).tail(n)
+def _game_logs(player_id: str, season: int, n: int = 120) -> dict:
+    """The player's games per stat this season and last (value, with minutes as the volume, up to the last n), from the
+    cached ESPN logs: the drawer charts the last 12 and works out hit rates from the rest. For double- and
+    triple-doubles the value is how many stats reached double figures."""
+    logs = espn.gamelogs([player_id], [season - 1, season], season, log=lambda _: None)
+    logs = logs[logs["min"] > 0].tail(n)
     label = lambda d: datetime.fromisoformat(d).strftime("%b %-d")  # noqa: E731
-    return {k: [GameLogEntry(label=label(r.date), opp=r.opp or "", yards=float(model.tens(r) if k in model.DOUBLES else model.actual(r, k)), volume=float(r.min))
+    return {k: [GameLogEntry(label=label(r.date), opp=r.opp or "", yards=float(model.tens(r) if k in model.DOUBLES else model.actual(r, k)),
+                             volume=float(r.min), season=int(r.season), home=bool(r.home))
                 for r in logs.itertuples()] for k in model.ALL_KINDS}
 
 

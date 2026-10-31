@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hitRate, seasonStarts, withGaps } from "./gameLog";
+import { hitRate, hitSplits, seasonStarts, withGaps } from "./gameLog";
 import { hashFor, selectedFromHash } from "./playerHash";
 
 const g = (label: string, yards: number, opp = "LA") => ({ label, opp, yards, volume: 0 });
@@ -38,5 +38,25 @@ describe("player hash", () => {
   it("ignores a broken link", () => {
     expect(selectedFromHash("#player=00-1&kind=nope")).toBeNull();
     expect(selectedFromHash("#player=00-1&kind=rec&side=Over")).toEqual({ id: "00-1", kind: "rec", pick: undefined });
+  });
+});
+
+describe("hitSplits", () => {
+  const nba = (i: number, pts: number, season: number, opp = "NY", home = true) => ({ label: `D${i}`, opp, yards: pts, volume: 30, season, home });
+  it("slices the games by recency, season, opponent and venue", () => {
+    const logs = [...Array.from({ length: 15 }, (_, i) => nba(i, i % 2 ? 30 : 10, 2026, i < 3 ? "BOS" : "NY", i % 3 === 0)),
+      ...Array.from({ length: 8 }, (_, i) => nba(20 + i, 25, 2027, "MIA", true))];
+    const s = Object.fromEntries(hitSplits(logs, "Over", 20.5, { opp: "BOS", home: false }).map((x) => [x.label, [x.hit, x.n]]));
+    expect(s["Last 5"]).toEqual([5, 5]);
+    expect(s["Last 10"]).toEqual([9, 10]);       // this season's 8 at 25, then last season's closing 30 and 10
+    expect(s["Last 20"][1]).toBe(20);
+    expect(s["Season"]).toEqual([8, 8]);
+    expect(s["Last season"]).toEqual([7, 15]);
+    expect(s["vs BOS"]).toEqual([1, 3]);
+    expect(s["Away"][1]).toBe(logs.filter((g) => !g.home).length);
+  });
+  it("skips what the log can't tell and slices it hasn't enough games for", () => {
+    const s = hitSplits([g("2025 W1", 50), g("2025 W2", 80)], "Under", 60.5, { opp: "SF", home: true });
+    expect(s.map((x) => x.label)).toEqual(["Last 2"]);   // no season on old logs, no SF game, no venue for the NFL
   });
 });

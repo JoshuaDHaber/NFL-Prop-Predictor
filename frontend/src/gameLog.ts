@@ -44,3 +44,24 @@ export function hitRate(bars: LogBar[], side: "Over" | "Under", line: number) {
   const last5 = played.slice(-5);
   return { n: played.length, hit: played.filter(Boolean).length, n5: last5.length, hit5: last5.filter(Boolean).length };
 }
+
+export interface Split { label: string; n: number; hit: number }
+
+/** How often a play would have cashed in slices of the player's games (oldest first): the last 5, 10 and 20, this
+ *  season, last season, against this opponent, and (when the log says) at home or on the road like this game. Empty
+ *  slices are left out, and the last 10 and 20 only show once there are that many games. */
+export function hitSplits(logs: GameLogEntry[], side: "Over" | "Under", line: number, ctx: { opp: string; home: boolean }): Split[] {
+  const rate = (label: string, games: GameLogEntry[]): Split => ({ label, n: games.length, hit: games.filter((g) => hits(g.yards, side, line)).length });
+  const out: Split[] = [];
+  for (const n of [5, 10, 20]) {
+    if (logs.length >= n || (n === 5 && logs.length > 0)) out.push(rate(`Last ${Math.min(n, logs.length)}`, logs.slice(-n)));
+  }
+  const seasons = [...new Set(logs.map((g) => g.season).filter((s): s is number => s != null))].sort((a, b) => b - a);
+  if (seasons.length) {
+    out.push(rate("Season", logs.filter((g) => g.season === seasons[0])));
+    if (seasons.length > 1) out.push(rate("Last season", logs.filter((g) => g.season === seasons[1])));
+  }
+  if (ctx.opp) out.push(rate(`vs ${ctx.opp}`, logs.filter((g) => g.opp === ctx.opp)));
+  if (logs.some((g) => g.home != null)) out.push(rate(ctx.home ? "Home" : "Away", logs.filter((g) => g.home === ctx.home)));
+  return out.filter((s) => s.n > 0);
+}

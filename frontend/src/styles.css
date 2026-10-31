@@ -843,3 +843,28 @@ footer a { color: var(--ink); font-weight: 600; text-decoration: none; } footer 
 .parlay-compare > summary .mut { font-size: 12px; }
 .parlay-compare[open] > summary { border-bottom: 1px solid var(--line); }
 .odds-stale .parlay-compare > summary .ev-text { filter: grayscale(1); opacity: .55; }
+
+/* player drawer: why this number, and hit-rate splits (sections like Lines & alternates: an h3, then a card) */
+.why, .hit-rates { margin-top: 14px; }
+.why-card { padding: 2px 12px; }
+.why-steps { list-style: none; margin: 0; padding: 4px 0; font-size: 13px; }
+.why-steps + .why-steps { border-top: 1px solid var(--line); }
+.why-steps li { display: grid; grid-template-columns: 112px 1fr auto; gap: 10px; align-items: baseline; padding: 5px 0; }
+.why-steps .w-l { font-weight: 600; white-space: nowrap; }
+.why-steps .w-d { color: var(--mut); font-size: 12px; min-width: 0; }
+.why-steps .w-e { font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; white-space: nowrap; }
+.why-steps .w-e.pos { color: var(--good); } .why-steps .w-e.neg { color: var(--bad); }
+.why-steps .w-e.up::before { content: "▲ "; font-size: 9px; color: var(--mut); } .why-steps .w-e.down::before { content: "▼ "; font-size: 9px; color: var(--mut); }
+.why-steps .w-total { border-top: 1px dashed var(--line); margin-top: 2px; } .why-steps .w-total .w-e { font-weight: 800; }
+.why-ctx { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 0; border-top: 1px solid var(--line); font-size: 12px; color: var(--mut); }
+.why-ctx .mgrade { margin-left: 0; flex: none; }
+@media (max-width: 480px) { .why-steps li { grid-template-columns: 84px 1fr auto; gap: 8px; } }
+.hit-splits { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.hit-splits .hs { display: flex; flex-direction: column; padding: 5px 9px; border-radius: 8px; background: var(--card); border: 1px solid var(--line); font-size: 11px; color: var(--mut); line-height: 1.3; }
+.hit-splits .hs b { font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.hit-splits .hs small { font-size: 11px; font-variant-numeric: tabular-nums; }
+.hit-splits .hs.model { background: var(--chip); border-color: transparent; }
+.hit-splits .hs.few { border-style: dashed; } .hit-splits .hs.few b { color: var(--mut); }
+.mgrade { font-variant-numeric: tabular-nums; }
+.hit-splits .hs > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 480px) { .hit-splits .hs { padding: 5px 7px; } }
