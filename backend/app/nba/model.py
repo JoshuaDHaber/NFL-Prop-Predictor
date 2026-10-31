@@ -25,6 +25,7 @@ import pandas as pd
 from scipy.optimize import minimize
 from scipy.stats import norm, poisson
 
+from ..engine import dvp as dvp_mod
 from ..engine import model as nfl_model
 from . import espn
 
@@ -102,6 +103,27 @@ def opp_factors(hist: pd.DataFrame, at: date) -> dict:
     return out
 
 
+DVP_K_ROWS = 20.0      # matchup grades: player-games of par mixed into each defense's factor for a position (engine/dvp.py)
+
+
+def dvp(hist: pd.DataFrame, at: date, pos_group: dict) -> dict:
+    """kind -> {(defense, G/F/C): (factor, rank, teams)} for the matchup grades: what each defense allowed each
+    position group against those players' usual per-minute rates, weighted like opp_factors. Combos included."""
+    h = hist[hist["min"] > 0]
+    if h.empty:
+        return {}
+    days = (pd.Timestamp(at) - pd.to_datetime(h.date)).dt.days.to_numpy()
+    frame = pd.DataFrame({"opp": h.opp.to_numpy(), "grp": h.player_id.map(pos_group).fillna("G").to_numpy(),
+                          "w": 0.5 ** (days / OPP_HL_DAYS) * np.where(h.season.to_numpy() < espn.season_for(at), 0.5, 1.0)})
+    mins = h.groupby("player_id")["min"].sum()
+    for k in KINDS + tuple(COMBOS):
+        val = h[list(COMBOS.get(k, (k,)))].sum(axis=1, min_count=1)
+        rate = val.groupby(h.player_id).sum() / mins
+        frame[f"act_{k}"] = val.to_numpy()
+        frame[f"exp_{k}"] = h.player_id.map(rate).to_numpy() * h["min"].to_numpy()
+    return dvp_mod.ranks(dvp_mod.factors(frame, KINDS + tuple(COMBOS), DVP_K_ROWS))
+
+
 def player_state(g: pd.DataFrame, season: int, prior: dict) -> dict:
     """Projected minutes and shrunk per-minute rates from one player's games (oldest first, minutes > 0)."""
     wm, wr = _weights(g, season, MIN_HL), _weights(g, season, RATE_HL)
@@ -140,11 +162,89 @@ def project_rows(st: dict, opp: dict, team_opp: str) -> dict:
     return out
 
 
+# ---------- teammates out ----------
+# Each player is projected from his own recent games, so the projection carries his team's usual mix of absences:
+# with every regular playing he's over-projected (in the 2025-26 walk-forward, players on a full-strength team went
+# over their points projection 37% of the time), and with a star out under-projected (57% over when 15-30% of the
+# team's projected points were missing, 84% over 30%). So every stat is scaled by 1 + a x (the share of the team's
+# projected production that's missing) + b, with a and b fit on the backtest per stat (b < 0: it centers the
+# correction on the usual absences). After it the over rates run 40-46% at every level of absence up to 30%.
+# Fitting on 2024-25 and testing on 2025-26 cut points MAE 0.75% and minutes 1.7% (rebounds 0.4%, threes 0.7%).
+TM_REG_MIN = 25.0     # projected minutes that make an absent player's production count as missing
+TM_MAX_GAP = 20       # team games: someone out longer is fully in his teammates' recent games
+TM_A, TM_B = (0.0, 1.5), (-0.15, 0.05)   # bounds on the fitted slope and intercept
+TM_MULT = (0.75, 1.6)  # bounds on any one player's multiplier
+TM_MIN_ROWS = 200     # player-games with someone missing needed to fit a stat; fewer and it's left alone
+_TM_W = 0.5 ** (np.arange(60) / MIN_HL)
+_TM_CUM = np.concatenate([[0.0], np.cumsum(_TM_W)]) / _TM_W.sum()
+
+
+def tm_kept(missed: int) -> float:
+    """Share of an absent player's production still missing from his teammates' projections after he's already missed
+    `missed` team games: those games are in their recent minutes (weighted as player_state weights minutes)."""
+    return float(1.0 - _TM_CUM[min(int(missed), len(_TM_W))])
+
+
+class Rosters:
+    """Who played for whom, from the game logs: enough to tell how many team games a player has missed."""
+
+    def __init__(self, logs: pd.DataFrame):
+        played = logs[logs["min"] > 0].sort_values("date")
+        self.team_dates = {t: np.sort(g.date.unique()) for t, g in played.groupby("team")}
+        self.by_pid = {p: (g.date.to_numpy(), g.team.to_numpy()) for p, g in played.groupby("player_id")}
+        self.at = {(t, d): set(g.player_id) for (t, d), g in played.groupby(["team", "date"])}
+
+    def missed(self, pid: str, team: str, day: str):
+        """Team games before `day` this player has missed since his last game, if that game was for `team` and he's
+        missed fewer than TM_MAX_GAP; else None."""
+        dates, teams = self.by_pid.get(pid, ((), ()))
+        j = int(np.searchsorted(dates, day)) - 1
+        if j < 0 or teams[j] != team:
+            return None
+        td = self.team_dates[team]
+        n = int(np.searchsorted(td, day)) - int(np.searchsorted(td, dates[j])) - 1
+        return n if n < TM_MAX_GAP else None
+
+    def recent(self, team: str, day: str) -> set:
+        """Everyone who played for `team` in its last TM_MAX_GAP games before `day`."""
+        td = self.team_dates.get(team, ())
+        i = int(np.searchsorted(td, day))
+        return set().union(*(self.at[(team, d)] for d in td[max(0, i - TM_MAX_GAP):i]))
+
+
+def missing(absent: list, opp: dict, team_opp: str) -> dict:
+    """kind (and "min") -> projected production of a team's absent regulars, net of what's already in their
+    teammates' recent games. absent: (player_state, team games missed) pairs."""
+    out = {k: 0.0 for k in ("min",) + KINDS}
+    for s, n in absent:
+        if s["min"] < TM_REG_MIN:
+            continue
+        keep = tm_kept(n)
+        out["min"] += s["min"] * keep
+        for k, (mu, _) in project_rows(s, opp, team_opp).items():
+            if k in out:
+                out[k] += mu * keep
+    return out
+
+
+def tm_mults(fit: dict, lost: dict, active: dict) -> dict:
+    """kind (and "min") -> multiplier on each active player's projection. active: kind -> the team's total projected
+    production among the players who'll play."""
+    out = {}
+    for k, f in fit.items():
+        frac = lost.get(k, 0.0) / max(lost.get(k, 0.0) + active.get(k, 0.0), 1e-9)
+        out[k] = float(np.clip(1.0 + f["a"] * frac + f["b"], *TM_MULT))
+    return out
+
+
 def walk_forward(logs: pd.DataFrame, pos_group: dict, start: date, end: date, step_days: int = 7) -> pd.DataFrame:
     """Every game played from start to end, projected with only the games before its week. Columns: kind, mu,
     actual, naive5 (the last-10 average, named like the NFL backtest's baseline), min_proj, min_actual, date, and for the
-    same-game correlations (engine/correlation.py) team, opp, pos (G/F/C) and t (the date's ordinal: one game per team a day)."""
+    same-game correlations (engine/correlation.py) team, opp, pos (G/F/C) and t (the date's ordinal: one game per team a day).
+    frac and frac_min: the share of the team's projected production of that row's stat (and minutes) missing, for
+    fit_teammates; mu is before that correction (apply_teammates)."""
     logs = logs[logs["min"] > 0]
+    ros = Rosters(logs)
     rows = []
     d = start
     while d <= end:
@@ -153,20 +253,77 @@ def walk_forward(logs: pd.DataFrame, pos_group: dict, start: date, end: date, st
         hist, todo = logs[logs.date < ds], logs[(logs.date >= ds) & (logs.date < dn)]
         if len(todo) and len(hist):
             season = espn.season_for(d)
-            st = states(hist[hist.player_id.isin(set(todo.player_id))], pos_group, season, priors(hist, pos_group))
+            games = []
+            for (team, day), g in todo.groupby(["team", "date"], sort=False):
+                active = set(g.player_id)
+                out = [(p, n) for p in ros.recent(team, day) - active if (n := ros.missed(p, team, day)) is not None]
+                games.append((g, out))
+            need = set(todo.player_id) | {p for _, out in games for p, _ in out}
+            st = states(hist[hist.player_id.isin(need)], pos_group, season, priors(hist, pos_group))
             opp = opp_factors(hist, d)
-            for r in todo.itertuples():
-                s = st.get(r.player_id)
-                if not s or s["min"] < MIN_MINUTES:
-                    continue
-                ctx = (r.team, r.opp, pos_group.get(r.player_id, "G"), date.fromisoformat(r.date[:10]).toordinal())
-                for k, (mu, _) in project_rows(s, opp, r.opp).items():
-                    rows.append((r.date, r.player_id, k, mu, actual(r, k), s["naive_" + k], s["min"], r.min, *ctx))
-                for k in DOUBLES:   # chances come from the other rows' error tables (calibrate), so mu is left empty here
-                    rows.append((r.date, r.player_id, k, np.nan, actual(r, k), s["naive_" + k], s["min"], r.min, *ctx))
+            for g, out in games:
+                o = g.opp.iat[0]
+                lost = missing([(st[p], n) for p, n in out if p in st], opp, o)
+                proj = [(r, st[r.player_id], project_rows(st[r.player_id], opp, o)) for r in g.itertuples()
+                        if r.player_id in st and st[r.player_id]["min"] >= MIN_MINUTES]
+                tot = {k: sum(pr[k][0] for _, _, pr in proj) for k in KINDS}
+                tot["min"] = sum(s["min"] for _, s, _ in proj)
+                frac = {k: lost[k] / max(lost[k] + tot[k], 1e-9) for k in tot}
+                for r, s, pr in proj:
+                    ctx = (r.team, r.opp, pos_group.get(r.player_id, "G"), date.fromisoformat(r.date[:10]).toordinal())
+                    for k, (mu, _) in pr.items():
+                        rows.append((r.date, r.player_id, k, mu, actual(r, k), s["naive_" + k], s["min"], r.min, *ctx,
+                                     frac.get(k, np.nan), frac["min"]))
+                    for k in DOUBLES:   # chances come from the other rows' error tables (calibrate), so mu is left empty here
+                        rows.append((r.date, r.player_id, k, np.nan, actual(r, k), s["naive_" + k], s["min"], r.min, *ctx,
+                                     np.nan, frac["min"]))
         d = nxt
     return pd.DataFrame(rows, columns=["date", "player_id", "kind", "mu", "actual", "naive5", "min_proj", "min_actual",
-                                       "team", "opp", "pos", "t"])
+                                       "team", "opp", "pos", "t", "frac", "frac_min"])
+
+
+def fit_teammates(bt: pd.DataFrame) -> dict:
+    """kind (and "min") -> {a, b}: each player's actual - projection regressed on (projection x missing share,
+    projection), from a walk-forward frame (before apply_teammates). A stat with too few games with someone missing
+    gets a = b = 0 (no change)."""
+    out = {}
+    if bt.empty or "frac" not in bt:
+        return out
+    base = bt[bt.kind == "pts"]
+    sets = {"min": (base.min_proj.to_numpy(), base.min_actual.to_numpy(), base.frac_min.to_numpy())}
+    for k in KINDS:
+        b = bt[bt.kind == k]
+        sets[k] = (b.mu.to_numpy(), b.actual.to_numpy(), b.frac.to_numpy())
+    for k, (mu, act, frac) in sets.items():
+        ok = np.isfinite(mu) & np.isfinite(act) & np.isfinite(frac)
+        mu, act, frac = mu[ok], act[ok], frac[ok]
+        if (frac > 0).sum() < TM_MIN_ROWS:
+            out[k] = dict(a=0.0, b=0.0)
+            continue
+        a, b = np.linalg.lstsq(np.c_[mu * frac, mu], act - mu, rcond=None)[0]
+        out[k] = dict(a=float(np.clip(a, *TM_A)), b=float(np.clip(b, *TM_B)))
+    return out
+
+
+def apply_teammates(bt: pd.DataFrame, fit: dict) -> pd.DataFrame:
+    """The walk-forward frame with every stat's projection scaled for missing teammates (tm_mults' formula), minutes
+    too, and the combos re-summed from their parts."""
+    if bt.empty or not fit:
+        return bt
+    bt = bt.copy()
+    for k in KINDS:
+        f = fit.get(k)
+        sel = bt.kind == k
+        if f and sel.any():
+            bt.loc[sel, "mu"] = bt.mu[sel] * np.clip(1 + f["a"] * bt.frac[sel] + f["b"], *TM_MULT)
+    if "min" in fit:
+        bt["min_proj"] = bt.min_proj * np.clip(1 + fit["min"]["a"] * bt.frac_min + fit["min"]["b"], *TM_MULT)
+    parts = bt[bt.kind.isin(KINDS)].set_index(["date", "player_id", "kind"]).mu
+    for c, ks in COMBOS.items():
+        sel = bt.kind == c
+        idx = pd.MultiIndex.from_frame(bt.loc[sel, ["date", "player_id"]])
+        bt.loc[sel, "mu"] = sum(parts.xs(k, level="kind").reindex(idx).to_numpy() for k in ks)
+    return bt
 
 
 POISSON_KINDS = ("threes", "stl", "blk")   # priced as Poisson counts (engine.model.prob_over_under_dist), not from the error table

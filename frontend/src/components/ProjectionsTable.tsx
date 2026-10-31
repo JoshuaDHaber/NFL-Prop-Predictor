@@ -6,6 +6,7 @@ import Avatar from "./Avatar";
 import SortBar from "./SortBar";
 import Spark from "./Spark";
 import WeatherChip from "./WeatherChip";
+import MatchupGrade from "./MatchupGrade";
 
 export const THIN_TITLE = "Only a game or two of history (a rookie, or back from IR): a rough guess, shown for reference and never priced";
 
@@ -39,7 +40,8 @@ export default function ProjectionsTable({ rows, onSelect, weather = {}, nba = f
                 </div>
               </td>
               <td>{KIND_LABEL[p.kind]}</td>
-              <td>{matchup(p.opp, p.home)}{!isYesNo(p.kind) && <WeatherChip weather={weather[p.game_id]} wx={p.wx} />}</td>
+              <td>{matchup(p.opp, p.home)}{!isYesNo(p.kind) && <WeatherChip weather={weather[p.game_id]} wx={p.wx} />}
+                <MatchupGrade kind={p.kind} pos={p.pos} opp={p.opp} rank={p.dvp_rank} n={p.dvp_n} factor={p.dvp} /></td>
               <td data-label="Proj"><b>{fmtProj(p.kind, p.mu)}</b></td>
               <td data-label="SD">{isYesNo(p.kind) ? "–" : fmtSd(p.kind, p.sd)}</td>
               <td data-label={nba ? "Minutes" : "Volume"}>{p.vol.toFixed(1)}</td>

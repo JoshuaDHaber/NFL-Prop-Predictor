@@ -14,6 +14,7 @@ import LineLadder, { ODDS_RANGE, bestOf, legFor, type Cell, type PlayerCtx } fro
 import LineMovement from "./LineMovement";
 import Sheet from "./Sheet";
 import Skeleton from "./Skeleton";
+import { HitSplits, WhyPanel } from "./Why";
 
 interface Props {
   playerId: string; initialKind: Kind;
@@ -69,7 +70,9 @@ export default function PlayerDrawer({ playerId, initialKind, pick, marketWeight
   const side = play?.side ?? "Over";
   // what each logged game is measured against: the play's line, or for yes/no markets whether it happened
   const hitLine = isDouble(kind) ? DOUBLE_NEED[kind]! - 0.5 : yesNo ? 0.5 : play?.row.line ?? mainLine;
-  const bars = withGaps(data?.logs[kind] ?? []);
+  // the server sends this season's and last season's games: the chart shows the last 12, the hit-rate splits use them all
+  const allLogs = data?.logs[kind] ?? [];
+  const bars = withGaps(allLogs.slice(-12));
   const rate = hitLine != null ? hitRate(bars, side, hitLine) : null;
   const byLabel = new Map(bars.map((b) => [b.label, b]));
 
@@ -146,15 +149,19 @@ export default function PlayerDrawer({ playerId, initialKind, pick, marketWeight
                 </>
               )}
             </div>
-            <p className="model-details mut">
+            {(yesNo || proj.thin) && <p className="model-details mut">
               {isDouble(kind) ? <>Expected stats at 10+ <b>{proj.eff.toFixed(2)}</b> · Minutes <b>{proj.vol.toFixed(1)}</b></>
                 : yesNo ? <>Touches <b>{proj.vol.toFixed(1)}</b> · TDs per touch <b>{(proj.eff / Math.max(proj.vol, 0.1)).toFixed(3)}</b></>
                 : <>Std dev <b>{fmtSd(kind, proj.sd)}</b> · {volLabel(kind)} <b>{proj.vol.toFixed(1)}</b> · {effText(kind, proj.eff)[0]} <b>{effText(kind, proj.eff)[1]}</b></>}
-            </p>
+            </p>}
+            {!proj.thin && <WhyPanel kind={kind} proj={proj} play={play} curveWeight={ladder.data?.w} nba={isNba(kind)} />}
 
+            {hitLine != null && (
+              <HitSplits kind={kind} logs={allLogs} side={side} line={hitLine} opp={proj.opp} home={proj.home} modelChance={play ? play.q.p_model ?? play.q.prob : null} />
+            )}
             <h3 className="log-h">
               Last {rate?.n ?? bars.filter((b) => !b.missed).length} games · {isDouble(kind) ? "stats in double figures" : kind === "ftd" ? "scored the first TD" : yesNo ? "touchdowns scored" : KIND_LABEL[kind]}
-              {rate && rate.n > 0 && <span className="hit-sum">{playLabel(kind, side, hitLine!)} in <b>{rate.hit} of {rate.n}</b> · last {rate.n5}: <b>{rate.hit5} of {rate.n5}</b></span>}
+              {rate && rate.n > 0 && <span className="hit-sum">{playLabel(kind, side, hitLine!)} in <b>{rate.hit} of {rate.n}</b></span>}
             </h3>
             <div className="chart-key mut" aria-hidden>
               {hitLine != null && <><span><i className="k-hit" />{playLabel(kind, side, hitLine)}</span><span><i className="k-miss" />didn't hit</span></>}

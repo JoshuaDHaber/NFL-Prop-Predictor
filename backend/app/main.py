@@ -554,7 +554,9 @@ def _stats(season: int) -> pd.DataFrame:
     return st
 
 
-def _game_logs(player_id: str, kinds: list[str], season: int, n: int = 12) -> dict:
+def _game_logs(player_id: str, kinds: list[str], season: int, n: int = 60) -> dict:
+    """The player's games per market this season and last (up to the last n): the drawer charts the last 12 and works
+    out hit rates from the rest."""
     st = _stats(season)
     g = st[st.player_id == player_id].sort_values("t").tail(n)
     out = {}
@@ -574,7 +576,7 @@ def _game_logs(player_id: str, kinds: list[str], season: int, n: int = 12) -> di
         else:
             c = model.CFG[kind]
             yards, vol = g[c["yds"]], g[c["vol"]]
-        out[kind] = [GameLogEntry(label=f"{int(s)} W{int(w)}", opp=o, yards=float(y), volume=float(v))
+        out[kind] = [GameLogEntry(label=f"{int(s)} W{int(w)}", opp=o, yards=float(y), volume=float(v), season=int(s))
                      for s, w, o, y, v in zip(g.season, g.week, g.opponent_team, yards, vol)]
     return out
 

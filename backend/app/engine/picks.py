@@ -16,13 +16,20 @@ HOLD = {"td": TD_ASSUMED_HOLD, "ftd": FTD_ASSUMED_HOLD, "dd": DD_ASSUMED_HOLD, "
 PICK_COLUMNS = [
     "player_id", "name", "pos", "team", "opp", "home", "kind", "mu", "sd", "status", "game_id", "gameday", "gametime",
     "side", "line", "odds", "book", "p_model", "p_mkt", "prob", "ev", "kelly", "books", "edge_yds", "flagged", "wx",
-    "flag", "teammate_out", "hours", "w", "median",
+    "flag", "teammate_out", "hours", "w", "median", "dvp_rank", "dvp_n",
 ]
 # a quote this far from the consensus line (or 30% of it) is an alternate or stale line; receptions are counted in catches,
 # passing TDs in touchdowns (lines step 0.5 / 1.5 / 2.5, so a whole TD off the consensus is another line)
 # NBA from pts on (threes, steals and blocks step 0.5 / 1.5 / 2.5, like passing TDs)
 STALE_MIN_GAP = {"recs": 1.5, "ptd": 0.9, "pts": 4.0, "reb": 2.0, "ast": 2.0, "threes": 0.9, "pra": 6.0, "pr": 5.0, "pa": 5.0,
                  "stl": 0.9, "blk": 0.9}
+
+
+def _dvp(p) -> dict:
+    """A projection's matchup rank, for its picks (None where the projection has none)."""
+    rank, n = getattr(p, "dvp_rank", None), getattr(p, "dvp_n", None)
+    ok = rank is not None and pd.notna(rank)
+    return dict(dvp_rank=int(rank) if ok else None, dvp_n=int(n) if ok else None)
 
 
 def book_set(only_book: str = None):
@@ -155,7 +162,7 @@ def build_picks(proj: pd.DataFrame, lines: pd.DataFrame, market_weight: float = 
                 side=side, line=float(r.line), odds=int(odd), book=r.book, p_model=p_side, p_mkt=mk, prob=prob, ev=ev,
                 kelly=max(0.0, ev / (dec - 1)) / 4, books=int(c.books),
                 edge_yds=edge, flagged=bool(flag), wx=wx, flag=flag, teammate_out=out_, hours=hours, w=w,
-                median=None if is_td else median(p, r.market)))
+                median=None if is_td else median(p, r.market), **_dvp(p)))
     df = pd.DataFrame(out, columns=PICK_COLUMNS)
     if df.empty:
         return df

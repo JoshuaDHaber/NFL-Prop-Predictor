@@ -179,6 +179,40 @@ def opp_table(df, upto_t):
     return out
 
 
+DVP_KINDS = ("rush", "rec", "recs", "pass")   # the matchup grades' markets (engine/dvp.py)
+DVP_K_ROWS = 12.0      # player-games of par mixed into each defense's factor for a position
+
+
+def dvp_group(pos: str) -> str:
+    return "RB" if pos == "FB" else pos
+
+
+def dvp_table(df, upto_t):
+    """kind -> {(defense, position): (factor, rank, teams)} for the matchup grades, from the season before upto_t
+    (earlier weeks at half weight): what each defense allowed each position against those players' usual game."""
+    from . import dvp
+    d = df[(df.t < upto_t) & (df.t >= upto_t - 100)]
+    if d.empty:
+        return {}
+    frame = pd.DataFrame({"opp": d.opponent_team.to_numpy(), "grp": d.position.map(dvp_group).to_numpy(),
+                          "w": np.where(d.season.to_numpy() < upto_t // 100, 0.5, 1.0)})
+    for kind in DVP_KINDS:
+        c = CFG[kind]
+        if c["yds"] not in d or c["vol"] not in d:
+            continue
+        role = d[c["vol"]].fillna(0).to_numpy() > 0
+        yds = d[c["yds"]].where(role)
+        frame[f"act_{kind}"] = yds.to_numpy()
+        frame[f"exp_{kind}"] = d.player_id.map(yds.groupby(d.player_id).mean()).where(role).to_numpy()
+    return dvp.ranks(dvp.factors(frame, [k for k in DVP_KINDS if f"act_{k}" in frame], DVP_K_ROWS))
+
+
+def dvp_fields(table, kind, opp, pos) -> dict:
+    """The matchup-grade columns for one projection row (None where the market has no grade)."""
+    f = table.get(kind, {}).get((opp, dvp_group(pos)))
+    return dict(dvp=f[0], dvp_rank=f[1], dvp_n=f[2]) if f else dict(dvp=None, dvp_rank=None, dvp_n=None)
+
+
 def project_player(hist, kind, prior_eff, opp_dev=0.0, spread=0.0):
     """hist: that player's prior games (sorted). Returns (mu, vol_hat, eff_hat) or None."""
     c = CFG[kind]
@@ -535,6 +569,7 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
     season, week = divmod(week_t, 100)
     games = sched[(sched.season == season) & (sched.week == week) & sched.home_score.isna()]
     opp = opp_table(df, week_t)
+    dv = dvp_table(df, week_t)
     implied_map = tdm.implied_points(sched)
     latest = df.sort_values("t").groupby("player_id").tail(1).set_index("player_id")
     by_player = {pid: g for pid, g in df.groupby("player_id")}
@@ -603,7 +638,7 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
                                      sd=sd_at(mu, var_params[kind]), spread=sp,
                                      gameday=gm.gameday, gametime=gm.gametime, game_id=gm.game_id,
                                      last5=actual_hist(hist, kind).tail(5).tolist(), wx=wx_ratio(kind, comp, wx),
-                                     teammate_out=out_here if kind in rd.TAG_KINDS else "", thin=False))
+                                     teammate_out=out_here if kind in rd.TAG_KINDS else "", thin=False, **dvp_fields(dv, kind, other, p.position)))
             # thin-history players: the markets the volume minimum dropped, projected as-is and flagged (not in redistribution)
             have = {(r["player_id"], r["kind"]) for r in rows}
             for pid, p, hist in thin:

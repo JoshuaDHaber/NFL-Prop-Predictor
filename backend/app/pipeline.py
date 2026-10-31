@@ -52,6 +52,13 @@ def reusable_calibration(season: int, now: datetime = None):
         return dict(variance=copy.deepcopy(v), backtest=copy.deepcopy(run.backtest), run_id=run.id)
 
 
+def _dvp_cols(r) -> dict:
+    """A projection row's matchup-grade columns (model.dvp_fields), None where it has none."""
+    f, rank, n = (getattr(r, c, None) for c in ("dvp", "dvp_rank", "dvp_n"))
+    ok = rank is not None and pd.notna(rank)
+    return dict(dvp=float(f) if ok else None, dvp_rank=int(rank) if ok else None, dvp_n=int(n) if ok else None)
+
+
 def week_status(cur_inj: pd.DataFrame) -> dict:
     """gsis_id -> this week's game status, or "DNP" for a player who missed practice and has no status yet.
 
@@ -179,7 +186,8 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
                        kind=r.kind, mu=float(r.mu), sd=float(r.sd), vol=float(r.vol), eff=float(r.eff),
                        spread=float(r.spread), status=r.status, game_id=r.game_id, gameday=str(r.gameday),
                        gametime="" if pd.isna(r.gametime) else str(r.gametime), last5=[float(x) for x in r.last5],
-                       wx=float(r.wx), teammate_out=getattr(r, "teammate_out", "") or "", thin=bool(pd.notna(getattr(r, "thin", False)) and getattr(r, "thin", False)))
+                       wx=float(r.wx), teammate_out=getattr(r, "teammate_out", "") or "", thin=bool(pd.notna(getattr(r, "thin", False)) and getattr(r, "thin", False)),
+                       **_dvp_cols(r))
             for r in proj.itertuples()]
         s.add(run)
         s.commit()

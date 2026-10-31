@@ -96,6 +96,12 @@ export interface Projection {
   wx?: number | null;   // weather multiplier already in mu (1 or null: none)
   /** Thin history (a rookie, or back from IR): shown for reference, never priced. Older snapshots lack it. */
   thin?: boolean | null;
+  /** NBA: what mu is made of. min: minutes from his own games; tm_min: the teammates-out multiplier on them; rate: his
+   *  per-minute rate (shrunk to his position); opp: the opponent's factor; tm: the whole teammates-out multiplier on the
+   *  stat; out: the absent regulars counted (missed: team games already missed). Doubles carry only min, tm_min and out. */
+  parts?: { min: number; tm_min: number; rate?: number; opp?: number; tm?: number; out: { name: string; missed: number }[] } | null;
+  /** Matchup grade (backend engine/dvp.py): the defense's factor against his position, its rank (1 = softest) of dvp_n. */
+  dvp?: number | null; dvp_rank?: number | null; dvp_n?: number | null;
 }
 export interface Pick {
   player_id: string; name: string; pos: string; team: string; opp: string; home: boolean; kind: Kind;
@@ -120,10 +126,14 @@ export interface Pick {
   steam?: number;
   /** The outcome he beats half the time: below mu where a few long plays pull the average up (longest rush). Null for yes/no markets. */
   median?: number | null;
+  /** Matchup grade: the defense's rank against his position for this market (1 = softest) of dvp_n. */
+  dvp_rank?: number | null; dvp_n?: number | null;
 }
 /** A player search hit: an active player; projected is false for players on bye, off the NBA slate, or without a projection. */
 export interface PlayerHit { player_id: string; name: string; pos: string; team: string; headshot?: string | null; projected: boolean }
-export interface GameLogEntry { label: string; opp: string; yards: number; volume: number }
+export interface GameLogEntry { label: string; opp: string; yards: number; volume: number;
+  /** For the hit-rate splits; older servers leave them out (home: NBA only). */
+  season?: number | null; home?: boolean | null }
 export interface PlayerDetail {
   player_id: string; name: string; pos: string; team: string; headshot?: string | null;
   projections: Projection[]; picks: Pick[]; logs: Record<string, GameLogEntry[]>;

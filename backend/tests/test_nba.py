@@ -117,6 +117,59 @@ def test_walk_forward_and_team_ratings_run_on_the_logs():
     assert set(bt[bt.player_id == "c"].pos) == {"C"}
 
 
+def _star_logs(n=120, start=date(2025, 11, 1), out_every=4):
+    """One team: a 34-minute star sits every out_every-th game, and his 30-minute teammate scores 24 then instead of 14."""
+    rows = []
+    for i in range(n):
+        d = (start + timedelta(days=2 * i)).isoformat()
+        out = i % out_every == 0
+        base = dict(event_id=str(i), season=2026, date=d, team="BOS", opp="NY", home=True, reb=5.0, ast=4.0, threes=2.0,
+                    stl=1.0, blk=0.5, home_score=110.0, away_score=100.0)
+        if not out:
+            rows.append(dict(base, player_id="star", min=34.0, pts=28.0 + (i % 3)))
+        rows.append(dict(base, player_id="mate", min=34.0 if out else 30.0, pts=(24.0 if out else 14.0) + (i % 2)))
+    return pd.DataFrame(rows)
+
+
+def test_rosters_count_the_games_a_player_has_missed_for_his_team():
+    logs = _star_logs(out_every=1000)
+    logs = logs[~((logs.player_id == "star") & logs.event_id.astype(int).between(10, 12))]   # out three games
+    ros = model.Rosters(logs)
+    day = lambda i: (date(2025, 11, 1) + timedelta(days=2 * i)).isoformat()  # noqa: E731
+    assert ros.missed("star", "BOS", day(10)) == 0 and ros.missed("star", "BOS", day(12)) == 2
+    assert ros.missed("star", "NY", day(12)) is None          # his last game wasn't for them
+    assert ros.missed("star", "BOS", day(5)) == 0              # played the game before
+    assert "star" in ros.recent("BOS", day(12))
+    gone = logs[~((logs.player_id == "star") & (logs.event_id.astype(int) >= 10))]
+    assert model.Rosters(gone).missed("star", "BOS", day(10 + model.TM_MAX_GAP)) is None   # out too long: already in history
+    assert model.tm_kept(0) == 1.0 and model.tm_kept(model.MIN_HL) < 0.6 and model.tm_kept(5) > model.tm_kept(6)
+
+
+def test_teammates_out_fit_lifts_a_teammate_when_the_star_sits():
+    logs = _star_logs()
+    bt = model.walk_forward(logs, {"star": "G", "mate": "G"}, date(2026, 1, 1), date(2026, 3, 1))
+    mate = bt[(bt.player_id == "mate") & (bt.kind == "pts")]
+    assert (mate.frac > 0.3).any() and (mate.frac == 0).any()
+    old = model.TM_MIN_ROWS
+    model.TM_MIN_ROWS = 5
+    try:
+        fit = model.fit_teammates(bt)
+    finally:
+        model.TM_MIN_ROWS = old
+    assert fit["pts"]["a"] > 0.3 and fit["pts"]["b"] < 0 and fit["min"]["a"] > 0
+    adj = model.apply_teammates(bt, fit)
+    m = adj[(adj.player_id == "mate") & (adj.kind == "pts")]
+    err_before = (mate.actual - mate.mu).abs().mean()
+    assert (m.actual - m.mu).abs().mean() < err_before
+    # combos are re-summed from the adjusted parts
+    one = adj[(adj.player_id == "mate") & (adj.date == m.date.iloc[0])].set_index("kind").mu
+    assert one["pra"] == pytest.approx(one["pts"] + one["reb"] + one["ast"])
+    # too few games with anyone missing: nothing changes
+    assert model.fit_teammates(bt)["pts"] == {"a": 0.0, "b": 0.0}
+    mults = model.tm_mults(fit, {"pts": 10.0}, {"pts": 30.0})
+    assert mults["pts"] > model.tm_mults(fit, {"pts": 0.0}, {"pts": 30.0})["pts"]
+
+
 def _shooter_logs(n=150, start=date(2025, 10, 25)):
     """Four guards on two teams, one game a day: a player's points move with his threes, players are independent."""
     rng = np.random.default_rng(7)

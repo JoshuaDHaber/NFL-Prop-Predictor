@@ -58,6 +58,9 @@ def run_projections(log: Log = print, now: Optional[datetime] = None) -> Optiona
     start = datetime(season - 2, *BACKTEST_FROM).date()
     end = today - timedelta(days=1)
     bt = model.walk_forward(logs, pos, start, end)
+    tm_fit = model.fit_teammates(bt)
+    bt = model.apply_teammates(bt, tm_fit)
+    log("  teammates out: " + ", ".join(f"{k} {f['a']:.2f}x missing {f['b']:+.3f}" for k, f in tm_fit.items()))
     backtest, dists = model.calibrate(bt)
     for k, b in backtest.items():
         if b.get("metric") == "brier":
@@ -96,36 +99,64 @@ def run_projections(log: Log = print, now: Optional[datetime] = None) -> Optiona
     st = model.states(logs[logs.player_id.isin(set(roster.player_id))], pos, season, model.priors(logs, pos))
     opp = model.opp_factors(logs, today)
     by_team = {t: g for t, g in roster.groupby("team")}
+    ros = model.Rosters(logs)
+    matchups = model.dvp(logs, today, pos)   # the matchup grades: context, not in mu (engine/dvp.py)
     rows, excluded = [], []
     for g in slate:
         for team, other, home in ((g["away"], g["home"], False), (g["home"], g["away"], True)):
             margin = g.get("spread_line")
             spread = 0.0 if margin is None else (margin if home else -margin)
+            active, absent = [], []
             for p in by_team.get(team, pd.DataFrame()).itertuples():
                 s = st.get(p.player_id)
+                stat = status.get(p.player_id, "")
+                if s and stat in DROP and (n := ros.missed(p.player_id, team, today.isoformat())) is not None:
+                    absent.append((p, s, n))
                 if not s or s["min"] < model.MIN_MINUTES:
                     continue
-                stat = status.get(p.player_id, "")
                 if stat in DROP:
                     excluded.append(f"{p.name} ({stat})")
                     continue
-                proj = model.project_rows(s, opp, other)
-                kinds = {k: (mu, nfl_model.sd_at(mu, dists[k]) if k in dists else math.sqrt(max(mu, 1.0)), eff) for k, (mu, eff) in proj.items()}
+                active.append((p, s, stat, model.project_rows(s, opp, other)))
+            # absent regulars' production goes to the teammates who play (model.fit_teammates)
+            lost = model.missing([(s, n) for _, s, n in absent], opp, other)
+            tot = {k: sum(pr[k][0] for *_, pr in active) for k in model.KINDS}
+            tot["min"] = sum(s["min"] for _, s, _, _ in active)
+            mult = model.tm_mults(tm_fit, lost, tot)
+            out = [dict(name=p.name, missed=n) for p, s, n in absent if s["min"] >= model.TM_REG_MIN]
+            fresh = ", ".join(o["name"] for o in out if o["missed"] < 3)   # tagged on the board: news the recent games don't show yet
+            for p, s, stat, raw in active:
+                m_min = mult.get("min", 1.0)
+                vol = s["min"] * m_min
+                proj = {k: raw[k][0] * mult.get(k, 1.0) for k in model.KINDS}
+                for c, parts in model.COMBOS.items():
+                    proj[c] = sum(proj[k] for k in parts)
+                kinds = {k: (mu, nfl_model.sd_at(mu, dists[k]) if k in dists else math.sqrt(max(mu, 1.0)), mu / max(vol, 1e-9))
+                         for k, mu in proj.items()}
                 # double/triple-double: mu is the chance, sd its Bernoulli spread, eff the expected stats in double figures
-                mus = {k: mu for k, (mu, _) in proj.items()}
-                for k, (chance, tens) in model.doubles(mus, dists, dists.get("_doubles", {})).items():
+                for k, (chance, tens) in model.doubles(proj, dists, dists.get("_doubles", {})).items():
                     kinds[k] = (chance, math.sqrt(chance * (1 - chance)), tens)
                 for k, (mu, sd, eff) in kinds.items():
+                    # what the projection is made of, for the "why" breakdown: minutes x per-minute rate x opponent, then
+                    # the teammates-out multipliers (on minutes, and the rest on the rate)
+                    base = model.COMBOS.get(k, (k,)) if k not in model.DOUBLES else ()
+                    raw_mu = sum(raw[b][0] for b in base)
+                    parts = dict(min=s["min"], tm_min=m_min, out=out)
+                    if base:
+                        parts.update(rate=sum(s[b] for b in base), opp=raw_mu / max(s["min"] * sum(s[b] for b in base), 1e-9),
+                                     tm=mu / max(raw_mu, 1e-9))
+                    dv = matchups.get(k, {}).get((other, pos.get(p.player_id, "G")))
                     rows.append(NbaProjection(player_id=p.player_id, name=p.name, pos=p.pos or espn.position_group(p.pos),
                                               team=team, opp=other, home=home, kind=k, mu=float(mu), sd=float(sd),
-                                              vol=float(s["min"]), eff=float(eff), spread=float(spread), status=stat,
+                                              vol=float(vol), eff=float(eff), spread=float(spread), status=stat,
                                               game_id=g["game_id"], gameday=g["gameday"], gametime=g["gametime"],
-                                              last5=s["last5_" + k], wx=1.0, teammate_out=""))
+                                              last5=s["last5_" + k], wx=1.0, teammate_out=fresh, parts=parts,
+                                              dvp=dv[0] if dv else None, dvp_rank=dv[1] if dv else None, dvp_n=dv[2] if dv else None))
     with SessionLocal() as s:
         run = NbaRun(season=season, slate=dates, backtest=backtest, created_at=now,
                      variance={**dists, "_correlation": corr, "_moneyline": dict(sigma=sigma, halflife_days=model.ML_HL_DAYS,
                                                            min_market_weight=model.ML_MIN_MARKET_WEIGHT),
-                               "_blowout": blow_fit},
+                               "_blowout": blow_fit, "_teammates": tm_fit},
                      excluded=sorted(set(excluded)), games=slate, teams=teams)
         run.projections = rows
         s.add(run)
