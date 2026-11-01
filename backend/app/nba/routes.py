@@ -186,8 +186,11 @@ def build_correlations(run: Optional[NbaRun]) -> Correlations:
 
 
 @router.get("/grades", response_model=GradeReport)
-def grades(season: Optional[int] = None, db: Session = Depends(get_db)):
-    """How the NBA board did once graded (app/nba/grading.py), against the close too, and the fitted weights."""
+def grades(request: Request, season: Optional[int] = None, db: Session = Depends(get_db)):
+    """How the NBA board did once graded (app/nba/grading.py), against the close too, and the fitted weights.
+    Model check is the owner's page, so this is admin-only."""
+    if not is_admin(request):
+        raise HTTPException(403, "Admin only")
     return dict(grading.report(db, season), market_fit=market_fit.summary(db, "nba", current_lines(db, NbaOddsLine).book.unique()))
 
 

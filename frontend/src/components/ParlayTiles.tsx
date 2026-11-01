@@ -263,7 +263,7 @@ export default function ParlayTiles({ book, games, selectedGames, onGames, parla
         <AltProps props={altProps} onSelect={onSelect} />
       </>}
 
-      <p className="td-note">Hit chance multiplies each leg's win probability (the model blended with the book's price){nba ? "" : ", except legs in the same game, which are priced with how they moved together in past games (Model check has the details)"}. Models miss context and parlays compound that. Not betting advice.</p>
+      <p className="td-note">Hit chance multiplies each leg's win probability (the model blended with the book's price){nba ? "" : ", except legs in the same game, which are priced with how they moved together in past games"}. Models miss context and parlays compound that. Not betting advice.</p>
     </>
   );
 }

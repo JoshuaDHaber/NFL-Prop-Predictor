@@ -42,6 +42,8 @@ const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["pa
   ["check", "Model check"], ["admin", "Admin"]];
 /** Sections under the top bar's More menu. */
 const MORE: Tab[] = ["injuries", "compare", "check", "admin"];
+/** Sections only the site owner sees (signed in with an ADMIN_EMAILS account, or the admin password): meta.can_write. */
+const OWNER_ONLY: Tab[] = ["check", "admin"];
 /** Each section's path under /nba: /nba/props, /nba/parlays, ... (Games is the front page). */
 const SLUGS: Record<Tab, string> = { games: "", picks: "props", parlays: "parlays", injuries: "injuries", projections: "projections", compare: "compare",
   check: "model", admin: "admin", account: "account" };
@@ -80,6 +82,9 @@ export default function NbaApp() {
 
   // the drawer and ladder read ["meta"] from the cache, so the NBA meta lives under the same key (this league has its own cache)
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.nbaMeta });
+  // Model check is the owner's: anyone else following a /nba/model link lands on the games (Admin keeps its own sign-in card)
+  const owner = meta.data?.can_write;
+  useEffect(() => { if (tab === "check" && owner === false) goSection("games", { replace: true }); }, [tab, owner]); // eslint-disable-line react-hooks/exhaustive-deps
   // odds over six hours old: the slip asks the bettor to check prices before handing legs to a book
   const { setStaleSince } = useBetSlip();
   const oddsAt = meta.data ? latestFetch(meta.data.odds) : undefined;
@@ -159,7 +164,7 @@ export default function NbaApp() {
 
   return (
     <div className="wrap">
-      <TopBar tabs={m.can_write ? TABS : TABS.filter(([k]) => k !== "admin")} more={MORE} tab={tab} onTab={goTab} href={href} />
+      <TopBar tabs={m.can_write ? TABS : TABS.filter(([k]) => !OWNER_ONLY.includes(k))} more={MORE} tab={tab} onTab={goTab} href={href} />
       <p className="statusline">
         {m.run ? `${seasonLabel} · ${m.run.slate.map(day).join(" & ")} · projections ${timeAgo(m.run.created_at)}` : "No projections yet"}
         {latestOdds && <> · <Freshness at={latestOdds} /></>}
@@ -215,7 +220,7 @@ export default function NbaApp() {
       </div>
 
       <footer>
-        Projections and win chances, not betting advice.{tab !== "check" && <> <a href={href("check")} onClick={routeClick(() => goTab("check"))}>How the numbers work →</a></>}
+        Projections and win chances, not betting advice.{m.can_write && tab !== "check" && <> <a href={href("check")} onClick={routeClick(() => goTab("check"))}>How the numbers work →</a></>}
         <span className="signoff">Bread from air, picks from stats. Built by JD Haber. <a className="footer-link" href={`${BASE}privacy`}>Privacy</a></span>
         <ResponsibleGaming />
       </footer>
