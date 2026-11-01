@@ -1,0 +1,83 @@
+import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { deleteAccount, signOut, useAuth } from "../auth";
+import { usePref, type Prefs } from "../prefs";
+import { AccountAvatar } from "./AccountMenu";
+import BookSelect from "./BookSelect";
+import { MoonIcon, SunIcon, SystemIcon } from "./icons";
+import { openSignIn } from "./SignIn";
+
+const THEMES: [Prefs["theme"], string, typeof SunIcon][] = [["auto", "System", SystemIcon], ["light", "Light", SunIcon], ["dark", "Dark", MoonIcon]];
+
+/** The preferences page (/account): who's signed in, and the settings that follow the account to every device. Signed out,
+ *  the same settings still work, kept in this browser. */
+export default function Preferences({ books }: { books: string[] }) {
+  const auth = useAuth();
+  const qc = useQueryClient();
+  const user = auth?.user;
+  const [theme, setTheme] = usePref("theme");
+  const [gameBook, setGameBook] = usePref("game_book");
+  const [onePer, setOnePer] = usePref("one_per_player");
+  const [detailed, setDetailed] = usePref("detailed_cards");
+  const [problem, setProblem] = useState("");
+  const after = () => { qc.invalidateQueries({ queryKey: ["meta"] }); qc.removeQueries({ queryKey: ["admin"] }); };
+  const remove = async () => {
+    if (!window.confirm(`Delete the account for ${user!.email}? Your saved preferences go with it. This can't be undone.`)) return;
+    try { await deleteAccount(); after(); } catch (err) { setProblem((err as Error).message); }
+  };
+
+  return (
+    <div className="prefs">
+      <section className="card prefs-card">
+        <h3 className="sub-h">Account</h3>
+        {user ? <>
+          <div className="prefs-who">
+            <AccountAvatar user={user} size={40} />
+            <div>{user.name && <b>{user.name}</b>}<span className="mut">{user.email}</span></div>
+          </div>
+          <p className="mut">Your preferences are saved to your account, so they follow you to every device you sign in on.</p>
+          <div className="prefs-actions">
+            <button className="primary outline" onClick={async () => { await signOut().catch(() => {}); after(); }}>Sign out</button>
+            <button className="link danger" onClick={remove}>Delete account</button>
+          </div>
+          {problem && <p className="err">{problem}</p>}
+        </> : <>
+          <p className="mut">Your preferences are saved in this browser only. Sign in to keep them on every device.</p>
+          <div className="prefs-actions"><button className="primary" onClick={() => openSignIn()} disabled={!auth}>Sign in</button></div>
+        </>}
+      </section>
+
+      <section className="card prefs-card">
+        <h3 className="sub-h">Theme</h3>
+        <div className="seg" role="group" aria-label="Theme">
+          {THEMES.map(([t, label, Glyph]) => (
+            <button key={t} className={theme === t ? "on" : ""} aria-pressed={theme === t} onClick={() => setTheme(t)}>
+              <Glyph size={15} stroke={1.75} aria-hidden className="icon" />{label}
+            </button>
+          ))}
+        </div>
+        <p className="mut">System follows your device's light or dark setting.</p>
+      </section>
+
+      <section className="card prefs-card">
+        <h3 className="sub-h">Default sportsbook</h3>
+        <div><BookSelect books={books} book={gameBook} allLabel="Every book (best price)" onChange={setGameBook} ariaLabel="Default sportsbook" /></div>
+        <p className="mut">The book game pages open at. You can still switch on any page.</p>
+      </section>
+
+      <section className="card prefs-card">
+        <h3 className="sub-h">Best props</h3>
+        <label className="admin-toggle">
+          <input type="checkbox" checked={onePer} onChange={(e) => setOnePer(e.target.checked)} />
+          <span>One pick per player</span>
+        </label>
+        <p className="mut">Shows each player's best pick, with a "+N related" tag for the rest. A player's picks win or lose together.</p>
+        <label className="admin-toggle">
+          <input type="checkbox" checked={detailed} onChange={(e) => setDetailed(e.target.checked)} />
+          <span>Every number on the cards</span>
+        </label>
+        <p className="mut">On phones, each pick's card shows every number instead of just the player, pick, win chance and EV.</p>
+      </section>
+    </div>
+  );
+}

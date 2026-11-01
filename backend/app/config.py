@@ -50,4 +50,13 @@ AUTO_SYNC = lambda: os.environ.get("AUTO_SYNC", "1" if os.environ.get("RAILWAY_E
 SYNC_SUBPROCESS = lambda: os.environ.get("SYNC_SUBPROCESS", "1") != "0"
 # odds fetches stop before a key drops under this many credits; a sync then switches to the spare key, and the admin page says which key to rotate
 ODDS_CREDIT_FLOOR = lambda: int(os.environ.get("ODDS_CREDIT_FLOOR", "10"))
-FRONTEND_DIST = os.path.join(os.path.dirname(BASE_DIR), "frontend", "dist")
+# Accounts (app/auth.py). PUBLIC_URL builds emailed links and Google's redirect; the Host header is never trusted for them.
+PUBLIC_URL = lambda: os.environ.get("PUBLIC_URL", "http://localhost:8000").rstrip("/")
+GOOGLE_CLIENT_ID = lambda: os.environ.get("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = lambda: os.environ.get("GOOGLE_CLIENT_SECRET")
+# unset: the sign-in link and code are printed to the server log instead of emailed (local development)
+RESEND_API_KEY = lambda: os.environ.get("RESEND_API_KEY")
+EMAIL_FROM = lambda: os.environ.get("EMAIL_FROM", "The Haber Process <signin@jdhaber.com>")
+# signed-in accounts with these emails get the admin page, as the admin password does
+ADMIN_EMAILS = lambda: {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
+FRONTEND_DIST =os.path.join(os.path.dirname(BASE_DIR), "frontend", "dist")

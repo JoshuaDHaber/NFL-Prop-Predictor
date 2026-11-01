@@ -521,3 +521,38 @@ class NbaMeta(BaseModel):
     auto_sync: Optional[AutoSync] = None
     can_write: bool = False
     supports_alt: bool = False        # no alternate-line fetches for the NBA yet
+
+
+# ---------- accounts (app/auth.py) ----------
+class Prefs(BaseModel):
+    """What the preferences page saves to an account. Unset fields keep the site's default."""
+    theme: Optional[Literal["auto", "light", "dark"]] = None
+    game_book: Optional[str] = None         # the sportsbook game pages open at ("all": every book)
+    one_per_player: Optional[bool] = None   # Best props: one pick per player
+    detailed_cards: Optional[bool] = None   # Best props on phones: the detailed card layout
+
+
+class AccountOut(BaseModel):
+    email: str
+    name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    is_admin: bool
+    age_confirmed: bool
+    prefs: Prefs
+
+
+class AuthState(BaseModel):
+    user: Optional[AccountOut] = None
+    google: bool           # Google sign-in is set up on this server
+    next: Optional[str] = None   # after a sign-in: where to go
+
+
+class EmailSignIn(BaseModel):
+    email: str
+    next: str = "/"
+
+
+class EmailVerify(BaseModel):
+    token: Optional[str] = None
+    email: Optional[str] = None
+    code: Optional[str] = None

@@ -30,25 +30,25 @@ import { filterParams, filtersFromUrl, leaguePath, param, setParams, useSection 
 import { useDebounced } from "./useDebounced";
 import { useParlayBoard } from "./useParlayBoard";
 import Skeleton from "./components/Skeleton";
+import { BASE } from "./env";
+import Preferences from "./components/Preferences";
+import { PREFERRED_GAME_BOOK, usePref } from "./prefs";
 
 const PlayerDrawer = lazy(() => importOrReload(() => import("./components/PlayerDrawer")));
 const AdminPage = lazy(() => importOrReload(() => import("./components/AdminPage")));
 
-type Tab = "games" | "picks" | "parlays" | "injuries" | "projections" | "compare" | "check" | "admin";
+type Tab = "games" | "picks" | "parlays" | "injuries" | "projections" | "compare" | "check" | "admin" | "account";
 const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["injuries", "Injuries"], ["projections", "Projections"], ["compare", "Compare"],
   ["check", "Model check"], ["admin", "Admin"]];
 /** Sections under the top bar's More menu. */
 const MORE: Tab[] = ["injuries", "compare", "check", "admin"];
 /** Each section's path under /nba: /nba/props, /nba/parlays, ... (Games is the front page). */
 const SLUGS: Record<Tab, string> = { games: "", picks: "props", parlays: "parlays", injuries: "injuries", projections: "projections", compare: "compare",
-  check: "model", admin: "admin" };
+  check: "model", admin: "admin", account: "account" };
 /** Each section's page title (Best props and Parlays add their sportsbook picker). */
 const TITLE: Record<Tab, string> = { games: "Games", picks: "Best props", parlays: "Parlays", injuries: "Injury report", projections: "Projections",
-  compare: "Compare players", check: "Model check", admin: "Admin" };
+  compare: "Compare players", check: "Model check", admin: "Admin", account: "Preferences" };
 const gameFromHash = () => new URLSearchParams(window.location.hash.slice(1)).get("game");
-const GAME_BOOK_KEY = "gameBook";
-const PREFERRED_GAME_BOOK = "FanDuel";
-const storedGameBook = () => { try { return localStorage.getItem(GAME_BOOK_KEY); } catch { return null; } };
 /** "Tue Oct 20" from an Eastern date. */
 const day = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 
@@ -73,8 +73,8 @@ export default function NbaApp() {
   const goTab = (t: Tab) => { pushedGame.current = false; setGameId(null); goSection(t); window.scrollTo({ top: 0 }); };
   const [filters, setFilters] = useState<Filters>(filtersFromUrl);
   const { selected, open: openPlayer, close: closePlayer, remember: rememberKind } = useSelectedPlayer();
-  const [gameBook, setGameBookState] = useState<string>(() => storedGameBook() ?? PREFERRED_GAME_BOOK);
-  const setGameBook = (b: string) => { setGameBookState(b); try { localStorage.setItem(GAME_BOOK_KEY, b); } catch { /* not remembered */ } };
+  // the game page's sportsbook: a preference, remembered in this browser and the account (prefs.ts)
+  const [gameBook, setGameBook] = usePref("game_book");
   // which game date to show: null follows today (or the next date with games), "all" shows both
   const [datePick, setDatePick] = useState<string | null>(() => param("date"));
 
@@ -159,7 +159,7 @@ export default function NbaApp() {
 
   return (
     <div className="wrap">
-      <TopBar tabs={TABS} more={MORE} tab={tab} onTab={goTab} href={href} />
+      <TopBar tabs={m.can_write ? TABS : TABS.filter(([k]) => k !== "admin")} more={MORE} tab={tab} onTab={goTab} href={href} />
       <p className="statusline">
         {m.run ? `${seasonLabel} · ${m.run.slate.map(day).join(" & ")} · projections ${timeAgo(m.run.created_at)}` : "No projections yet"}
         {latestOdds && <> · <Freshness at={latestOdds} /></>}
@@ -187,7 +187,7 @@ export default function NbaApp() {
           title={tab === "picks" ? <>Best props at <BookSelect inline books={m.books} book={filters.book} allLabel="every book" onChange={(b) => setFilters({ ...filters, book: b })} /></>
             : tab === "parlays" && board.book ? <>Parlays at <BookSelect inline books={m.books} book={board.book} onChange={board.setBook} /></>
             : TITLE[tab]}
-          aside={dates.length > 1 && tab !== "compare" && tab !== "check" && (
+          aside={dates.length > 1 && tab !== "compare" && tab !== "check" && tab !== "account" && (
             <select value={date} onChange={(e) => pickDate(e.target.value)} aria-label="Game date">
               {dates.map((d) => <option key={d} value={d}>{d === today ? `Today, ${day(d)}` : day(d)}</option>)}
               <option value="all">All dates</option>
@@ -209,13 +209,14 @@ export default function NbaApp() {
         {tab === "compare" && <PlayerCompare onSelect={select} />}
         {tab === "check" && <div className="stack"><TrackRecord nba /><GradesCard nba /><NbaBacktest backtest={m.backtest} /><Methodology league="nba" /></div>}
         {tab === "admin" && <Suspense fallback={<Skeleton kind="cards" />}><AdminPage embedded /></Suspense>}
+        {tab === "account" && <Preferences books={m.books} />}
       </>}
 
       </div>
 
       <footer>
         Projections and win chances, not betting advice.{tab !== "check" && <> <a href={href("check")} onClick={routeClick(() => goTab("check"))}>How the numbers work →</a></>}
-        <span className="signoff">Bread from air, picks from stats. Built by JD Haber.</span>
+        <span className="signoff">Bread from air, picks from stats. Built by JD Haber. <a className="footer-link" href={`${BASE}privacy`}>Privacy</a></span>
         <ResponsibleGaming />
       </footer>
 

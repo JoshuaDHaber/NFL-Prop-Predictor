@@ -216,6 +216,45 @@ class Setting(Base):
     value: Mapped[dict] = mapped_column(JSON, nullable=True)
 
 
+class User(Base):
+    """A signed-in visitor (app/auth.py): Google or an emailed link/code, matched on the verified email. No passwords."""
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(254), unique=True)   # lowercased
+    google_sub: Mapped[str] = mapped_column(String(64), unique=True, nullable=True)  # Google's stable id (an email can change)
+    name: Mapped[str] = mapped_column(String(120), nullable=True)
+    avatar_url: Mapped[str] = mapped_column(String(500), nullable=True)
+    age_confirmed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)  # ticked "I'm 21 or older"
+    prefs: Mapped[dict] = mapped_column(JSON, nullable=True)        # the preferences page: sportsbook, theme, ...
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_login_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+
+
+class UserSession(Base):
+    """A signed-in browser. The id is the sha256 of the cookie, so the table alone can't be used to sign in."""
+    __tablename__ = "user_sessions"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    user_agent: Mapped[str] = mapped_column(String(200), default="")
+
+
+class LoginToken(Base):
+    """One emailed sign-in: a link token and a 6-digit code, both stored hashed, good once for 15 minutes."""
+    __tablename__ = "login_tokens"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(254), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    code_hash: Mapped[str] = mapped_column(String(64))
+    next_path: Mapped[str] = mapped_column(String(200), default="/")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    used_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)       # wrong codes; the code stops working after 5
+
+
 class SyncRun(Base):
     """One sync (model run and/or odds fetch), scheduled or started by hand: the admin page's run log."""
     __tablename__ = "sync_runs"

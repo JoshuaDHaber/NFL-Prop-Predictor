@@ -868,3 +868,55 @@ footer a { color: var(--ink); font-weight: 600; text-decoration: none; } footer 
 .mgrade { font-variant-numeric: tabular-nums; }
 .hit-splits .hs > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 480px) { .hit-splits .hs { padding: 5px 7px; } }
+
+/* accounts: the sign-in sheet, the age check, the account menu and the preferences page */
+.auth-lede { margin: 6px 0 18px; line-height: 1.45; }
+.auth-problem { margin: -6px 0 14px; }
+.auth-form { display: flex; flex-direction: column; gap: 8px; }
+.auth-form button.primary { height: 40px; }
+.auth-label { font-size: 12px; font-weight: 600; color: var(--mut); }
+/* the site's fields are pills that darken their border on focus (select, search) */
+.auth-input { box-sizing: border-box; width: 100%; height: 40px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink); font: inherit; font-size: 15px; }
+.auth-input:focus { border-color: var(--acc); outline: none; }
+.auth-code { font-size: 20px; letter-spacing: .3em; text-align: center; font-variant-numeric: tabular-nums; font-family: ui-monospace, Menlo, monospace; }
+/* Google's own button colors (light and dark), as its branding rules ask */
+.auth-google { box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: 10px; height: 40px; border: 1px solid #747775; border-radius: 10px;
+  background: #fff; color: #1f1f1f; font-weight: 600; text-decoration: none; transition: border-color .15s; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .auth-google { background: #131314; color: #e3e3e3; border-color: #8e918f; } }
+:root[data-theme="dark"] .auth-google { background: #131314; color: #e3e3e3; border-color: #8e918f; }
+.auth-google:hover { border-color: var(--mut); } .auth-google:focus-visible { outline: 2px solid var(--acc2); outline-offset: 2px; }
+.auth-or { display: flex; align-items: center; gap: 10px; margin: 16px 0; color: var(--mut); font-size: 12px; }
+.auth-or::before, .auth-or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+.auth-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 14px 0 0; }
+.auth-links .link { font-size: 13px; } .auth-links .link:disabled { color: var(--mut); cursor: default; }
+.auth-fine { margin: 18px 0 0; }
+.auth-age { margin: 0 0 16px; font-weight: 600; }
+.admin-signin .auth-or { margin: 6px 0 0; }
+
+.acct-avatar { flex: none; border-radius: 50%; object-fit: cover; display: inline-block; }
+.acct-initial { display: inline-flex; align-items: center; justify-content: center; background: var(--acc2); color: var(--on-acc2); font-weight: 700; line-height: 1; }
+.acct-who { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.acct-who b { font-size: 13px; } .acct-who .mut { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
+@media (max-width: 700px) { .acct-label { display: none; } .topbar-actions > .chip-menu[aria-label="Sign in"] { width: 40px; padding: 0; } }
+
+.prefs { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; align-items: start; }
+.prefs-card { padding: 16px; display: flex; flex-direction: column; gap: 10px; overflow: visible; }
+.prefs-card .sub-h { margin: 0; } .prefs-card p { margin: 0; line-height: 1.45; }
+.prefs-card .seg { display: flex; gap: 6px; flex-wrap: wrap; }
+.prefs-card .admin-toggle { font-weight: 600; } .prefs-card .admin-toggle + p { margin: -4px 0 4px 26px; }
+.prefs-who { display: flex; align-items: center; gap: 12px; } .prefs-who > div { display: flex; flex-direction: column; min-width: 0; }
+.prefs-who .mut { font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
+.prefs-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 2px; }
+.link.danger { color: var(--bad); font-size: 13px; }
+
+/* the privacy policy */
+.legal { max-width: 72ch; margin: 22px 0 8px; line-height: 1.6; }
+.legal .page-h { margin-bottom: 2px; }
+.legal h3 { margin: 26px 0 6px; font-size: 16px; }
+.legal p:not(.mut), .legal li { color: var(--ink); } .legal p { margin: 0 0 10px; }
+.legal ul { margin: 0 0 10px; padding-left: 20px; } .legal li { margin: 0 0 6px; }
+.legal a { color: var(--ink); font-weight: 600; text-underline-offset: 2px; }
+.auth-fine a { color: var(--ink); font-weight: 600; text-decoration: none; } .auth-fine a:hover { text-decoration: underline; }
+/* the standalone pages' "Back to the site" (admin, sign-in link, privacy): the site's link color, not the browser's */
+header .sub a { color: var(--mut); font-weight: 500; text-decoration: none; } header .sub a:hover { color: var(--ink); text-decoration: underline; }
+.signoff .footer-link { margin-left: 6px; font-weight: 500; color: var(--mut); }

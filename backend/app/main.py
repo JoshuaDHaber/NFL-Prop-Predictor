@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import books, config, grading, market_fit, pipeline, scheduler, standings
+from . import auth, books, config, grading, market_fit, pipeline, scheduler, standings
 from .db import AltLine, OddsLine, Projection, Run, SessionLocal, SyncRun, current_lines, proj_frame
 from .engine import data, model, odds
 from .engine import injuries as injm
@@ -74,11 +74,13 @@ def client_key(request: Request) -> str:
 def check_admin(request: Request) -> str:
     """'ok' (may change data / spend API credits), 'no', or 'throttled' (too many wrong guesses lately).
 
-    Allowed from this machine, or with the admin password sent as a Bearer token. The right password always
+    Allowed from this machine, for a signed-in admin account, or with the admin password sent as a Bearer token. The right password always
     works, so a stranger's guesses can never lock the owner out; only wrong guesses are slowed.
     """
     host = request.client.host if request.client else ""
     if host in LOCAL_HOSTS:
+        return "ok"
+    if auth.is_admin_user(auth.request_user(request)):   # signed in with an email in ADMIN_EMAILS
         return "ok"
     password = config.ADMIN_TOKEN()
     given = request.headers.get("authorization", "")
@@ -96,11 +98,15 @@ def is_admin(request: Request) -> bool:
     return check_admin(request) == "ok"
 
 
+PUBLIC_WRITES = ("/api/auth/",)
+
+
 @app.middleware("http")
 async def admin_writes_only(request: Request, call_next):
     """The app can be served beyond this machine (LAN, Tailscale, a host). Writes are POSTs, and those
-    (refreshes, alt-line fetches) spend API credits, so they need to come from here or carry the admin token."""
-    if request.method not in ("GET", "HEAD", "OPTIONS"):
+    (refreshes, alt-line fetches) spend API credits, so they need to come from here or carry the admin token.
+    Signing in and saving preferences are writes anyone may make: app/auth.py guards those itself."""
+    if request.method not in ("GET", "HEAD", "OPTIONS") and not request.url.path.startswith(PUBLIC_WRITES):
         verdict = check_admin(request)
         if verdict == "throttled":
             return JSONResponse({"detail": "Too many wrong passwords. Wait a minute."}, status_code=429)
@@ -619,6 +625,8 @@ def _auto_sync(league: Optional[str] = "nfl") -> AutoSync:
     return AutoSync(enabled=True, next_at=at.isoformat(), next_label=slot.label)
 
 
+auth.client_key = client_key
+app.include_router(auth.router)
 nba_routes.is_admin = lambda request: is_admin(request)
 nba_routes.auto_sync = lambda: _auto_sync("nba")
 app.include_router(nba_routes.router)

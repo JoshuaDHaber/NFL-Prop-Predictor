@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import React, { Fragment, useEffect, useState } from "react";
 import { api, type CreditStatus, type ScheduleSlot, type SyncRun } from "../api";
-import { setToken, useToken } from "../auth";
+import { setToken, useAuth, useToken } from "../auth";
 import { BASE } from "../env";
 import { timeAgo } from "../format";
 import { elapsedSeconds, localWhen, progressLine, untilText } from "../sync";
 import Logo from "./Logo";
+import { openSignIn } from "./SignIn";
 import ThemeToggle from "./ThemeToggle";
 import Skeleton from "./Skeleton";
 
@@ -30,15 +31,20 @@ function RunLog({ id }: { id: number }) {
 
 function SignIn({ wrong }: { wrong: boolean }) {
   const qc = useQueryClient();
+  const user = useAuth()?.user;
   const [draft, setDraft] = useState("");
   const save = () => { setToken(draft.trim()); setDraft(""); qc.invalidateQueries({ queryKey: ["admin"] }); };
   return (
     <div className="card admin-signin">
-      <b>Admin password</b>
-      <p className="mut">{wrong ? "That password didn't work." : "The sync schedule, run log and credit balance are for the site owner."}</p>
+      <b>Admin</b>
+      <p className="mut">{user ? <>The sync schedule, run log and credit balance are for the site owner. <b>{user.email}</b> isn't an admin account.</>
+        : "The sync schedule, run log and credit balance are for the site owner. Sign in with the owner's account."}</p>
+      {!user && <button className="primary" onClick={() => openSignIn()}>Sign in</button>}
+      <div className="auth-or"><span>or use the admin password</span></div>
+      {wrong && <p className="err">That password didn't work.</p>}
       <input type="password" value={draft} placeholder="Admin password" autoComplete="current-password" autoFocus
         onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && draft && save()} />
-      <button className="primary" disabled={!draft} onClick={save}>Unlock</button>
+      <button className={user ? "primary" : "primary outline"} disabled={!draft} onClick={save}>Unlock</button>
     </div>
   );
 }
@@ -48,10 +54,11 @@ function SignIn({ wrong }: { wrong: boolean }) {
 export default function AdminPage({ embedded = false }: { embedded?: boolean }) {
   const qc = useQueryClient();
   const token = useToken();
+  const who = useAuth()?.user?.email ?? "";
   const [open, setOpen] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const state = useQuery({
-    queryKey: ["admin", token], queryFn: api.admin, retry: false,
+    queryKey: ["admin", token, who], queryFn: api.admin, retry: false,
     refetchInterval: (q) => (q.state.data?.job.state === "running" ? 2000 : 30_000),
   });
   const runNow = useMutation({ mutationFn: api.runSlotNow, onSuccess: () => qc.invalidateQueries({ queryKey: ["admin"] }) });
