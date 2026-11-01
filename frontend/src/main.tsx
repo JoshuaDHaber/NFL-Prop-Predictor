@@ -1,7 +1,11 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { Suspense, lazy, useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
+import AuthLayer from "./components/SignIn";
+import SignInLink from "./components/SignInLink";
+import { BASE } from "./env";
+import { importOrReload } from "./staleChunk";
 import { setAllowedBooks } from "./api";
 import { leagueFromPath, leaguePath } from "./route";
 import { BetSlipProvider, useBetSlip } from "./BetSlipContext";
@@ -9,6 +13,13 @@ import { allowedBooks } from "./legalBooks";
 import { LeagueContext } from "./LeagueContext";
 import { getLeague, setLeague as storeLeague, type League } from "./league";
 import "./styles.css";
+
+const Privacy = lazy(() => importOrReload(() => import("./components/Privacy")));
+/** Pages outside both leagues: where the emailed sign-in link lands, and the privacy policy. */
+const PAGES: Record<string, () => React.ReactNode> = {
+  [`${BASE}signin`]: () => <SignInLink />,
+  [`${BASE}privacy`]: () => <Suspense fallback={null}><Privacy /></Suspense>,
+};
 
 const newClient = () => new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: false, staleTime: 30_000 } } });
 // one cache per league: both sides use the same query keys (["meta"], ["picks", ...]) for different endpoints
@@ -46,7 +57,8 @@ function Root() {
   return (
     <LeagueContext.Provider value={{ league, setLeague }}>
       <QueryClientProvider client={clients[league]} key={league}>
-        <App />
+        {PAGES[window.location.pathname.replace(/\/$/, "")]?.() ?? <App />}
+        <AuthLayer />
       </QueryClientProvider>
     </LeagueContext.Provider>
   );

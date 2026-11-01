@@ -18,6 +18,8 @@ import BookSelect from "./components/BookSelect";
 import Freshness, { StaleBanner, latestFetch, oddsLevel } from "./components/Freshness";
 import HowToRead from "./components/HowToRead";
 import PageHead from "./components/PageHead";
+import Preferences from "./components/Preferences";
+import { PREFERRED_GAME_BOOK, usePref } from "./prefs";
 import ResponsibleGaming from "./components/ResponsibleGaming";
 import TopBar from "./components/TopBar";
 import TopTiles, { type Tile } from "./components/TopTiles";
@@ -31,27 +33,24 @@ import { useDebounced } from "./useDebounced";
 import { routeClick } from "./components/NavLink";
 import { PARLAY_FILTERS, useParlayBoard } from "./useParlayBoard";
 import Skeleton from "./components/Skeleton";
+import { BASE } from "./env";
 
 // keeps the charting library out of the first load; a tab left open across a deploy reloads to the new build
 const PlayerDrawer = lazy(() => importOrReload(() => import("./components/PlayerDrawer")));
 const AdminPage = lazy(() => importOrReload(() => import("./components/AdminPage")));
 const NbaApp = lazy(() => importOrReload(() => import("./NbaApp")));
-type Tab = "games" | "picks" | "parlays" | "injuries" | "projections" | "compare" | "model" | "admin";
+type Tab = "games" | "picks" | "parlays" | "injuries" | "projections" | "compare" | "model" | "admin" | "account";
 const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["injuries", "Injuries"], ["projections", "Projections"], ["compare", "Compare"], ["model", "Model check"], ["admin", "Admin"]];
 /** Sections under the top bar's More menu. */
 const MORE: Tab[] = ["injuries", "compare", "model", "admin"];
 /** Each section's page title (Best props and Parlays add their sportsbook picker). */
 const TITLE: Record<Tab, string> = { games: "This week's games", picks: "Best props", parlays: "Parlays", injuries: "Injury report", projections: "Projections",
-  compare: "Compare players", model: "Model check", admin: "Admin" };
+  compare: "Compare players", model: "Model check", admin: "Admin", account: "Preferences" };
 /** Each section's path: /props, /parlays, ... (Games is the front page). */
 const SLUGS: Record<Tab, string> = { games: "", picks: "props", parlays: "parlays", injuries: "injuries", projections: "projections", compare: "compare",
-  model: "model", admin: "admin" };
+  model: "model", admin: "admin", account: "account" };
 /** A game's overview page lives at #game=<game_id>, so the browser's back button returns to the slate and the page can be linked. */
 const gameFromHash = () => new URLSearchParams(window.location.hash.slice(1)).get("game");
-/** The game page's sportsbook, remembered in this browser. */
-const GAME_BOOK_KEY = "gameBook";
-const PREFERRED_GAME_BOOK = "FanDuel";
-const storedGameBook = () => { try { return localStorage.getItem(GAME_BOOK_KEY); } catch { return null; } };
 
 export default function App() {
   const { league } = useLeague();
@@ -79,8 +78,8 @@ function PublicApp() {
   const goTab = (t: Tab) => { pushedGame.current = false; setGameId(null); goSection(t); window.scrollTo({ top: 0 }); };
   const [filters, setFilters] = useState<Filters>(filtersFromUrl);
   const { selected, open: select, close: closePlayer, remember: rememberKind } = useSelectedPlayer();
-  const [gameBook, setGameBookState] = useState<string>(() => storedGameBook() ?? PREFERRED_GAME_BOOK);
-  const setGameBook = (b: string) => { setGameBookState(b); try { localStorage.setItem(GAME_BOOK_KEY, b); } catch { /* private mode: not remembered */ } };
+  // the game page's sportsbook: a preference, remembered in this browser and the account (prefs.ts)
+  const [gameBook, setGameBook] = usePref("game_book");
   const debounced = useDebounced(filters, 250);
 
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
@@ -138,7 +137,7 @@ function PublicApp() {
       value: <>{playLabel(p.kind, p.side, p.line)} <em>{signedPct(p.ev)} EV</em></>, caption: `${americanOdds(p.odds)} at ${p.book}`,
       onClick: () => select({ id: p.player_id, kind: p.kind, pick: { side: p.side, line: p.line, book: p.book } }),
     }))
-    : tab === "games" || tab === "parlays" || tab === "admin" || tab === "injuries" || tab === "compare" ? []
+    : tab === "games" || tab === "parlays" || tab === "admin" || tab === "account" || tab === "injuries" || tab === "compare" ? []
     : tab === "projections"
       ? (filters.kind === "all" ? (["pass", "rush", "rec", "recs"] as Kind[]).map((k) => (projections.data ?? []).filter((p) => p.kind === k).sort((a, b) => b.mu - a.mu)[0])
         : [...(projections.data ?? [])].sort((a, b) => b.mu - a.mu).slice(0, 3)).filter(Boolean).map((p) => ({
@@ -168,7 +167,7 @@ function PublicApp() {
 
   return (
     <div className="wrap">
-      <TopBar tabs={TABS} more={MORE} tab={tab} onTab={goTab} href={href} />
+      <TopBar tabs={m.can_write ? TABS : TABS.filter(([k]) => k !== "admin")} more={MORE} tab={tab} onTab={goTab} href={href} />
       <p className="statusline">
         {m.run ? `${m.run.season} Week ${m.run.week} · projections ${timeAgo(m.run.created_at)}` : "No projections yet"}
         {latestOdds && <> · <Freshness at={latestOdds} /></>}
@@ -195,7 +194,7 @@ function PublicApp() {
       <TopTiles tiles={tiles} />
 
       {tab === "games" && <Games games={m.games} nextGames={m.next_games} nextByes={m.next_byes} picks={slatePicks.data ?? []} moneylines={moneylines.data ?? []} injuries={injuries.data} onOpen={openGame} />}
-      {tab !== "games" && tab !== "model" && tab !== "parlays" && tab !== "admin" && tab !== "injuries" && tab !== "compare" && <Controls filters={filters} onChange={setFilters} games={m.games} showPickControls={tab === "picks"} />}
+      {tab !== "games" && tab !== "model" && tab !== "parlays" && tab !== "admin" && tab !== "account" && tab !== "injuries" && tab !== "compare" && <Controls filters={filters} onChange={setFilters} games={m.games} showPickControls={tab === "picks"} />}
       {tab === "picks" && <HowToRead />}
       {(tab === "picks" || tab === "projections") && selectedGame && <GameWeather game={selectedGame} fit={m.weather} />}
 
@@ -212,12 +211,13 @@ function PublicApp() {
       {tab === "model" && <ModelCheck meta={m} />}
       {tab === "model" && <Methodology />}
       {tab === "admin" && <Suspense fallback={<Skeleton kind="cards" />}><AdminPage embedded /></Suspense>}
+      {tab === "account" && <Preferences books={m.books} />}
       </>}
       </div>
 
       <footer>
         Projections and win chances, not betting advice.{tab !== "model" && <> <a href={href("model")} onClick={routeClick(() => goTab("model"))}>How the numbers work →</a></>}
-        <span className="signoff">Bread from air, picks from stats. Built by JD Haber.</span>
+        <span className="signoff">Bread from air, picks from stats. Built by JD Haber. <a className="footer-link" href={`${BASE}privacy`}>Privacy</a></span>
         <ResponsibleGaming />
       </footer>
 

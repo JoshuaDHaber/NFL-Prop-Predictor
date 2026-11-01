@@ -1,23 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { usePref, type Prefs } from "../prefs";
 import { MoonIcon, SunIcon, SystemIcon } from "./icons";
 
-type Theme = "auto" | "light" | "dark";
-const KEY = "theme";
+type Theme = Prefs["theme"];
 const ORDER: Theme[] = ["auto", "light", "dark"];
 const LOOK: Record<Theme, [typeof SunIcon, string]> = { auto: [SystemIcon, "System theme"], light: [SunIcon, "Light theme"], dark: [MoonIcon, "Dark theme"] };
 
-function stored(): Theme {
-  try { const v = localStorage.getItem(KEY); if (v === "light" || v === "dark") return v; } catch { /* storage blocked */ }
-  return "auto";
-}
-
-/** One button that steps through the system default, light and dark; the choice is remembered in this browser. */
+/** One button that steps through the system default, light and dark; remembered in this browser, and in the account when
+ *  signed in (prefs.ts). */
 export default function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>(stored);
+  const [theme, setTheme] = usePref("theme");
   useEffect(() => {
     const root = document.documentElement;
     if (theme === "auto") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", theme);
-    try { if (theme === "auto") localStorage.removeItem(KEY); else localStorage.setItem(KEY, theme); } catch { /* storage blocked */ }
   }, [theme]);
   const next = ORDER[(ORDER.indexOf(theme) + 1) % ORDER.length];
   const [Glyph, label] = LOOK[theme];

@@ -1,3 +1,4 @@
+import AccountMenu, { type AccountPage } from "./AccountMenu";
 import BottomNav from "./BottomNav";
 import LeagueSwitch from "./LeagueSwitch";
 import Logo from "./Logo";
@@ -16,7 +17,8 @@ interface Props<T extends string> {
   href?: (t: T) => string;
 }
 
-/** The sticky top line: the brand, the main sections (the rest under More), and the state, league and theme menus. */
+/** The sticky top line: the brand, the main sections (the rest under More), and the state, league, theme and account menus.
+ *  The account menu's pages (Preferences, Admin) are sections too, so the league's T includes "account" and "admin". */
 export default function TopBar<T extends string>({ tabs = [], more = [], tab, onTab, href }: Props<T>) {
   const main = tabs.filter(([k]) => !more.includes(k));
   const extra = tabs.filter(([k]) => more.includes(k));
@@ -47,6 +49,7 @@ export default function TopBar<T extends string>({ tabs = [], more = [], tab, on
         <StateBooks />
         <LeagueSwitch />
         <ThemeToggle />
+        {tabs.length > 0 && <AccountMenu page={tab} href={(p: AccountPage) => href?.(p as T) ?? "/"} onPage={(p) => onTab?.(p as T)} />}
       </div>
     </header>
     {/* outside the header: its backdrop blur would make a fixed child sit inside it rather than on the screen */}

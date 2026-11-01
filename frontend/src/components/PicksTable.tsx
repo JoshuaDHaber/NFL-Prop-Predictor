@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { GameWeather, Pick } from "../api";
 import { onePerPlayer, type GroupedPick } from "../onePerPlayer";
+import { usePref } from "../prefs";
 import { isNba, isYesNo, KIND_LABEL, americanOdds, fmtEdge, fmtProj, fmtSd, kickoff, matchup, pct, playLabel, signedPct, signedPts } from "../format";
 import { useSort } from "../useSort";
 import Avatar from "./Avatar";
@@ -12,11 +13,6 @@ import { BookName } from "./BookBadge";
 import Info, { type Term } from "./Info";
 import SidePill from "./SidePill";
 
-const GROUP_KEY = "picks-one-per-player";
-const storedGrouped = () => { try { return localStorage.getItem(GROUP_KEY) !== "0"; } catch { return true; } };
-/** Phones: compact cards (player, pick, win prob, EV) unless the reader asks for every number on the card. */
-const DETAIL_KEY = "picks-detailed-cards";
-const storedDetailed = () => { try { return localStorage.getItem(DETAIL_KEY) === "1"; } catch { return false; } };
 
 /** A side the projection seems to argue against (an Under with the average over the line): the model's typical game
  *  (median) explains it when a few long plays pull the average up. */
@@ -32,10 +28,9 @@ function againstProjection(p: Pick): string | null {
 
 /** picks arrive best EV first. limit shows only the top rows (after grouping) with a "Show all" button, as on the game pages. */
 export default function PicksTable({ picks, onSelect, weather = {}, empty, limit }: { picks: Pick[]; onSelect: (p: Pick) => void; weather?: Record<string, GameWeather | null | undefined>; empty?: string; limit?: number }) {
-  const [grouped, setGroupedState] = useState(storedGrouped);
-  const setGrouped = (g: boolean) => { setGroupedState(g); try { localStorage.setItem(GROUP_KEY, g ? "1" : "0"); } catch { /* private mode: not remembered */ } };
-  const [detailed, setDetailedState] = useState(storedDetailed);
-  const setDetailed = (d: boolean) => { setDetailedState(d); try { localStorage.setItem(DETAIL_KEY, d ? "1" : "0"); } catch { /* private mode: not remembered */ } };
+  const [grouped, setGrouped] = usePref("one_per_player");
+  // phones: compact cards (player, pick, win prob, EV) unless the reader asks for every number on the card
+  const [detailed, setDetailed] = usePref("detailed_cards");
   const [showAll, setShowAll] = useState(false);
   const rows: GroupedPick[] = useMemo(() => grouped ? onePerPlayer(picks) : picks.map((p) => ({ ...p, related: [] })), [picks, grouped]);
   const shown = useMemo(() => (limit && !showAll ? rows.slice(0, limit) : rows), [rows, limit, showAll]);
