@@ -1028,3 +1028,15 @@ header .sub a { color: var(--mut); font-weight: 500; text-decoration: none; } he
 @media (min-width: 701px) { .bets .admin-cards { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); } }   /* five tiles across where they fit */
 .slip-sync-hint { margin: 14px 0 0; font-size: 13px; } .slip-sync-hint .link { font-size: 13px; font-weight: 600; }
 .signin-overlay { z-index: 24; }   /* above the slip (20) and Track sheet (22) it can open from */
+
+/* My bets → Add a bet */
+.bets-add { margin-left: auto; } .bets-add + .bets-export { margin-left: 0; }
+.add-mode-note { margin: 2px 0 14px; }
+.add-bet .seg { margin-bottom: 2px; }
+.add-results { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; padding: 4px; }
+.add-results .menu-item { white-space: normal; text-align: left; } .add-results > p { margin: 8px 10px; }
+.add-player { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--chip); }
+.add-player .link { font-size: 13px; font-weight: 600; flex: none; }
+.add-leg-end { display: inline-flex; align-items: center; gap: 6px; } .add-leg-x { width: 28px; height: 28px; }
+.track-fields .seg { margin: 0; padding-bottom: 0; } .track-fields select { height: 40px; width: 100%; }
+@media (max-width: 700px) { .bets-add { margin-left: 0; } }

@@ -4,7 +4,7 @@ box scores, the same way it grades the board (app/grading.py, app/nba/grading.py
 Phase 1 of docs/bet-tracker-plan.md: player props the site prices (main and alternate lines), singles and parlays, in
 dollars, tracked only before the first game starts.
 """
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Callable, Optional
 
 import pandas as pd
@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from . import auth, grading
 from .db import Bet, BetLeg, NbaProjection, NbaRun, Projection, Run, User
 from .market_fit import kickoff_utc
-from .schemas import BetIn, BetLegOut, BetOut, BetPatch, BetsOut, BetSummary
+from .schemas import BetIn, BetLegOut, BetOut, BetPatch, BetPlayer, BetsOut, BetSummary
 
 router = APIRouter(prefix="/api/me", tags=["bets"])
 
@@ -25,9 +25,13 @@ MAX_STAKE = 100_000
 MAX_TAGS, TAG_LEN = 6, 24
 
 
-def league_of(kind: str) -> str:
-    """The two leagues' markets don't overlap, so a leg's market says which league it's from."""
-    return "nba" if kind in NBA_KINDS else "nfl"
+CUSTOM = "custom"   # a custom bet's one leg: the site can't grade it, so the bettor settles it
+
+
+def league_of(kind: str) -> Optional[str]:
+    """The two leagues' markets don't overlap, so a leg's market says which league it's from. A custom bet's leg has
+    none: nothing grades it or prices its close."""
+    return None if kind == CUSTOM else "nba" if kind in NBA_KINDS else "nfl"
 
 
 def to_decimal(american: int) -> float:
@@ -204,6 +208,7 @@ def _out(bet: Bet, now: datetime) -> BetOut:
         id=bet.id, league=bet.league, book=bet.book, kind=bet.kind, stake=bet.stake, odds=bet.odds, status=bet.status,
         payout=bet.payout, profit=round(bet.payout - bet.stake, 2) if settled and bet.payout is not None else None,
         to_pay=round(bet.stake * to_decimal(bet.odds), 2), settled_by=bet.settled_by, notes=bet.notes, tags=bet.tags or [],
+        description=bet.description,
         placed_at=bet.placed_at.isoformat(), settled_at=bet.settled_at.isoformat() if bet.settled_at else None,
         started=min(leg.kickoff for leg in bet.legs) <= now, ev_close=bet_ev_close(bet),
         legs=[BetLegOut(id=leg.id, game_id=leg.game_id, gameday=leg.gameday, kickoff=leg.kickoff.isoformat(), player_id=leg.player_id,
@@ -237,14 +242,15 @@ def _mine(db: Session, user: User, bet_id: int) -> Bet:
 
 
 @router.get("/bets", response_model=BetsOut)
-def my_bets(league: Optional[str] = Query(None, pattern="^(nfl|nba)$"), book: Optional[str] = None, tag: Optional[str] = None,
+def my_bets(league: Optional[str] = Query(None, pattern="^(nfl|nba|oth)$"), book: Optional[str] = None, tag: Optional[str] = None,
             months: Optional[int] = Query(None, ge=1, le=120), user: User = Depends(require_member), db: Session = Depends(auth.get_db)):
     """This person's tracked bets, newest first, and their record, for the filters given: a league, a sportsbook, a tag
     (ignoring case) and the last `months` calendar months (by when the bet was placed)."""
     now = datetime.utcnow()
     every, bets = _view(db, user, league, book, tag, months, now)
     tags = sorted({t.lower(): t for b in every for t in b.tags or []}.values(), key=str.lower)
-    return BetsOut(bets=[_out(b, now) for b in bets], summary=summarize(bets), books=sorted({b.book for b in every}), tags=tags)
+    return BetsOut(bets=[_out(b, now) for b in bets], summary=summarize(bets), books=sorted({b.book for b in every}), tags=tags,
+                   leagues=[lg for lg in ("nfl", "nba", "oth") if any(b.league == lg for b in every)])
 
 
 def _view(db: Session, user: User, league, book, tag, months, now: datetime) -> tuple:
@@ -262,7 +268,7 @@ CSV_COLUMNS = ["bet_id", "placed_at", "league", "sportsbook", "type", "stake", "
 
 
 @router.get("/bets.csv")
-def export_csv(league: Optional[str] = Query(None, pattern="^(nfl|nba)$"), book: Optional[str] = None, tag: Optional[str] = None,
+def export_csv(league: Optional[str] = Query(None, pattern="^(nfl|nba|oth)$"), book: Optional[str] = None, tag: Optional[str] = None,
                months: Optional[int] = Query(None, ge=1, le=120), user: User = Depends(require_member), db: Session = Depends(auth.get_db)):
     """The bets in this view as a spreadsheet: one row per leg, the bet's own columns repeated on each of its legs."""
     import csv
@@ -285,17 +291,73 @@ def export_csv(league: Optional[str] = Query(None, pattern="^(nfl|nba)$"), book:
     return Response(buf.getvalue(), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
+@router.get("/bet-players", response_model=list[BetPlayer])
+def bet_players(league: str = Query(..., pattern="^(nfl|nba)$"), q: str = Query("", max_length=60),
+                user: User = Depends(require_member), db: Session = Depends(auth.get_db)):
+    """Players whose game hasn't started, matching q, with their game and markets: for adding a prop placed elsewhere
+    (the same rule as the slip: only before kickoff, and only players on the board, so it can be graded)."""
+    from .engine.search import rank_hits
+    if not q.strip():
+        return []
+    now = datetime.utcnow()
+    run_t, proj_t = (Run, Projection) if league == "nfl" else (NbaRun, NbaProjection)
+    run = db.scalar(select(run_t).order_by(run_t.id.desc()).limit(1))
+    if not run:
+        return []
+    starts = {g.get("game_id"): g.get("start") for g in (getattr(run, "games", None) or [])}
+    players: dict = {}
+    for r in db.scalars(select(proj_t).where(proj_t.run_id == run.id)):
+        start = starts.get(r.game_id)
+        ko = datetime.fromisoformat(start.replace("Z", "+00:00")).replace(tzinfo=None) if start else kickoff_utc(r.gameday, r.gametime)
+        if not ko or ko <= now:
+            continue
+        p = players.setdefault((r.player_id, r.game_id), dict(player_id=r.player_id, name=r.name, pos=r.pos, team=r.team, opp=r.opp,
+                                                              game_id=r.game_id, kickoff=ko.isoformat(), kinds=[], projected=True))
+        if r.kind not in p["kinds"]:
+            p["kinds"].append(r.kind)
+    return [BetPlayer(**{k: v for k, v in h.items() if k != "projected"}) for h in rank_hits(list(players.values()), q, 12)]
+
+
+def _track_custom(body: BetIn, user: User, db: Session, now: datetime) -> BetOut:
+    """A bet the site can't grade (a spread, a total, another sport, a boost): what it was, when its event starts, the
+    book, odds and stake. Like every tracked bet it's recorded before its event starts; the bettor marks the result."""
+    text = " ".join((body.description or "").split())
+    if not 3 <= len(text) <= 200:
+        raise HTTPException(422, "Describe the bet in a few words (up to 200 characters)")
+    try:
+        starts = datetime.fromisoformat((body.starts_at or "").replace("Z", "+00:00"))
+        starts = starts.astimezone(timezone.utc).replace(tzinfo=None) if starts.tzinfo else starts
+    except ValueError:
+        raise HTTPException(422, "Give the date and time the event starts")
+    if starts <= now:
+        raise HTTPException(422, "That event has started, so this bet can't be tracked now")
+    if starts > now + timedelta(days=366):
+        raise HTTPException(422, "That's more than a year away")
+    if body.odds is None or not valid_odds(body.odds):
+        raise HTTPException(422, "Odds look wrong: use American odds like -110 or +250")
+    bet = Bet(user_id=user.id, league=body.league or "oth", book=body.book.strip()[:40] or "Other", kind=CUSTOM, stake=round(body.stake, 2),
+              odds=body.odds, status="open", notes=(body.notes or "").strip()[:500] or None, tags=clean_tags(body.tags),
+              description=text, placed_at=now)
+    bet.legs.append(BetLeg(game_id=CUSTOM, gameday=starts.date().isoformat(), kickoff=starts, player_id="", name=text[:80], team="",
+                           opp="", kind=CUSTOM, side="", line=0.0, odds=body.odds))
+    db.add(bet)
+    db.commit()
+    return _out(bet, now)
+
+
 @router.post("/bets", response_model=BetOut, dependencies=[Depends(auth.same_origin)])
 def track(body: BetIn, user: User = Depends(require_member), db: Session = Depends(auth.get_db)):
     now = datetime.utcnow()
+    if not 0 < body.stake <= MAX_STAKE:
+        raise HTTPException(422, "Enter a stake above $0")
+    if body.kind == CUSTOM:
+        return _track_custom(body, user, db, now)
     if not 1 <= len(body.legs) <= MAX_LEGS:
         raise HTTPException(422, f"A bet has 1 to {MAX_LEGS} legs")
     if body.kind == "single" and len(body.legs) != 1:
         raise HTTPException(422, "A single has one leg")
     if body.kind == "parlay" and len(body.legs) < 2:
         raise HTTPException(422, "A parlay has two or more legs")
-    if not 0 < body.stake <= MAX_STAKE:
-        raise HTTPException(422, "Enter a stake above $0")
     leagues = {league_of(leg.kind) for leg in body.legs}
     if len(leagues) > 1:
         raise HTTPException(422, "A parlay's legs are all NFL or all NBA")
@@ -334,7 +396,7 @@ def edit(bet_id: int, body: BetPatch, user: User = Depends(require_member), db: 
         if not valid_odds(body.odds):
             raise HTTPException(422, "Odds look wrong: use American odds like -110 or +250")
         bet.odds = body.odds
-        if bet.kind == "single":
+        if bet.kind in ("single", CUSTOM):
             bet.legs[0].odds = body.odds
     if body.notes is not None:
         bet.notes = body.notes.strip()[:500] or None

@@ -7,14 +7,16 @@ import type { Leg } from "./slip";
 export type BetStatus = "open" | "won" | "lost" | "push" | "void";
 export interface TrackedLeg {
   id: number; game_id: string; gameday: string; kickoff: string; player_id: string; name: string; team: string; opp: string;
-  kind: Kind; side: "Over" | "Under"; line: number; odds: number; alt: boolean; prob: number | null; ev: number | null;
+  kind: Kind | "custom"; side: "Over" | "Under"; line: number; odds: number; alt: boolean; prob: number | null; ev: number | null;
   actual: number | null; result: "win" | "loss" | "push" | "void" | null;
   /** The market's fair chance of this leg at kickoff, and what the price taken was worth at it (null until it closes). */
   close_p: number | null; ev_close: number | null;
 }
 export interface TrackedBet {
-  id: number; league: "nfl" | "nba"; book: string; kind: "single" | "parlay"; stake: number; odds: number; status: BetStatus;
+  id: number; league: "nfl" | "nba" | "oth"; book: string; kind: "single" | "parlay" | "custom"; stake: number; odds: number; status: BetStatus;
   payout: number | null; profit: number | null; to_pay: number; settled_by: "grading" | "user" | null; notes: string | null; tags: string[];
+  /** A custom bet (anything the site can't grade), as the bettor described it; they mark its result. */
+  description: string | null;
   placed_at: string; settled_at: string | null; started: boolean; legs: TrackedLeg[];
   /** The bet's price measured at the close (a parlay's legs multiplied); null until every leg has closed. */
   ev_close: number | null;
@@ -26,7 +28,7 @@ export interface BetSummary {
   clv_n: number; beat_close: number | null; ev_close: number | null;
 }
 /** A view of My bets: one league, one sportsbook, one tag and the last 1, 3 or 12 months (unset: everything). */
-export interface BetFilters { league?: "nfl" | "nba"; book?: string; tag?: string; months?: 1 | 3 | 12 }
+export interface BetFilters { league?: "nfl" | "nba" | "oth"; book?: string; tag?: string; months?: 1 | 3 | 12 }
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`/api/me/${path}`, {
@@ -47,7 +49,7 @@ const query = (f: BetFilters) => {
 export const csvUrl = (f: BetFilters) => `/api/me/bets.csv${query(f)}`;
 
 export const myBets = (f: BetFilters) => {
-  return call<{ bets: TrackedBet[]; summary: BetSummary; books: string[]; tags: string[] }>(`bets${query(f)}`);
+  return call<{ bets: TrackedBet[]; summary: BetSummary; books: string[]; tags: string[]; leagues: string[] }>(`bets${query(f)}`);
 };
 
 const legBody = (l: Leg) => ({ game_id: l.gameId, player_id: l.playerId, kind: l.kind, side: l.side, line: l.line, odds: l.odds, alt: l.alt, prob: l.prob, ev: l.ev });
@@ -83,3 +85,24 @@ export function addTag(tags: string[], text: string): string[] {
   const t = text.split(/\s+/).filter(Boolean).join(" ").slice(0, TAG_LEN);
   return !t || tags.length >= MAX_TAGS || tags.some((x) => x.toLowerCase() === t.toLowerCase()) ? tags : [...tags, t];
 }
+
+// ---------- bets placed elsewhere (My bets → Add a bet) ----------
+/** A player whose game hasn't started, with his game and the markets he's projected in (backend bets.bet_players). */
+export interface BetPlayer { player_id: string; name: string; pos: string; team: string; opp: string; game_id: string; kickoff: string; kinds: Kind[] }
+export const findBetPlayers = (league: "nfl" | "nba", q: string) =>
+  call<BetPlayer[]>(`bet-players?${new URLSearchParams({ league, q })}`);
+
+export interface ManualLeg { player: BetPlayer; kind: Kind; side: "Over" | "Under"; line: number; odds: number }
+/** A prop bet placed elsewhere: one leg is a single, more a parlay at `parlayOdds`. Graded like any tracked bet. */
+export const addPropBet = (book: string, legs: ManualLeg[], stake: number, parlayOdds: number, tags: string[]) =>
+  call<TrackedBet>("bets", { method: "POST", body: JSON.stringify({
+    book, stake, tags, kind: legs.length > 1 ? "parlay" : "single", odds: legs.length > 1 ? parlayOdds : undefined,
+    legs: legs.map((l) => ({ game_id: l.player.game_id, player_id: l.player.player_id, kind: l.kind, side: l.side, line: l.line, odds: l.odds })),
+  }) });
+/** Anything the site can't grade (a spread, a total, another sport, a boost), before its event starts; marked by hand. */
+export const addCustomBet = (b: { book: string; description: string; startsAt: string; league: "nfl" | "nba" | "oth"; odds: number; stake: number; tags: string[] }) =>
+  call<TrackedBet>("bets", { method: "POST", body: JSON.stringify({ kind: "custom", book: b.book, description: b.description, starts_at: b.startsAt,
+    league: b.league, odds: b.odds, stake: b.stake, tags: b.tags }) });
+
+/** Sportsbooks to suggest when typing one in; the bettor can type any other. */
+export const COMMON_BOOKS = ["DraftKings", "FanDuel", "BetMGM", "Caesars", "Fanatics", "ESPN BET", "BetRivers", "Hard Rock", "bet365", "PrizePicks", "Underdog"];

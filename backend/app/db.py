@@ -272,9 +272,9 @@ class Bet(Base):
     __tablename__ = "bets"
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    league: Mapped[str] = mapped_column(String(3))                   # nfl | nba
+    league: Mapped[str] = mapped_column(String(3))                   # nfl | nba | oth (a custom bet on anything else)
     book: Mapped[str] = mapped_column(String(40))
-    kind: Mapped[str] = mapped_column(String(6))                     # single | parlay
+    kind: Mapped[str] = mapped_column(String(6))                     # single | parlay | custom (settled by hand)
     stake: Mapped[float] = mapped_column(Float)                      # dollars
     odds: Mapped[int] = mapped_column(Integer)                       # American; a parlay's whole price as recorded
     status: Mapped[str] = mapped_column(String(5), default="open")   # open | won | lost | push | void
@@ -282,6 +282,7 @@ class Bet(Base):
     settled_by: Mapped[str] = mapped_column(String(8), nullable=True)  # grading | user
     notes: Mapped[str] = mapped_column(String(500), nullable=True)
     tags: Mapped[list] = mapped_column(JSON, default=list)           # the bettor's own labels ("SGP", "Sunday"), for filtering
+    description: Mapped[str] = mapped_column(String(200), nullable=True)   # a custom bet: what it was, as the bettor wrote it
     placed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     settled_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     legs: Mapped[list["BetLeg"]] = relationship(back_populates="bet", cascade="all, delete-orphan", order_by="BetLeg.id")
@@ -512,6 +513,8 @@ def ensure_columns(eng) -> bool:
     for table, col, sql_type in (("runs", "weather", "JSON"), ("runs", "teams", "JSON"), ("projections", "wx", "FLOAT"),
                                  ("projections", "teammate_out", "VARCHAR(160)"), ("projections", "thin", "BOOLEAN"),
                                  ("nba_projections", "parts", "JSON"), ("users", "favorites", "JSON"),
+                                 # bets.tags: a database whose bets table predates tags (an early local one)
+                                 ("bets", "tags", "JSON"), ("bets", "description", "VARCHAR(200)"),
                                  ("bet_legs", "close_p", "FLOAT"), ("bet_legs", "close_at", "TIMESTAMP"), ("bet_legs", "close_books", "INTEGER"),
                                  *((t, c, typ) for t in ("projections", "nba_projections")
                                    for c, typ in (("dvp", "FLOAT"), ("dvp_rank", "INTEGER"), ("dvp_n", "INTEGER"))),
