@@ -18,6 +18,7 @@ import BookSelect from "./components/BookSelect";
 import Freshness, { StaleBanner, latestFetch, oddsLevel } from "./components/Freshness";
 import HowToRead from "./components/HowToRead";
 import PageHead from "./components/PageHead";
+import MyBets from "./components/MyBets";
 import Preferences from "./components/Preferences";
 import { PREFERRED_GAME_BOOK, useBoardBook, usePref } from "./prefs";
 import ResponsibleGaming from "./components/ResponsibleGaming";
@@ -39,7 +40,7 @@ import { BASE } from "./env";
 const PlayerDrawer = lazy(() => importOrReload(() => import("./components/PlayerDrawer")));
 const AdminPage = lazy(() => importOrReload(() => import("./components/AdminPage")));
 const NbaApp = lazy(() => importOrReload(() => import("./NbaApp")));
-type Tab = "games" | "picks" | "parlays" | "injuries" | "projections" | "compare" | "model" | "admin" | "account";
+type Tab = "games" | "picks" | "parlays" | "injuries" | "projections" | "compare" | "model" | "admin" | "account" | "bets";
 const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["injuries", "Injuries"], ["projections", "Projections"], ["compare", "Compare"], ["model", "Model check"], ["admin", "Admin"]];
 /** Sections under the top bar's More menu. */
 const MORE: Tab[] = ["injuries", "compare", "model", "admin"];
@@ -47,10 +48,10 @@ const MORE: Tab[] = ["injuries", "compare", "model", "admin"];
 const OWNER_ONLY: Tab[] = ["model", "admin"];
 /** Each section's page title (Best props and Parlays add their sportsbook picker). */
 const TITLE: Record<Tab, string> = { games: "This week's games", picks: "Best props", parlays: "Parlays", injuries: "Injury report", projections: "Projections",
-  compare: "Compare players", model: "Model check", admin: "Admin", account: "Preferences" };
+  compare: "Compare players", model: "Model check", admin: "Admin", account: "Preferences", bets: "My bets" };
 /** Each section's path: /props, /parlays, ... (Games is the front page). */
 const SLUGS: Record<Tab, string> = { games: "", picks: "props", parlays: "parlays", injuries: "injuries", projections: "projections", compare: "compare",
-  model: "model", admin: "admin", account: "account" };
+  model: "model", admin: "admin", account: "account", bets: "bets" };
 /** A game's overview page lives at #game=<game_id>, so the browser's back button returns to the slate and the page can be linked. */
 const gameFromHash = () => new URLSearchParams(window.location.hash.slice(1)).get("game");
 
@@ -151,7 +152,7 @@ function PublicApp() {
       value: <>{playLabel(p.kind, p.side, p.line)} <em>{signedPct(p.ev)} EV</em></>, caption: `${americanOdds(p.odds)} at ${p.book}`,
       onClick: () => select({ id: p.player_id, kind: p.kind, pick: { side: p.side, line: p.line, book: p.book } }),
     }))
-    : tab === "games" || tab === "parlays" || tab === "admin" || tab === "account" || tab === "injuries" || tab === "compare" ? []
+    : tab === "games" || tab === "parlays" || tab === "admin" || tab === "account" || tab === "bets" || tab === "injuries" || tab === "compare" ? []
     : tab === "projections"
       ? (filters.kind === "all" ? (["pass", "rush", "rec", "recs"] as Kind[]).map((k) => (projections.data ?? []).filter((p) => p.kind === k).sort((a, b) => b.mu - a.mu)[0])
         : [...(projections.data ?? [])].sort((a, b) => b.mu - a.mu).slice(0, 3)).filter(Boolean).map((p) => ({
@@ -208,7 +209,7 @@ function PublicApp() {
       <TopTiles tiles={tiles} />
 
       {tab === "games" && <Games games={m.games} nextGames={m.next_games} nextByes={m.next_byes} picks={slatePicks.data ?? []} moneylines={moneylines.data ?? []} injuries={injuries.data} onOpen={openGame} />}
-      {tab !== "games" && tab !== "model" && tab !== "parlays" && tab !== "admin" && tab !== "account" && tab !== "injuries" && tab !== "compare" && <Controls filters={filters} onChange={setFilters} games={m.games} showPickControls={tab === "picks"} />}
+      {tab !== "games" && tab !== "model" && tab !== "parlays" && tab !== "admin" && tab !== "account" && tab !== "bets" && tab !== "injuries" && tab !== "compare" && <Controls filters={filters} onChange={setFilters} games={m.games} showPickControls={tab === "picks"} />}
       {tab === "picks" && <HowToRead />}
       {(tab === "picks" || tab === "projections") && selectedGame && <GameWeather game={selectedGame} fit={m.weather} />}
 
@@ -226,6 +227,7 @@ function PublicApp() {
       {tab === "model" && <Methodology />}
       {tab === "admin" && <Suspense fallback={<Skeleton kind="cards" />}><AdminPage embedded /></Suspense>}
       {tab === "account" && <Preferences books={m.books} />}
+      {tab === "bets" && <MyBets />}
       </>}
       </div>
 

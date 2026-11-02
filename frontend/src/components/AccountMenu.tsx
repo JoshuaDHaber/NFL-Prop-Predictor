@@ -4,7 +4,7 @@ import { signOut, useAuth, type Account } from "../auth";
 import Menu, { MenuItem } from "./Menu";
 import { openSignIn } from "./SignIn";
 
-export type AccountPage = "account" | "admin";
+export type AccountPage = "account" | "bets" | "admin";
 
 export function AccountAvatar({ user, size = 20 }: { user: Account; size?: number }) {
   const initial = (user.name || user.email)[0].toUpperCase();
@@ -26,12 +26,13 @@ export default function AccountMenu({ href, onPage, page }: { href: (p: AccountP
     </button>
   );
   return (
-    <Menu label={<AccountAvatar user={user} />} ariaLabel={`Account: ${user.email}`}>
+    <Menu label={<AccountAvatar user={user} />} ariaLabel={`Account: ${user.email}`} buttonClass="chip-menu acct-chip">
       {(close) => <>
         <div className="acct-who">
           {user.name && <b>{user.name}</b>}
           <span className="mut">{user.email}</span>
         </div>
+        <MenuItem on={page === "bets"} href={href("bets")} onClick={() => { close(); onPage("bets"); }}>My bets</MenuItem>
         <MenuItem on={page === "account"} href={href("account")} onClick={() => { close(); onPage("account"); }}>Preferences</MenuItem>
         {user.is_admin && <MenuItem on={page === "admin"} href={href("admin")} onClick={() => { close(); onPage("admin"); }}>Admin</MenuItem>}
         <MenuItem onClick={async () => { close(); await signOut().catch(() => {}); qc.invalidateQueries({ queryKey: ["meta"] }); qc.removeQueries({ queryKey: ["admin"] }); }}>Sign out</MenuItem>

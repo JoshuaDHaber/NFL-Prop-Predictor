@@ -255,6 +255,52 @@ class LoginToken(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)       # wrong codes; the code stops working after 5
 
 
+class Bet(Base):
+    """A bet a signed-in visitor placed at a sportsbook and tracks here (app/bets.py): a single or a parlay of player props,
+    settled from the box scores like the board. Private to its owner."""
+    __tablename__ = "bets"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    league: Mapped[str] = mapped_column(String(3))                   # nfl | nba
+    book: Mapped[str] = mapped_column(String(40))
+    kind: Mapped[str] = mapped_column(String(6))                     # single | parlay
+    stake: Mapped[float] = mapped_column(Float)                      # dollars
+    odds: Mapped[int] = mapped_column(Integer)                       # American; a parlay's whole price as recorded
+    status: Mapped[str] = mapped_column(String(5), default="open")   # open | won | lost | push | void
+    payout: Mapped[float] = mapped_column(Float, nullable=True)      # returned, stake included (0 for a loss)
+    settled_by: Mapped[str] = mapped_column(String(8), nullable=True)  # grading | user
+    notes: Mapped[str] = mapped_column(String(500), nullable=True)
+    tags: Mapped[list] = mapped_column(JSON, default=list)           # the bettor's own labels ("SGP", "Sunday"), for filtering
+    placed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    settled_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    legs: Mapped[list["BetLeg"]] = relationship(back_populates="bet", cascade="all, delete-orphan", order_by="BetLeg.id")
+
+
+class BetLeg(Base):
+    """One player prop in a tracked bet, graded on its own (main or alternate line)."""
+    __tablename__ = "bet_legs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bet_id: Mapped[int] = mapped_column(ForeignKey("bets.id", ondelete="CASCADE"), index=True)
+    game_id: Mapped[str] = mapped_column(String(32), index=True)   # NBA ids run longer than the NFL's
+    gameday: Mapped[str] = mapped_column(String(12))
+    kickoff: Mapped[datetime] = mapped_column(DateTime)              # UTC
+    player_id: Mapped[str] = mapped_column(String(20))
+    name: Mapped[str] = mapped_column(String(80))
+    team: Mapped[str] = mapped_column(String(4))
+    opp: Mapped[str] = mapped_column(String(4))
+    kind: Mapped[str] = mapped_column(String(6))
+    side: Mapped[str] = mapped_column(String(5))
+    line: Mapped[float] = mapped_column(Float)
+    odds: Mapped[int] = mapped_column(Integer)
+    alt: Mapped[bool] = mapped_column(Boolean, default=False)
+    prob: Mapped[float] = mapped_column(Float, nullable=True)        # the site's chance when tracked
+    ev: Mapped[float] = mapped_column(Float, nullable=True)
+    actual: Mapped[float] = mapped_column(Float, nullable=True)
+    result: Mapped[str] = mapped_column(String(5), nullable=True)    # win | loss | push | void; None until graded
+    graded_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    bet: Mapped[Bet] = relationship(back_populates="legs")
+
+
 class SyncRun(Base):
     """One sync (model run and/or odds fetch), scheduled or started by hand: the admin page's run log."""
     __tablename__ = "sync_runs"

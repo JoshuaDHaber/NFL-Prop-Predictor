@@ -24,6 +24,14 @@ export const sectionFromPath = () => {
 export const leaguePath = (l: League, section = "") => BASE + [l === "nba" ? NBA : "", section].filter(Boolean).join("/");
 export const param = (k: string) => new URLSearchParams(window.location.search).get(k);
 
+/** Go to a path on this site from anywhere (a sheet, a toast): both league shells follow popstate, so this lands on the
+ *  section as a click on its link would. */
+export function goToPath(path: string) {
+  window.history.pushState(null, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+  window.scrollTo({ top: 0 });
+}
+
 /** Swap the query string for `params` (empty values dropped), keeping the path and any #game. Doesn't add a history entry. */
 export function setParams(params: Record<string, string | null | undefined>) {
   const qs = new URLSearchParams();

@@ -344,7 +344,7 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
 .admin-page .sub a { color: var(--acc); text-decoration: none; }
 .admin-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 16px; }
 .admin-card { padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; overflow: visible; }
-.admin-card .big.under { color: var(--bad); } .admin-card .job { max-width: none; }
+.admin-card .big.under { color: var(--bad); } .admin-card .big.over { color: var(--good); } .admin-card .job { max-width: none; }
 .admin-table td, .admin-table th { text-align: left; } .admin-table .wrap-cell { white-space: normal; min-width: 240px; }
 .admin-table button.link:disabled { color: var(--mut); cursor: default; }
 .st { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 6px; background: var(--chip); color: var(--acc); }
@@ -897,7 +897,11 @@ footer a { color: var(--ink); font-weight: 600; text-decoration: none; } footer 
 .acct-initial { display: inline-flex; align-items: center; justify-content: center; background: var(--acc2); color: var(--on-acc2); font-weight: 700; line-height: 1; }
 .acct-who { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
 .acct-who b { font-size: 13px; } .acct-who .mut { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
-@media (max-width: 700px) { .acct-label { display: none; } .topbar-actions > .chip-menu[aria-label="Sign in"] { width: 40px; padding: 0; } }
+/* phones: the account control is a round icon (signed out) or avatar (signed in), so the top bar's four controls fit beside the logo */
+@media (max-width: 700px) {
+  .acct-label { display: none; } .topbar-actions > .chip-menu[aria-label="Sign in"] { width: 40px; padding: 0; }
+  .acct-chip { width: 40px; padding: 0; } .acct-chip .caret { display: none; }
+}
 
 .prefs { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; align-items: start; }
 .prefs-card { padding: 16px; display: flex; flex-direction: column; gap: 10px; overflow: visible; }
@@ -920,3 +924,60 @@ footer a { color: var(--ink); font-weight: 600; text-decoration: none; } footer 
 /* the standalone pages' "Back to the site" (admin, sign-in link, privacy): the site's link color, not the browser's */
 header .sub a { color: var(--mut); font-weight: 500; text-decoration: none; } header .sub a:hover { color: var(--ink); text-decoration: underline; }
 .signoff .footer-link { margin-left: 6px; font-weight: 500; color: var(--mut); }
+
+/* tracked bets: the Track sheet (over the slip) and My bets */
+.track-overlay { z-index: 22; }
+.track-book { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; }
+.track-legs { list-style: none; margin: 12px 0 16px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.track-legs li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 14px; }
+.track-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.track-fields .auth-label { display: flex; flex-direction: column; gap: 4px; }
+.track-pays { margin: 2px 0 4px; }
+.slip-track { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.slip-track .link { font-size: 13px; font-weight: 600; }
+
+.bets-views { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.bets-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; } .bets-tags > .mut { margin-right: 2px; }
+.bets-showing { margin: 12px 0 0; } .bets-showing .link { font-size: 13px; }
+.bets-breakdowns { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-top: 12px; }
+.bets-breakdown { padding: 14px 16px; overflow: visible; } .bets-breakdown .sub-h { margin: 0 0 6px; }
+.bd-rows { display: flex; flex-direction: column; }
+.bd-row { all: unset; box-sizing: border-box; display: grid; grid-template-columns: 1fr auto auto; gap: 14px; align-items: center; padding: 8px 6px;
+  border-radius: 8px; font-size: 13px; cursor: pointer; text-align: right; font-variant-numeric: tabular-nums; }
+.bd-row:hover, .bd-row:focus-visible { background: var(--chip); } .bd-row:focus-visible { outline: 2px solid var(--acc2); outline-offset: -2px; }
+.bd-name { display: flex; align-items: center; gap: 8px; text-align: left; min-width: 0; }
+.bd-name > span { display: flex; flex-direction: column; min-width: 0; } .bd-name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-sub { font-size: 12px; }
+.bd-row .neg { color: var(--bad); font-weight: 700; } .bd-row .pos { color: var(--good); }
+
+/* a bet's tags: chips on the card (tap to filter) and in the tag field */
+.tag-chip { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 9px; border-radius: 999px;
+  background: var(--chip); color: var(--ink); font-size: 12px; font-weight: 600; cursor: pointer; }
+.tag-chip:focus-visible { outline: 2px solid var(--acc2); outline-offset: 1px; }
+.bet-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.tag-input { display: flex; flex-direction: column; gap: 8px; }
+.tag-field { box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 40px; padding: 6px 12px; border: 1px solid var(--line);
+  border-radius: 20px; background: var(--card); }
+.tag-field:focus-within { border-color: var(--acc); }
+.tag-field input { all: unset; flex: 1; min-width: 110px; font-size: 15px; color: var(--ink); }
+.tag-suggest .chip-btn { font-size: 12px; }
+.bet-edit-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.bet-edit { flex-direction: column; align-items: stretch; }
+.bets-h { margin: 24px 0 10px; } .bets-h small { font-weight: 500; }
+.bets-intro { margin-top: 16px; max-width: 640px; }
+.bet-card { padding: 14px 16px; margin-bottom: 12px; overflow: visible; }
+.bet-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bet-book { display: flex; align-items: center; gap: 8px; } .bet-book .mut { font-size: 13px; }
+.bet-head-aside { display: flex; align-items: center; gap: 8px; margin-left: auto; }   /* stays right when it wraps under the book */
+.bet-legs { list-style: none; margin: 12px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.bet-leg { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: baseline; font-size: 14px; }
+.bet-leg-mark { display: inline-flex; justify-content: center; align-self: center; color: var(--mut); }
+.bet-leg.r-win .bet-leg-mark { color: var(--good); } .bet-leg.r-loss .bet-leg-mark { color: var(--bad); }
+.bet-leg.r-loss .bet-leg-main > b, .bet-leg.r-void .bet-leg-main > b { color: var(--mut); }
+.bet-leg-sub { display: block; font-size: 12px; margin-top: 2px; }
+.bet-foot { margin: 6px 0 0; font-size: 13px; } .bet-foot b { color: var(--ink); }
+.bet-edit { display: flex; gap: 10px; margin-top: 8px; }
+.bet-edit .auth-label { display: flex; flex-direction: column; gap: 4px; width: 130px; }
+.bet-edit .auth-input { height: 36px; }
+.bets-note { margin-top: 18px; max-width: 72ch; }
+@media (max-width: 700px) { .bets .admin-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } .bets .admin-card .big { font-size: 22px; } }

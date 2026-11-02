@@ -556,3 +556,94 @@ class EmailVerify(BaseModel):
     token: Optional[str] = None
     email: Optional[str] = None
     code: Optional[str] = None
+
+
+# ---------- tracked bets (app/bets.py) ----------
+class BetLegIn(BaseModel):
+    game_id: str
+    player_id: str
+    kind: Kind
+    side: Literal["Over", "Under"]
+    line: float
+    odds: int
+    alt: bool = False
+    prob: Optional[float] = None
+    ev: Optional[float] = None
+
+
+class BetIn(BaseModel):
+    book: str
+    kind: Literal["single", "parlay"]
+    stake: float
+    odds: Optional[int] = None      # a parlay's price at the book; a single uses its leg's
+    legs: list[BetLegIn]
+    notes: Optional[str] = None
+    tags: list[str] = []
+
+
+class BetPatch(BaseModel):
+    stake: Optional[float] = None
+    odds: Optional[int] = None
+    notes: Optional[str] = None
+    tags: Optional[list[str]] = None
+    # settle by hand (the book settled differently), or "open" to hand it back to grading
+    status: Optional[Literal["open", "won", "lost", "push", "void"]] = None
+
+
+class BetLegOut(BaseModel):
+    id: int
+    game_id: str
+    gameday: str
+    kickoff: str
+    player_id: str
+    name: str
+    team: str
+    opp: str
+    kind: str
+    side: str
+    line: float
+    odds: int
+    alt: bool
+    prob: Optional[float] = None
+    ev: Optional[float] = None
+    actual: Optional[float] = None
+    result: Optional[str] = None
+
+
+class BetOut(BaseModel):
+    id: int
+    league: str
+    book: str
+    kind: str
+    stake: float
+    odds: int
+    status: str
+    payout: Optional[float] = None
+    profit: Optional[float] = None
+    to_pay: float                    # what it returns if it wins, at the recorded odds
+    settled_by: Optional[str] = None
+    notes: Optional[str] = None
+    tags: list[str] = []
+    placed_at: str
+    settled_at: Optional[str] = None
+    started: bool                    # its first game has kicked off
+    legs: list[BetLegOut]
+
+
+class BetSummary(BaseModel):
+    wins: int
+    losses: int
+    pushes: int                      # pushes and voids: stake back
+    open: int
+    open_stake: float
+    staked: float                    # on bets that won or lost
+    profit: float
+    roi: Optional[float] = None
+    curve: list[tuple[str, float]]   # (settled_at, running profit), oldest first
+
+
+class BetsOut(BaseModel):
+    bets: list[BetOut]
+    summary: BetSummary
+    books: list[str]                 # every book this person has tracked at, for the filter
+    tags: list[str]                  # every tag they've used, for the filter and suggestions

@@ -135,6 +135,14 @@ def grade_logged(session, stats: pd.DataFrame, sched: pd.DataFrame, log: Callabl
     except Exception as e:   # noqa: BLE001
         session.rollback()
         log(f"  couldn't grade logged picks ({type(e).__name__}: {e})")
+    try:   # visitors' tracked bets, from the same stats (app/bets.py)
+        from . import bets
+        n = bets.grade_nfl(session, stats, sched)
+        if n:
+            log(f"Graded {n} tracked bet legs")
+    except Exception as e:   # noqa: BLE001
+        session.rollback()
+        log(f"  couldn't grade tracked bets ({type(e).__name__}: {e})")
     market_fit.refit_logged(session, "nfl", log)
 
 

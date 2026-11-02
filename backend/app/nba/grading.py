@@ -102,6 +102,14 @@ def grade_logged(session, logs: pd.DataFrame, today: date, log: Callable[[str], 
     except Exception as e:   # noqa: BLE001
         session.rollback()
         log(f"  couldn't grade logged NBA picks ({type(e).__name__}: {e})")
+    try:   # visitors' tracked bets, from the same game logs (app/bets.py)
+        from .. import bets
+        n = bets.grade_nba(session, logs, today)
+        if n:
+            log(f"Graded {n} tracked NBA bet legs")
+    except Exception as e:   # noqa: BLE001
+        session.rollback()
+        log(f"  couldn't grade tracked NBA bets ({type(e).__name__}: {e})")
     market_fit.refit_logged(session, "nba", log)
 
 
