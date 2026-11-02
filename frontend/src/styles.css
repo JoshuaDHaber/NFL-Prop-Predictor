@@ -1020,5 +1020,11 @@ header .sub a { color: var(--mut); font-weight: 500; text-decoration: none; } he
 .run-full { color: var(--good); }
 /* red and green on this site mean EV: a run the price has already caught up with reads red */
 .ev-pill.neg { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.v-track { margin: 10px 0 0; text-align: center; } .v-track .link { font-size: 13px; font-weight: 600; }
+.bets-export { margin-left: auto; text-decoration: none; }
+.bets-chart { padding: 14px 16px 8px; margin-top: 12px; overflow: visible; } .bets-chart .sub-h { margin: 0 0 8px; } .bets-chart .sub-h small { font-weight: 500; }
+.bet-foot .good { color: var(--good); font-weight: 600; } .bet-foot .bad { color: var(--bad); font-weight: 600; }
+@media (max-width: 700px) { .bets .admin-cards > :last-child:nth-child(odd) { grid-column: span 2; } .bets-export { margin-left: 0; } }
+@media (min-width: 701px) { .bets .admin-cards { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); } }   /* five tiles across where they fit */
 .slip-sync-hint { margin: 14px 0 0; font-size: 13px; } .slip-sync-hint .link { font-size: 13px; font-weight: 600; }
 .signin-overlay { z-index: 24; }   /* above the slip (20) and Track sheet (22) it can open from */

@@ -647,6 +647,8 @@ class BetLegOut(BaseModel):
     ev: Optional[float] = None
     actual: Optional[float] = None
     result: Optional[str] = None
+    close_p: Optional[float] = None   # the market's fair chance of this leg at kickoff (None: not started, or no closing quotes)
+    ev_close: Optional[float] = None  # what this price was worth at that chance: close_p x decimal odds - 1
 
 
 class BetOut(BaseModel):
@@ -666,6 +668,7 @@ class BetOut(BaseModel):
     placed_at: str
     settled_at: Optional[str] = None
     started: bool                    # its first game has kicked off
+    ev_close: Optional[float] = None # the bet's price at the close: a parlay's legs' closing chances multiplied, x its odds, - 1
     legs: list[BetLegOut]
 
 
@@ -679,6 +682,9 @@ class BetSummary(BaseModel):
     profit: float
     roi: Optional[float] = None
     curve: list[tuple[str, float]]   # (settled_at, running profit), oldest first
+    clv_n: int = 0                   # bets with a closing price (not void)
+    beat_close: Optional[float] = None   # share of those priced better than the close
+    ev_close: Optional[float] = None     # their average EV at the close
 
 
 class BetsOut(BaseModel):

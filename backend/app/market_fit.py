@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from sqlalchemy import select
 
-from .db import NbaPickLog, NbaRun, OddsHistory, PickLog, PickSnap, Run, Setting
+from .db import BetLeg, NbaPickLog, NbaRun, OddsHistory, PickLog, PickSnap, Run, Setting
 from .engine import market as mkt
 from .engine import odds
 from .engine.model import prob_over_under, prob_over_under_dist
@@ -129,6 +129,59 @@ def closing_over(cons_row, line: float, kind: str, mu: float, sd: float, dist: O
     return float(np.clip(p, 0.01, 0.99))
 
 
+def _close_consensus(h: Optional[pd.DataFrame], kind: str, ko: datetime, spec: dict, runs: dict, weights) -> tuple:
+    """The market at the last odds fetch before kickoff, for one game's market: (consensus by (player key, market), when),
+    or (None, None) with no quotes. `spec` maps a player key to his logged pick (mu, run_id), for the model's slope."""
+    h = h[(h.market == kind) & (h.fetched_at < ko)] if h is not None else None
+    if h is None or h.empty:
+        return None, None
+    t = h.fetched_at.max()
+    close = h[h.fetched_at == t].assign(key=lambda d: d.player.map(odds.norm))
+
+    def p_over(key, market, line):
+        r = spec.get(key)
+        return None if r is None else _model_over(r.mu, r.mu * 0.5, line, runs[r.run_id].get(market))
+    return mkt.consensus(close, p_over, weights, HOLD, stale_gap), t
+
+
+def attach_bet_closing(session, sport: str, now: Optional[datetime] = None) -> int:
+    """The close for tracked bet legs (app/bets.py) whose game has started: the same consensus attach_closing gives the
+    board, at each leg's own line (main or alternate), from the player's logged pick (his projection and error table).
+    A leg with no logged pick or no closing quote gets close_books = 0 and isn't looked at again. Returns how many got one."""
+    from .bets import league_of
+    now = now or datetime.utcnow()
+    legs = [leg for leg in session.scalars(select(BetLeg).where(BetLeg.close_at.is_(None), BetLeg.kickoff <= now))
+            if league_of(leg.kind) == sport]
+    if not legs:
+        return 0
+    table, run_table = TABLES[sport]
+    logged = {}
+    for r in session.scalars(select(table).where(table.game_id.in_({leg.game_id for leg in legs}))):
+        logged.setdefault((r.game_id, r.player_id, r.kind), r)
+    runs = {rid: dists(session.get(run_table, rid)) for rid in {r.run_id for r in logged.values()}}
+    weights = book_weights(session, sport)
+    hist = history(session, {leg.game_id for leg in legs})
+    by_game = {g: h for g, h in hist.groupby("game_id")} if not hist.empty else {}
+    n = 0
+    for (gid, kind), group in pd.Series(legs).groupby([[leg.game_id for leg in legs], [leg.kind for leg in legs]]):
+        group = list(group)
+        spec = {odds.norm(r.name): r for r in (logged.get((gid, leg.player_id, kind)) for leg in group) if r is not None}
+        cons, t = _close_consensus(by_game.get(gid), kind, group[0].kickoff, spec, runs, weights)
+        for leg in group:
+            leg.close_at = t.to_pydatetime() if t is not None else leg.kickoff
+            r = logged.get((gid, leg.player_id, kind))
+            k = (odds.norm(r.name), kind) if r is not None else None
+            c = cons.loc[k] if k is not None and cons is not None and k in cons.index else None
+            if c is None or pd.isna(c.nv_o):
+                leg.close_books = 0
+                continue
+            p = closing_over(c, leg.line, kind, r.mu, r.mu * 0.5, runs[r.run_id].get(kind))
+            leg.close_p, leg.close_books = (p if leg.side == "Over" else 1 - p), int(c.books)
+            n += 1
+    session.commit()
+    return n
+
+
 def attach_closing(session, sport: str, now: Optional[datetime] = None) -> int:
     """Give every logged pick whose game has started its closing fair chance (close_p at its line, close_p_first at
     the line first shown). Picks with no closing quote get close_books = 0, so they aren't looked at again."""
@@ -146,18 +199,7 @@ def attach_closing(session, sport: str, now: Optional[datetime] = None) -> int:
     for (gid, kind), rows in pd.Series(todo).groupby([[r.game_id for r in todo], [r.kind for r in todo]]):
         rows = list(rows)
         ko = kickoff_utc(rows[0].gameday, rows[0].gametime)
-        h = by_game.get(gid)
-        h = h[(h.market == kind) & (h.fetched_at < ko)] if h is not None else None
-        cons, t = None, None
-        if h is not None and not h.empty:
-            t = h.fetched_at.max()
-            close = h[h.fetched_at == t].assign(key=lambda d: d.player.map(odds.norm))
-            spec = {odds.norm(r.name): r for r in rows}
-
-            def p_over(key, market, line, _spec=spec):
-                r = _spec.get(key)
-                return None if r is None else _model_over(r.mu, r.mu * 0.5, line, runs[r.run_id].get(market))
-            cons = mkt.consensus(close, p_over, weights, HOLD, stale_gap)
+        cons, t = _close_consensus(by_game.get(gid), kind, ko, {odds.norm(r.name): r for r in rows}, runs, weights)
         for r in rows:
             k = (odds.norm(r.name), kind)
             c = cons.loc[k] if cons is not None and k in cons.index else None
@@ -209,6 +251,9 @@ def refit(session, sport: str, now: Optional[datetime] = None, log: Callable[[st
     n = attach_closing(session, sport, now)
     if n:
         log(f"Attached the closing line to {n} logged {sport.upper()} picks")
+    n = attach_bet_closing(session, sport, now)
+    if n:
+        log(f"Attached the closing line to {n} tracked {sport.upper()} bet legs")
     table, _ = TABLES[sport]
     since = now - timedelta(days=BOOK_WINDOW_DAYS[sport])
     started = {}

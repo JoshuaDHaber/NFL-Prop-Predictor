@@ -308,6 +308,11 @@ class BetLeg(Base):
     ev: Mapped[float] = mapped_column(Float, nullable=True)
     actual: Mapped[float] = mapped_column(Float, nullable=True)
     result: Mapped[str] = mapped_column(String(5), nullable=True)    # win | loss | push | void; None until graded
+    # the close (market_fit.attach_bet_closing): the market's fair chance of this leg at its own line, at the last odds fetch
+    # before kickoff; close_books 0 = no closing quotes for him in this market. Filled once the game starts.
+    close_p: Mapped[float] = mapped_column(Float, nullable=True)
+    close_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    close_books: Mapped[int] = mapped_column(Integer, nullable=True)
     graded_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     bet: Mapped[Bet] = relationship(back_populates="legs")
 
@@ -507,6 +512,7 @@ def ensure_columns(eng) -> bool:
     for table, col, sql_type in (("runs", "weather", "JSON"), ("runs", "teams", "JSON"), ("projections", "wx", "FLOAT"),
                                  ("projections", "teammate_out", "VARCHAR(160)"), ("projections", "thin", "BOOLEAN"),
                                  ("nba_projections", "parts", "JSON"), ("users", "favorites", "JSON"),
+                                 ("bet_legs", "close_p", "FLOAT"), ("bet_legs", "close_at", "TIMESTAMP"), ("bet_legs", "close_books", "INTEGER"),
                                  *((t, c, typ) for t in ("projections", "nba_projections")
                                    for c, typ in (("dvp", "FLOAT"), ("dvp_rank", "INTEGER"), ("dvp_n", "INTEGER"))),
                                  *((t, c, typ) for t in ("pick_log", "nba_pick_log") for c, typ in PICK_LOG_ADDED)):

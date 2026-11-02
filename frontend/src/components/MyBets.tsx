@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconCheck, IconDots, IconMinus, IconX } from "@tabler/icons-react";
+import { IconCheck, IconDots, IconDownload, IconMinus, IconX } from "@tabler/icons-react";
+import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth";
-import { deleteBet, editBet, money, myBets, parseOdds, signedMoney, type BetFilters, type BetStatus, type TrackedBet, type TrackedLeg } from "../bets";
-import { isYesNo, KIND_SHORT, americanOdds, pct } from "../format";
+import { csvUrl, deleteBet, editBet, money, myBets, parseOdds, signedMoney, type BetFilters, type BetStatus, type BetSummary, type TrackedBet, type TrackedLeg } from "../bets";
+import { isYesNo, KIND_SHORT, americanOdds, pct, signedPct } from "../format";
 import { useLeague } from "../LeagueContext";
 import { leaguePath, goToPath } from "../route";
 import BookBadge from "./BookBadge";
@@ -102,11 +103,35 @@ function BetCard({ bet, knownTags, onTag }: { bet: TrackedBet; knownTags: string
           {money(bet.stake)} at <b>{americanOdds(bet.odds)}</b>
           {bet.status === "open" ? <> → pays <b>{money(bet.to_pay)}</b></> : bet.payout != null && <> → returned <b>{money(bet.payout)}</b></>}
           {" · "}placed {new Date(bet.placed_at + "Z").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+          {bet.ev_close != null && <> · <span className={bet.ev_close > 0 ? "good" : "bad"}
+            title="What this price was worth by the market's closing line, the best early sign of a good bet">{signedPct(bet.ev_close)} vs the close</span></>}
           {bet.settled_by === "user" && " · settled by you"}
         </p>
       )}
       {problem && <p className="err">{problem}</p>}
     </article>
+  );
+}
+
+/** Running profit by settled bet, once there are enough to show a trend (10+), drawn like the site's other charts. */
+function ProfitChart({ summary }: { summary: BetSummary }) {
+  if (summary.curve.length < 10) return null;
+  const rows = summary.curve.map(([at, profit], i) => ({ i: i + 1, profit, day: new Date(at + "Z").toLocaleDateString(undefined, { month: "short", day: "numeric" }) }));
+  return (
+    <section className="card bets-chart">
+      <h3 className="sub-h">Profit over time <small className="mut">{rows.length} settled bets, oldest first</small></h3>
+      <ResponsiveContainer width="100%" height={180}>
+        <LineChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: -8 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
+          <XAxis dataKey="day" tick={{ fontSize: 10, fill: "var(--mut)" }} minTickGap={24} />
+          <YAxis tickFormatter={(v: number) => `$${Math.round(v)}`} tick={{ fontSize: 11, fill: "var(--mut)" }} width={52} />
+          <ReferenceLine y={0} stroke="var(--mut)" />
+          <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--ink)" }}
+            formatter={(v: number) => [signedMoney(v), "Profit"]} labelFormatter={(_, p) => (p?.[0] ? `Bet ${p[0].payload.i} · ${p[0].payload.day}` : "")} />
+          <Line dataKey="profit" stroke="var(--acc2)" strokeWidth={2} dot={rows.length <= 40 ? { r: 2.5 } : false} isAnimationActive={false} />
+        </LineChart>
+      </ResponsiveContainer>
+    </section>
   );
 }
 
@@ -203,6 +228,11 @@ export default function MyBets() {
         <select value={filters.months ?? ""} aria-label="Period" onChange={(e) => setFilters({ ...filters, months: (e.target.value ? Number(e.target.value) : undefined) as BetFilters["months"] })}>
           {PERIODS.map(([m, label]) => <option key={label} value={m ?? ""}>{label}</option>)}
         </select>
+        {bets.length > 0 && (
+          <a className="chip-menu bets-export" href={csvUrl(filters)} download title="These bets as a spreadsheet, one row per leg">
+            <IconDownload size={16} stroke={1.75} aria-hidden />Export CSV
+          </a>
+        )}
       </div>
       {allTags.length > 0 && (
         <div className="pills bets-tags" role="group" aria-label="Tag">
@@ -227,8 +257,15 @@ export default function MyBets() {
           <span className="mut">on {money(s.staked)} settled</span></div>
         <div className="card admin-card"><span className="mut">ROI</span><div className={`big${(s.roi ?? 0) < 0 ? " under" : (s.roi ?? 0) > 0 ? " over" : ""}`}>{s.roi == null ? "—" : `${s.roi > 0 ? "+" : ""}${pct(s.roi, 1)}`}</div>
           <span className="mut">profit ÷ staked</span></div>
+        {s.clv_n > 0 && (
+          <div className="card admin-card" title="The share of your bets priced better than the market's closing line: over a few dozen bets, a truer sign of skill than wins">
+            <span className="mut">Beat the close</span><div className={`big${(s.beat_close ?? 0) >= 0.5 ? " over" : " under"}`}>{pct(s.beat_close ?? 0, 0)}</div>
+            <span className="mut">{signedPct(s.ev_close ?? 0)} EV at the close · {s.clv_n} {s.clv_n === 1 ? "bet" : "bets"}</span>
+          </div>
+        )}
         <div className="card admin-card"><span className="mut">Open</span><div className="big">{s.open}</div><span className="mut">{money(s.open_stake)} at stake</span></div>
       </div>
+      <ProfitChart summary={s} />
 
       {(!filters.book || !filters.tag) && bets.length > 0 && (
         <div className="bets-breakdowns">

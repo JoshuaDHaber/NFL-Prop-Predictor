@@ -144,3 +144,38 @@ def test_line_history_and_moves():
     over, under = moved.iloc[0], moved.iloc[1]
     assert over.open_line == 45.5 and over.move > 0.05 and under.move == pytest.approx(-over.move)
     assert over.steam == 1 and under.steam == -1
+
+
+def test_tracked_bet_legs_get_the_close_at_their_own_line(monkeypatch):
+    """A tracked parlay's legs get the board's close moved to each leg's line, the alternate one too (app/bets.py)."""
+    from app import bets
+    from app.db import Bet, BetLeg, User
+    board(monkeypatch, [pick("Over", 45.5, -110, 0.06), pick("Under", 45.5, -110, -0.1)])
+    with SessionLocal() as s:
+        grading.snapshot_board(s, now=EARLY)
+    history(EARLY, [("Worthy", 45.5, -110, -110, "A"), ("Worthy", 45.5, -110, -110, "B")])
+    history(datetime(2026, 10, 18, 16), [("Worthy", 48.5, -110, -110, "A"), ("Worthy", 48.5, -110, -110, "B")])
+    kickoff = datetime(2026, 10, 18, 17)
+    leg = lambda line, odds: BetLeg(game_id=G, gameday="2026-10-18", kickoff=kickoff, player_id="worthy", name="Worthy", team="AAA",
+                                    opp="BBB", kind="rec", side="Over", line=line, odds=odds, alt=line != 45.5)
+    with SessionLocal() as s:
+        user = User(email="clv@example.com")
+        s.add(user)
+        s.flush()
+        bet = Bet(user_id=user.id, league="nfl", book="X", kind="parlay", stake=10, odds=400, status="open", placed_at=EARLY)
+        bet.legs = [leg(45.5, -110), leg(50.5, 150)]
+        s.add(bet)
+        s.commit()
+        assert market_fit.attach_bet_closing(s, "nfl", now=MORNING) == 0   # not kicked off yet
+        assert market_fit.attach_bet_closing(s, "nfl", now=AFTER) == 2
+        main, alt = s.get(Bet, bet.id).legs
+        # the close is 48.5 at even money: 3 yards under it is +0.2/6, 2 yards over it is -0.133/6 (as for the board)
+        assert main.close_p == pytest.approx(0.5 + 0.2 / 6) and alt.close_p == pytest.approx(0.5 - (2 / 15) / 6)
+        assert main.close_books == 2 and main.close_at == datetime(2026, 10, 18, 16)
+        assert bets.leg_ev_close(main) == pytest.approx(main.close_p * (1 + 100 / 110) - 1, abs=1e-4)
+        assert bets.bet_ev_close(s.get(Bet, bet.id)) == pytest.approx(main.close_p * alt.close_p * 5 - 1, abs=1e-4)
+        assert market_fit.attach_bet_closing(s, "nfl", now=AFTER) == 0     # done once
+        s.query(BetLeg).delete()
+        s.query(Bet).delete()
+        s.delete(s.get(User, user.id))
+        s.commit()

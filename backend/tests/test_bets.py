@@ -235,3 +235,32 @@ def test_months_ago_is_calendar_months():
     assert bets.months_ago(datetime(2026, 3, 31, 12), 1) == datetime(2026, 2, 28, 12)
     assert bets.months_ago(datetime(2026, 1, 15), 3) == datetime(2025, 10, 15)
     assert bets.months_ago(datetime(2026, 11, 1), 12) == datetime(2025, 11, 1)
+
+
+def test_closing_line_value_and_csv_export(sent):
+    with member(sent, "clvfan@example.com", "198.51.100.9") as c:
+        good = c.post("/api/me/bets", json={"book": "DraftKings", "kind": "single", "stake": 10, "legs": [leg(odds=+120)], "tags": ["Sunday"]}).json()
+        bad = c.post("/api/me/bets", json={"book": "FanDuel", "kind": "parlay", "stake": 5, "odds": 250,
+                                           "legs": [leg(), leg("00-W1", "rec", line=54.5)]}).json()
+        assert c.get("/api/me/bets").json()["summary"]["clv_n"] == 0          # nothing has closed yet
+        with SessionLocal() as s:
+            s.get(Bet, good["id"]).legs[0].close_p = 0.50                    # +120 needs 45.5%: beat the close
+            for lg, p in zip(s.get(Bet, bad["id"]).legs, (0.45, 0.50)):       # 0.225 x 3.5 = 0.79: didn't
+                lg.close_p = p
+            s.commit()
+        out = c.get("/api/me/bets").json()
+        by_id = {b["id"]: b for b in out["bets"]}
+        assert by_id[good["id"]]["ev_close"] == pytest.approx(0.10) and by_id[good["id"]]["legs"][0]["ev_close"] == pytest.approx(0.10)
+        assert by_id[bad["id"]]["ev_close"] == pytest.approx(0.45 * 0.5 * 3.5 - 1)
+        s_ = out["summary"]
+        assert (s_["clv_n"], s_["beat_close"]) == (2, 0.5) and s_["ev_close"] == pytest.approx((0.10 + 0.45 * 0.5 * 3.5 - 1) / 2, abs=1e-4)
+
+        r = c.get("/api/me/bets.csv")
+        assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv") and "attachment" in r.headers["content-disposition"]
+        rows = [line.split(",") for line in r.text.strip().splitlines()]
+        assert rows[0][:3] == ["bet_id", "placed_at", "league"] and len(rows) == 1 + 3      # one row per leg
+        assert [int(x[0]) for x in rows[1:]] == [good["id"], bad["id"], bad["id"]]           # oldest bet first
+        assert rows[1][11] == "Sunday" and rows[1][-1] == "0.5"
+        assert len(c.get("/api/me/bets.csv?book=DraftKings").text.strip().splitlines()) == 2  # the view's filters apply
+    with TestClient(main.app, client=("198.51.100.10", 5000)) as anon:
+        assert anon.get("/api/me/bets.csv").status_code == 401
