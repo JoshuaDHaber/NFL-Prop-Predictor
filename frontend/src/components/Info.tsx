@@ -7,7 +7,7 @@ export const GLOSSARY = {
   kelly: ["¼ Kelly", "A suggested stake as a share of your bankroll, a quarter of the Kelly formula's amount to keep swings small. 2% means $2 of every $100."],
   minEv: ["Min EV", "Hide plays below this expected value. Slide below 0 to see the closest plays that aren't positive yet."],
   trust: ["Trust market", "How much of the sportsbooks' own (no-vig) chance to blend into the model's. Higher leans on the market, lower on the model."],
-  fitted: ["Fitted weights", "By default each market leans on the books as much as past graded picks say it should, and more on prices posted close to kickoff, when the market is sharpest. Model check shows the weights."],
+  fitted: ["Fitted weights", "By default each market leans on the books as much as past graded picks say it should, and more on prices posted close to kickoff, when the market is sharpest."],
   move: ["Market move", "How far the books' fair chance of this side has moved since the week's first odds fetch, at this line. A pick the market is moving away from is a warning sign."],
   steam: ["Steam", "Three or more books moved this line the same way between the last two odds fetches, with none moving against it."],
   clv: ["Closing line value", "Whether the market moved toward a pick after it was posted. Beating the closing price is the quickest honest test of an edge: results take hundreds of bets to say anything."],

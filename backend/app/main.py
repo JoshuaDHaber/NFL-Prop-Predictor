@@ -379,9 +379,11 @@ def build_correlations(run: Optional[Run]) -> Correlations:
 
 
 @app.get("/api/grades", response_model=GradeReport)
-def grades(season: Optional[int] = None, db: Session = Depends(get_db)):
+def grades(request: Request, season: Optional[int] = None, db: Session = Depends(get_db)):
     """How the logged board did against the box scores and the closing line, whether the model or the line landed
-    closer, and the fitted book and market weights."""
+    closer, and the fitted book and market weights. Model check is the owner's page, so this is admin-only."""
+    if not is_admin(request):
+        raise HTTPException(403, "Admin only")
     return dict(grading.report(db, season), market_fit=market_fit.summary(db, "nfl", current_lines(db).book.unique()))
 
 

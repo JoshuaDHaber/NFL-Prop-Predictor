@@ -43,6 +43,8 @@ type Tab = "games" | "picks" | "parlays" | "injuries" | "projections" | "compare
 const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["injuries", "Injuries"], ["projections", "Projections"], ["compare", "Compare"], ["model", "Model check"], ["admin", "Admin"]];
 /** Sections under the top bar's More menu. */
 const MORE: Tab[] = ["injuries", "compare", "model", "admin"];
+/** Sections only the site owner sees (signed in with an ADMIN_EMAILS account, or the admin password): meta.can_write. */
+const OWNER_ONLY: Tab[] = ["model", "admin"];
 /** Each section's page title (Best props and Parlays add their sportsbook picker). */
 const TITLE: Record<Tab, string> = { games: "This week's games", picks: "Best props", parlays: "Parlays", injuries: "Injury report", projections: "Projections",
   compare: "Compare players", model: "Model check", admin: "Admin", account: "Preferences" };
@@ -83,6 +85,9 @@ function PublicApp() {
   const debounced = useDebounced(filters, 250);
 
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
+  // Model check is the owner's: anyone else following a /model link lands on the games (Admin keeps its own sign-in card)
+  const owner = meta.data?.can_write;
+  useEffect(() => { if (tab === "model" && owner === false) goSection("games", { replace: true }); }, [tab, owner]); // eslint-disable-line react-hooks/exhaustive-deps
   // odds over six hours old: the slip asks the bettor to check prices before handing legs to a book
   const { setStaleSince } = useBetSlip();
   const oddsAt = meta.data ? latestFetch(meta.data.odds) : undefined;
@@ -167,7 +172,7 @@ function PublicApp() {
 
   return (
     <div className="wrap">
-      <TopBar tabs={m.can_write ? TABS : TABS.filter(([k]) => k !== "admin")} more={MORE} tab={tab} onTab={goTab} href={href} />
+      <TopBar tabs={m.can_write ? TABS : TABS.filter(([k]) => !OWNER_ONLY.includes(k))} more={MORE} tab={tab} onTab={goTab} href={href} />
       <p className="statusline">
         {m.run ? `${m.run.season} Week ${m.run.week} · projections ${timeAgo(m.run.created_at)}` : "No projections yet"}
         {latestOdds && <> · <Freshness at={latestOdds} /></>}
@@ -216,7 +221,7 @@ function PublicApp() {
       </div>
 
       <footer>
-        Projections and win chances, not betting advice.{tab !== "model" && <> <a href={href("model")} onClick={routeClick(() => goTab("model"))}>How the numbers work →</a></>}
+        Projections and win chances, not betting advice.{m.can_write && tab !== "model" && <> <a href={href("model")} onClick={routeClick(() => goTab("model"))}>How the numbers work →</a></>}
         <span className="signoff">Bread from air, picks from stats. Built by JD Haber. <a className="footer-link" href={`${BASE}privacy`}>Privacy</a></span>
         <ResponsibleGaming />
       </footer>

@@ -42,9 +42,10 @@ export function useSection<T extends string>(slugs: Record<T, string>, league: L
     return () => window.removeEventListener("popstate", sync);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const go = (t: T) => {
+  /** replace: no new history entry (a section this visitor can't open sends them on without leaving it behind) */
+  const go = (t: T, { replace = false } = {}) => {
     const path = leaguePath(league, slugs[t]);
-    if (path !== window.location.pathname || window.location.search || window.location.hash) window.history.pushState(null, "", path);
+    if (path !== window.location.pathname || window.location.search || window.location.hash) window.history[replace ? "replaceState" : "pushState"](null, "", path);
     setSection(t);
   };
   return [section, go] as const;

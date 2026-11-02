@@ -224,3 +224,18 @@ def test_id_claims_checks_audience_issuer_and_expiry(monkeypatch):
     assert auth.id_claims(id_token(**ok, iss="https://evil.example"), "n") is None
     assert auth.id_claims(id_token(**ok, exp=time.time() - 1), "n") is None
     assert auth.id_claims("garbage", "n") is None
+
+
+def test_model_check_data_is_admin_only(sent, monkeypatch):
+    """The Model check tab is hidden from everyone but the owner; its graded-picks data is refused to them too."""
+    monkeypatch.setenv("ADMIN_EMAILS", "owner@example.com")
+    with remote("203.0.113.50") as c:
+        assert c.get("/api/grades").status_code == 403 and c.get("/api/nba/grades").status_code == 403
+        assert not c.get("/api/meta").json()["can_write"]
+        sign_in(c, sent, "fan3@example.com")
+        c.post("/api/auth/age")
+        assert c.get("/api/grades").status_code == 403
+    with remote("203.0.113.51") as owner:
+        sign_in(owner, sent, "owner@example.com")
+        owner.post("/api/auth/age")
+        assert owner.get("/api/grades").status_code == 200 and owner.get("/api/nba/grades").status_code == 200
