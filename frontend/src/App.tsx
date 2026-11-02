@@ -19,7 +19,7 @@ import Freshness, { StaleBanner, latestFetch, oddsLevel } from "./components/Fre
 import HowToRead from "./components/HowToRead";
 import PageHead from "./components/PageHead";
 import Preferences from "./components/Preferences";
-import { PREFERRED_GAME_BOOK, usePref } from "./prefs";
+import { PREFERRED_GAME_BOOK, useBoardBook, usePref } from "./prefs";
 import ResponsibleGaming from "./components/ResponsibleGaming";
 import TopBar from "./components/TopBar";
 import TopTiles, { type Tile } from "./components/TopTiles";
@@ -78,7 +78,16 @@ function PublicApp() {
     window.scrollTo({ top: 0 });
   };
   const goTab = (t: Tab) => { pushedGame.current = false; setGameId(null); goSection(t); window.scrollTo({ top: 0 }); };
-  const [filters, setFilters] = useState<Filters>(filtersFromUrl);
+  const boardBook = useBoardBook();
+  const [filters, setFilters] = useState<Filters>(() => filtersFromUrl(boardBook));
+  // the account's sportsbook can arrive after the page opens (signing in on a new device): follow it, unless the board's book
+  // was changed here or came from a link
+  const lastBoardBook = useRef(boardBook);
+  useEffect(() => {
+    const was = lastBoardBook.current;
+    lastBoardBook.current = boardBook;
+    if (was !== boardBook) setFilters((f) => (f.book === was ? { ...f, book: boardBook } : f));
+  }, [boardBook]);
   const { selected, open: select, close: closePlayer, remember: rememberKind } = useSelectedPlayer();
   // the game page's sportsbook: a preference, remembered in this browser and the account (prefs.ts)
   const [gameBook, setGameBook] = usePref("game_book");
@@ -114,9 +123,9 @@ function PublicApp() {
     if (gameId) return;
     const f = filters;
     setParams(tab === "picks" || tab === "projections"
-      ? filterParams(f, tab === "picks")
-      : tab === "parlays" ? { book: board.book, games: parlayGames.join(",") || null } : {});
-  }, [tab, gameId, filters, board.book, parlayGames]);
+      ? filterParams(f, tab === "picks", boardBook)
+      : tab === "parlays" ? { book: board.pickedBook, games: parlayGames.join(",") || null } : {});
+  }, [tab, gameId, filters, board.pickedBook, parlayGames, boardBook]);
   // positive-EV plays across the slate, for the game tiles' top prop and counts
   const slatePicks = useQuery({ queryKey: ["slate-picks", debounced.book, debounced.marketWeight],
     queryFn: () => api.picks({ ...PARLAY_FILTERS, book: debounced.book, marketWeight: debounced.marketWeight, minEv: 0 }, 1000), enabled: tab === "games" && !gameOpen });

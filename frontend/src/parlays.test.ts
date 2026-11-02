@@ -244,6 +244,12 @@ describe("defaultBook", () => {
     expect(defaultBook({}, picksByBook)).toBe("B");
     expect(defaultBook({}, {})).toBeNull();
   });
+
+  it("opens on the visitor's default sportsbook when it has a parlay, and never on an empty one", () => {
+    const byBook = { FanDuel: [{} as never], DraftKings: [{} as never] };
+    expect(defaultBook(byBook, {}, "DraftKings")).toBe("DraftKings");
+    expect(defaultBook({ FanDuel: [{} as never] }, {}, "DraftKings")).toBe("FanDuel");
+  });
 });
 
 describe("filterGames", () => {
