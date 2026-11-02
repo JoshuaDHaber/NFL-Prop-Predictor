@@ -256,6 +256,16 @@ class LoginToken(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)       # wrong codes; the code stops working after 5
 
 
+class UserSlip(Base):
+    """A signed-in visitor's betslip (legs and stakes per book), so it follows them between devices (app/slip_sync.py).
+    The legs are the browser's own records (frontend slip.ts), kept as they come."""
+    __tablename__ = "user_slips"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    legs: Mapped[list] = mapped_column(JSON, default=list)
+    stakes: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Bet(Base):
     """A bet a signed-in visitor placed at a sportsbook and tracks here (app/bets.py): a single or a parlay of player props,
     settled from the box scores like the board. Private to its owner."""

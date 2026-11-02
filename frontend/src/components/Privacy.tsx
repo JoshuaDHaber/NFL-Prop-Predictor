@@ -3,7 +3,7 @@ import Logo from "./Logo";
 import ResponsibleGaming from "./ResponsibleGaming";
 import ThemeToggle from "./ThemeToggle";
 
-const UPDATED = "November 1, 2026";
+const UPDATED = "November 2, 2026";
 const CONTACT = "joshd.haber@gmail.com";
 
 /** /privacy: what the site keeps, where it goes and how to delete it. Linked from the footer, the sign-in sheet and Google's
@@ -42,6 +42,8 @@ export default function Privacy() {
           <li><b>Your teams and favorite players</b>, used to put your teams' games first and list your players on the compare page.</li>
           <li><b>Bets you track</b> on My bets: the sportsbook, stake, odds and each leg (player, market, line), when you tracked
             it and how it settled. They're used only to grade your bets and show your record, and no one else can see them.</li>
+          <li><b>Your betslip:</b> its picks and the stake at each sportsbook, so the same slip is there on every device you sign in on.
+            The state you're betting from stays on each device.</li>
           <li><b>When you created the account and last signed in.</b></li>
           <li><b>Your signed-in sessions:</b> one per browser, with the browser's name and version (its "user agent") and when it was last
             used. The cookie that keeps you signed in is stored only as a one-way hash, and it expires after 30 days without use.</li>
@@ -54,7 +56,8 @@ export default function Privacy() {
         <p>
           With or without an account, the site remembers some things in your browser's own storage so they're still there next time: your theme,
           league, sportsbook and Best props settings, your betslip (its picks, stakes and the state you're betting from) and a few display
-          choices. They stay on your device, aren't sent to the site, and are cleared when you clear your browser's site data. The only cookie is
+          choices. They stay on your device (except the betslip's picks and stakes, saved to your account while you're signed in, as
+          above), and are cleared when you clear your browser's site data. The only cookie is
           the sign-in cookie above. There are no tracking or advertising cookies.
         </p>
 
@@ -81,7 +84,7 @@ export default function Privacy() {
         <h3>Deleting your information</h3>
         <p>
           Signed in, open <b>Preferences</b> from the account menu and choose <b>Delete account</b>. That immediately deletes your account, its
-          preferences, your tracked bets, every signed-in session and any unused sign-in links. You can also delete a single tracked
+          preferences, your tracked bets, your saved betslip, every signed-in session and any unused sign-in links. You can also delete a single tracked
           bet from My bets. You can also sign out at any time, which deletes that session. To
           clear what's stored in your browser, clear this site's data in your browser settings. If you'd rather ask, email <a href={`mailto:${CONTACT}`}>{CONTACT}</a>.
         </p>

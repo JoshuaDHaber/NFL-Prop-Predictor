@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import auth, bets, books, config, grading, market_fit, pipeline, scheduler, standings
+from . import auth, bets, books, config, grading, slip_sync, market_fit, pipeline, scheduler, standings
 from .db import AltLine, OddsLine, Projection, Run, SessionLocal, SyncRun, current_lines, proj_frame
 from .engine import data, model, odds
 from .engine import injuries as injm
@@ -648,6 +648,7 @@ def _auto_sync(league: Optional[str] = "nfl") -> AutoSync:
 auth.client_key = client_key
 app.include_router(auth.router)
 app.include_router(bets.router)
+app.include_router(slip_sync.router)
 nba_routes.is_admin = lambda request: is_admin(request)
 nba_routes.auto_sync = lambda: _auto_sync("nba")
 app.include_router(nba_routes.router)
