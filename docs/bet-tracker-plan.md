@@ -1,6 +1,12 @@
 # Bet tracker plan
 
-Status: phase 1 built on `docs/bet-tracker-plan` (2026-11-01), with the defaults below chosen. Phases 2 and 3 not started. Builds on accounts (`docs/auth-plan.md`, PRs #50-#52).
+Status (2026-11-02): phases 1 and 2 are built.
+- **Phase 1 (#53):** tracking from the slip, settling, and My bets with views and tags.
+- **Phase 2 (#59):** closing-line value, the profit chart, Track from the player drawer, and CSV export.
+- **Betslip sync (#58):** the slip itself, before a bet is placed, now follows the account too.
+- **Phase 3 (email nudges):** not started.
+
+Builds on accounts (`docs/auth-plan.md`, PRs #50-#52).
 
 ## The idea
 
@@ -154,11 +160,12 @@ The existing account deletion also deletes bets (cascade, plus an explicit delet
    - the My bets page with summary tiles, filters, and open and settled lists
    - Privacy page update, plus tests: settlement math (parlays with voids and pushes), grading of alternate lines,
      ownership (one user can't see or change another's bets), and the kickoff cutoff
-2. **Insight**:
-   - closing-line value per leg and beat-the-close
-   - the profit chart
-   - "Track" from the player drawer
-   - CSV export
+2. **Insight** (built in #59):
+   - **Closing-line value per leg and beat-the-close:** `market_fit.attach_bet_closing`, from the same consensus as the
+     board. Stored as `bet_legs.close_p`, `close_at` and `close_books`.
+   - **The profit chart:** from 10 settled bets.
+   - **"Track" from the player drawer:** under the play.
+   - **CSV export:** `GET /api/me/bets.csv`, one row per leg, for the current view.
 3. **Nudges** (Resend is set up): an optional email when a bet settles or a weekly summary, off by default with an
    unsubscribe link.
 
