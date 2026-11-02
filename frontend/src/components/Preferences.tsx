@@ -62,7 +62,7 @@ export default function Preferences({ books }: { books: string[] }) {
       <section className="card prefs-card">
         <h3 className="sub-h">Default sportsbook</h3>
         <div><BookSelect books={books} book={gameBook} allLabel="Every book (best price)" onChange={setGameBook} ariaLabel="Default sportsbook" /></div>
-        <p className="mut">The book game pages open at. You can still switch on any page.</p>
+        <p className="mut">The book Best props, Parlays and game pages open at. You can still switch on any page.</p>
       </section>
 
       <section className="card prefs-card">

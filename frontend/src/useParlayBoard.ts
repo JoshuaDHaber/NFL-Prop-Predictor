@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { api, type Filters } from "./api";
 import { getLeague } from "./league";
 import { buildBalancedLadders, buildLadderParlays, buildTdParlays, buildThreesLadders, defaultBook, filterGames, ladderProps, ladderTargets, LADDER_PLAYERS_PER_TEAM, parlaysByBook, THREES_PLAYERS } from "./parlays";
+import { usePref } from "./prefs";
 
 // Parlays rank by win probability, not EV, so they price every play (any EV) at the default market weight
 export const PARLAY_FILTERS: Filters = { kind: "all", side: "all", game: "all", book: "all", q: "", minEv: -1, marketWeight: null, flagged: false };
@@ -39,7 +40,9 @@ export function useParlayBoard(books: string[], chosenGames: string[], enabled: 
   const byBook = useMemo(() => parlaysByBook(gamePicks, corr), [gamePicks, corr]);
   // a page-wide sportsbook choice wins over the tab's own picker
   const chosenBook = preferredBook && books.includes(preferredBook) ? preferredBook : book;
-  const activeBook = chosenBook && books.includes(chosenBook) ? chosenBook : defaultBook(byBook, gamePicks);
+  // opening the tab: the visitor's default sportsbook from Preferences ("every book" isn't one book, so FanDuel then)
+  const [savedBook] = usePref("game_book");
+  const activeBook = chosenBook && books.includes(chosenBook) ? chosenBook : defaultBook(byBook, gamePicks, savedBook === "all" ? undefined : savedBook);
   // ladder parlays need each likely player's line ladder (alternate lines); shares the drawer's and slip's query cache
   const targets = useMemo(() => ladderTargets(activeBook ? gamePicks[activeBook] ?? [] : [], Math.min(24, Math.max(12, chosenGames.length * 8))), [activeBook, gamePicks, chosenGames]);
   const ladderQueries = useQueries({
@@ -76,7 +79,9 @@ export function useParlayBoard(books: string[], chosenGames: string[], enabled: 
   const parlayCounts = useMemo(() => Object.fromEntries(Object.entries(byBook).map(([b, ps]) => [b, ps.length])), [byBook]);
 
   return {
-    parlayCounts, loading, book: activeBook, setBook, parlays: (activeBook && byBook[activeBook]) || [], tdParlays, ladders, altProps,
+    // pickedBook: only a book the visitor chose (or a link carried), which is what goes in the address; a default left there
+    // would beat their saved sportsbook on the next visit
+    parlayCounts, loading, book: activeBook, pickedBook: book && books.includes(book) ? book : null, setBook, parlays: (activeBook && byBook[activeBook]) || [], tdParlays, ladders, altProps,
     laddersLoading: ladderQueries.some((q) => q.isLoading) || threesQueries.some((q) => q.isLoading),
   };
 }

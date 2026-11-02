@@ -32,7 +32,7 @@ import { useParlayBoard } from "./useParlayBoard";
 import Skeleton from "./components/Skeleton";
 import { BASE } from "./env";
 import Preferences from "./components/Preferences";
-import { PREFERRED_GAME_BOOK, usePref } from "./prefs";
+import { PREFERRED_GAME_BOOK, useBoardBook, usePref } from "./prefs";
 
 const PlayerDrawer = lazy(() => importOrReload(() => import("./components/PlayerDrawer")));
 const AdminPage = lazy(() => importOrReload(() => import("./components/AdminPage")));
@@ -73,7 +73,16 @@ export default function NbaApp() {
     window.scrollTo({ top: 0 });
   };
   const goTab = (t: Tab) => { pushedGame.current = false; setGameId(null); goSection(t); window.scrollTo({ top: 0 }); };
-  const [filters, setFilters] = useState<Filters>(filtersFromUrl);
+  const boardBook = useBoardBook();
+  const [filters, setFilters] = useState<Filters>(() => filtersFromUrl(boardBook));
+  // the account's sportsbook can arrive after the page opens (signing in on a new device): follow it, unless the board's book
+  // was changed here or came from a link
+  const lastBoardBook = useRef(boardBook);
+  useEffect(() => {
+    const was = lastBoardBook.current;
+    lastBoardBook.current = boardBook;
+    if (was !== boardBook) setFilters((f) => (f.book === was ? { ...f, book: boardBook } : f));
+  }, [boardBook]);
   const { selected, open: openPlayer, close: closePlayer, remember: rememberKind } = useSelectedPlayer();
   // the game page's sportsbook: a preference, remembered in this browser and the account (prefs.ts)
   const [gameBook, setGameBook] = usePref("game_book");
@@ -115,10 +124,10 @@ export default function NbaApp() {
   useEffect(() => {
     if (gameId) return;
     const dated = { date: datePick && datePick !== today ? datePick : null };
-    setParams(tab === "picks" || tab === "projections" ? { ...filterParams(filters, tab === "picks"), ...dated }
-      : tab === "parlays" ? { book: board.book, games: parlayGames.join(",") || null, ...dated }
+    setParams(tab === "picks" || tab === "projections" ? { ...filterParams(filters, tab === "picks", boardBook), ...dated }
+      : tab === "parlays" ? { book: board.pickedBook, games: parlayGames.join(",") || null, ...dated }
       : tab === "games" || tab === "injuries" ? dated : {});
-  }, [tab, gameId, filters, board.book, parlayGames, datePick, today]);
+  }, [tab, gameId, filters, board.pickedBook, parlayGames, datePick, today, boardBook]);
   const picks = useQuery({ queryKey: ["picks", debounced], queryFn: () => api.picks(debounced), enabled: tab === "picks", placeholderData: (p) => p });
   const slatePicks = useQuery({ queryKey: ["slate-picks", debounced.book, debounced.marketWeight],
     queryFn: () => api.picks({ ...debounced, kind: "all", side: "all", game: "all", q: "", minEv: 0, flagged: false, date: undefined }, 1000), enabled: onSlate });

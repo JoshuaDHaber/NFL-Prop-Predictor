@@ -53,16 +53,18 @@ export function useSection<T extends string>(slugs: Record<T, string>, league: L
 
 export const DEFAULT_FILTERS: Filters = { kind: "all", side: "all", game: "all", book: "all", q: "", minEv: 0.03, marketWeight: null, flagged: false };
 
-/** A shared link's Best props / Projections filters: ?market=rec&side=Over&game=<id>&book=DraftKings&q=name. */
-export function filtersFromUrl(): Filters {
+/** A shared link's Best props / Projections filters: ?market=rec&side=Over&game=<id>&book=DraftKings&q=name. With no book in
+ *  the link, the visitor's own (prefs.ts useBoardBook). */
+export function filtersFromUrl(defaultBook = "all"): Filters {
   const kind = param("market");
   const side = param("side");
   return { ...DEFAULT_FILTERS, kind: kind && kind in KIND_LABEL ? (kind as Kind) : "all", side: side === "Over" || side === "Under" ? side : "all",
-    game: param("game") ?? "all", book: param("book") ?? "all", q: param("q") ?? "" };
+    game: param("game") ?? "all", book: param("book") ?? defaultBook, q: param("q") ?? "" };
 }
 
-/** The query string for those filters (side and book only mean something on Best props). */
-export const filterParams = (f: Filters, picks: boolean) => ({
+/** The query string for those filters (side and book only mean something on Best props). The visitor's own default book is
+ *  left out, so the address never pins it: a later change in Preferences still applies on the next visit. */
+export const filterParams = (f: Filters, picks: boolean, defaultBook = "all") => ({
   market: f.kind !== "all" ? f.kind : null, side: picks && f.side !== "all" ? f.side : null, game: f.game !== "all" ? f.game : null,
-  book: picks && f.book !== "all" ? f.book : null, q: f.q.trim() || null,
+  book: picks && f.book !== defaultBook ? f.book : null, q: f.q.trim() || null,
 });

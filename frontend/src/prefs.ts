@@ -38,14 +38,25 @@ const listeners = new Set<() => void>();
 let onChange: ((p: Partial<Prefs>) => void) | null = null;
 export const setPrefsSink = (f: typeof onChange) => { onChange = f; };
 
+/** Settings picked since the page opened: still known when storage is blocked (private mode). */
+const picked = new Set<PrefKey>();
+/** Whether this browser holds a value for a setting: chosen here, on a game page or from the account, not just the default. */
+function isStored(k: PrefKey): boolean {
+  if (picked.has(k)) return true;
+  try { return localStorage.getItem(STORE[k][0]) != null; } catch { return false; }
+}
+
 function store<K extends PrefKey>(k: K, v: Prefs[K]) {
   const raw = STORE[k][2](v);
+  if (raw != null) picked.add(k); else picked.delete(k);
   try { raw == null ? localStorage.removeItem(STORE[k][0]) : localStorage.setItem(STORE[k][0], raw); } catch { /* private mode: not remembered */ }
 }
 
 /** Change settings here (and in the account, when signed in). */
 export function setPrefs(p: Partial<Prefs>, { save = true } = {}) {
-  const changed = (Object.keys(p) as PrefKey[]).filter((k) => p[k] !== undefined && p[k] !== current[k]);
+  // choosing the default value (FanDuel) still counts as choosing it, so it's stored the first time
+  const changed = (Object.keys(p) as PrefKey[]).filter((k) => p[k] !== undefined
+    && (p[k] !== current[k] || (!isStored(k) && STORE[k][2](p[k] as never) != null)));
   if (!changed.length) return;
   current = { ...current, ...p };
   changed.forEach((k) => store(k, current[k] as never));
@@ -54,9 +65,19 @@ export function setPrefs(p: Partial<Prefs>, { save = true } = {}) {
 }
 
 export const getPrefs = () => current;
-/** The settings that differ from the defaults: what a new account starts with. */
+/** The settings this browser has chosen (or that differ from the defaults): what a new account starts with. */
 export const changedPrefs = (): Partial<Prefs> =>
-  Object.fromEntries((Object.keys(DEFAULTS) as PrefKey[]).filter((k) => current[k] !== DEFAULTS[k]).map((k) => [k, current[k]]));
+  Object.fromEntries((Object.keys(DEFAULTS) as PrefKey[]).filter((k) => current[k] !== DEFAULTS[k] || isStored(k)).map((k) => [k, current[k]]));
+
+/** The sportsbook the visitor picked (Preferences, a game page or their account), or null if they never picked one. */
+export const chosenGameBook = (): string | null => (isStored("game_book") ? current.game_book : null);
+
+/** The book Best props opens at: the visitor's own sportsbook once they've picked one, else every book (the best price
+ *  anywhere). Someone who never picked keeps every book rather than the FanDuel default game pages use. */
+export function useBoardBook(): string {
+  usePrefs();
+  return chosenGameBook() ?? "all";
+}
 
 export function usePrefs(): Prefs {
   return useSyncExternalStore((cb) => (listeners.add(cb), () => listeners.delete(cb)), getPrefs);
