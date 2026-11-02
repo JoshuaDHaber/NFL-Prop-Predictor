@@ -1,4 +1,3 @@
-import { getToken } from "./auth";
 import { getLeague } from "./league";
 
 /** NFL markets, then the NBA's points, rebounds, assists and 3-pointers made. */
@@ -190,11 +189,9 @@ export interface NbaMeta {
 }
 export interface AltFetchResult { kinds: string[]; alt_quotes: number; linked: number; credits_remaining: string | null }
 
-/** fetch against the API (same origin), with the admin password when one is saved. */
+/** fetch against the API (same origin). Who's asking is the session cookie (the owner's account opens admin endpoints). */
 export async function request(path: string, init: RequestInit = {}): Promise<Response> {
-  const token = getToken();
-  const headers = { ...(init.headers as Record<string, string>), ...(token ? { Authorization: `Bearer ${encodeURIComponent(token)}` } : {}) };
-  return fetch(path, { ...init, headers });
+  return fetch(path, init);
 }
 
 /** League data lives under /api/nba/... for the NBA; admin and sync endpoints are shared. */
@@ -291,7 +288,7 @@ export const api = {
     if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail);
     return res.json();
   },
-  /** Admin page (needs the admin password). 403 means the password is missing or wrong. */
+  /** Admin page (the owner's account). 403: signed out, or not an admin account. */
   admin: async (): Promise<AdminState> => {
     const res = await request("/api/admin");
     if (!res.ok) throw Object.assign(new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail), { status: res.status });

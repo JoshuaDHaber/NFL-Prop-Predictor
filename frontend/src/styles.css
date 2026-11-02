@@ -358,9 +358,7 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
 .st-error { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
 .runlog { margin: 0; max-height: 320px; overflow: auto; font-size: 11px; line-height: 1.5; white-space: pre-wrap; color: var(--mut); }
 .admin-signin { max-width: 360px; margin-top: 20px; padding: 16px; display: flex; flex-direction: column; gap: 10px; overflow: visible; }
-.admin-signin p { margin: 0; } .admin-signin input { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; }
-@media (max-width: 600px) { .admin-signin input { font-size: 16px; } }
-.admin-signout { display: flex; justify-content: flex-end; }
+.admin-signin p { margin: 0; }
 
 /* ---------- injuries ---------- */
 .inj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 520px), 1fr)); gap: 12px; }
@@ -897,7 +895,6 @@ footer a { color: var(--ink); font-weight: 600; text-decoration: none; } footer 
 .auth-links .link { font-size: 13px; } .auth-links .link:disabled { color: var(--mut); cursor: default; }
 .auth-fine { margin: 18px 0 0; }
 .auth-age { margin: 0 0 16px; font-weight: 600; }
-.admin-signin .auth-or { margin: 6px 0 0; }
 
 .acct-avatar { flex: none; border-radius: 50%; object-fit: cover; display: inline-block; }
 .acct-initial { display: inline-flex; align-items: center; justify-content: center; background: var(--acc2); color: var(--on-acc2); font-weight: 700; line-height: 1; }

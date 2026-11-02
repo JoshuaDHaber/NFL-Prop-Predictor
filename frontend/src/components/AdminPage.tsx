@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import React, { Fragment, useEffect, useState } from "react";
 import { api, type CreditStatus, type ScheduleSlot, type SyncRun } from "../api";
-import { setToken, useAuth, useToken } from "../auth";
+import { useAuth } from "../auth";
 import { BASE } from "../env";
 import { timeAgo } from "../format";
 import { elapsedSeconds, localWhen, progressLine, untilText } from "../sync";
@@ -29,22 +29,15 @@ function RunLog({ id }: { id: number }) {
   return <pre className="runlog">{q.data.log.join("\n") || "(no output)"}{q.data.error ? `\n\n${q.data.error}` : ""}</pre>;
 }
 
-function SignIn({ wrong }: { wrong: boolean }) {
-  const qc = useQueryClient();
+/** The admin page signed out, or as an account that isn't the owner's: the owner's account is the only way in. */
+function SignIn() {
   const user = useAuth()?.user;
-  const [draft, setDraft] = useState("");
-  const save = () => { setToken(draft.trim()); setDraft(""); qc.invalidateQueries({ queryKey: ["admin"] }); };
   return (
     <div className="card admin-signin">
       <b>Admin</b>
       <p className="mut">{user ? <>The sync schedule, run log and credit balance are for the site owner. <b>{user.email}</b> isn't an admin account.</>
         : "The sync schedule, run log and credit balance are for the site owner. Sign in with the owner's account."}</p>
       {!user && <button className="primary" onClick={() => openSignIn()}>Sign in</button>}
-      <div className="auth-or"><span>or use the admin password</span></div>
-      {wrong && <p className="err">That password didn't work.</p>}
-      <input type="password" value={draft} placeholder="Admin password" autoComplete="current-password" autoFocus
-        onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && draft && save()} />
-      <button className={user ? "primary" : "primary outline"} disabled={!draft} onClick={save}>Unlock</button>
     </div>
   );
 }
@@ -53,12 +46,11 @@ function SignIn({ wrong }: { wrong: boolean }) {
  *  Standalone at /admin, or `embedded` as a tab of the main app (no page header of its own). */
 export default function AdminPage({ embedded = false }: { embedded?: boolean }) {
   const qc = useQueryClient();
-  const token = useToken();
   const who = useAuth()?.user?.email ?? "";
   const [open, setOpen] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const state = useQuery({
-    queryKey: ["admin", token, who], queryFn: api.admin, retry: false,
+    queryKey: ["admin", who], queryFn: api.admin, retry: false,
     refetchInterval: (q) => (q.state.data?.job.state === "running" ? 2000 : 30_000),
   });
   const runNow = useMutation({ mutationFn: api.runSlotNow, onSuccess: () => qc.invalidateQueries({ queryKey: ["admin"] }) });
@@ -66,21 +58,20 @@ export default function AdminPage({ embedded = false }: { embedded?: boolean }) 
   const hideOffshore = useMutation({ mutationFn: api.setHideOffshore, onSuccess: () => qc.resetQueries() });
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
 
-  const signOut = token && <button className="link" onClick={() => { setToken(""); qc.removeQueries({ queryKey: ["admin"] }); }}>Sign out</button>;
   const header = embedded ? null : (
     <header>
       <div>
         <h1><Logo /> Sync <span className="grad">admin</span></h1>
         <div className="sub"><a href={BASE}>← Back to the site</a></div>
       </div>
-      <div className="head-actions">{signOut}<ThemeToggle /></div>
+      <div className="head-actions"><ThemeToggle /></div>
     </header>
   );
   const page = (children: React.ReactNode, cls = "") => embedded
     ? <div className={`admin-page ${cls}`}>{children}</div>
     : <div className={`wrap admin-page ${cls}`}>{header}{children}</div>;
   const status = (state.error as { status?: number } | null)?.status;
-  if (status === 403 || status === 429) return page(<SignIn wrong={!!token} />);
+  if (status === 403) return page(<SignIn />);
   if (state.isLoading) return page(<Skeleton kind="cards" />);
   if (state.error || !state.data) return page(<p className="err">{(state.error as Error)?.message}</p>);
 
@@ -95,7 +86,6 @@ export default function AdminPage({ embedded = false }: { embedded?: boolean }) 
 
   return (
     page(<>
-      {embedded && signOut && <div className="admin-signout">{signOut}</div>}
 
       <RotateBanner league="NFL" k={c} />
       {d.credits_nba && <RotateBanner league="NBA" k={d.credits_nba} />}
