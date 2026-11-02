@@ -1,7 +1,8 @@
 # Auth plan: Google + email magic link
 
-Status: phase 1 built on `feat/auth` (2026-10-31), with the answers below folded in: admin by account (`ADMIN_EMAILS`) and a
-preferences page (theme, default sportsbook, Best props toggles) are in phase 1, and new accounts confirm 21+ once.
+Status (2026-11-02): all three phases are built. The PR-by-PR list is under "Where it stands" below. Phase 1 shipped in
+#50 (2026-10-31) with the answers below folded in: admin by account (`ADMIN_EMAILS`) and a preferences page (theme, default
+sportsbook, Best props toggles) came in phase 1, and new accounts confirm 21+ once.
 Changes from the draft: no Authlib. The Google flow is ~60 lines on `requests`; the state and nonce sit in a short-lived cookie,
 and the ID token comes straight from Google's token endpoint, so its claims are checked but not its signature (OIDC Core
 3.1.3.7). Auth routes live under `/api/auth/` (`/api/auth/prefs` instead of `/api/me/prefs`).
@@ -13,8 +14,8 @@ and the ID token comes straight from Google's token endpoint, so its claims are 
 - Signing in stays **optional**: every board stays public. Phase 1 only adds accounts; phase 2 gives them something to do
   (the betslip and preferences follow you between devices).
 - No passwords are stored, ever. No Facebook.
-- The admin password (`ADMIN_TOKEN`, Bearer header) keeps working unchanged in phase 1; phase 3 can replace it with
-  "signed in as an email in `ADMIN_EMAILS`".
+- The admin password (`ADMIN_TOKEN`, Bearer header) kept working in phase 1. Phase 3 replaced it with "signed in as an
+  email in `ADMIN_EMAILS`" and retired the password (#57).
 
 ## How it fits the current app
 
@@ -184,6 +185,34 @@ middleware exemption must fake a remote client.
    bet tracker.
 3. **Admin via account**: `is_admin` is also true for a signed-in user in `ADMIN_EMAILS`; retire typing the admin password
    once that works.
+
+## Where it stands (2026-11-02)
+
+**Phase 1: accounts.**
+- **#50:** Google and email-link/code sign-in, the 21+ check, httpOnly cookie sessions, the preferences page, admin by
+  account, and the privacy policy.
+- **#51:** Model check and Admin shown only to the owner, with the grades endpoints admin-only.
+- **#52:** Sign out also forgot the old admin password. Best props and Parlays open at your sportsbook.
+
+**Phase 2: make accounts useful.**
+- Preferences follow the account (#50). Settings later added to the same `/api/auth/prefs`:
+  - your teams and favorite players (#54)
+  - the main tabs' order (#56)
+- **The betslip follows the account (#58):**
+  - legs and stakes only; the betting state and "all books" stay per device
+  - `GET`/`PUT /api/me/slip`, where a stale save gets a 409 and is merged
+  - first sign-in merges a signed-out slip
+- **The bet tracker:** `docs/bet-tracker-plan.md`, #53 and #59.
+- **Who's Hot (#55):** a public tab, not an account feature, but built in the same stretch.
+- **Not done: the league in the account.** It stays in the browser, since the URL already says which league you're in.
+
+**Phase 3: admin via account.**
+- **Admin by account:** #50.
+- **The password retired (#57):** admin is now the `ADMIN_EMAILS` account or a request from the host itself (a laptop
+  running the app, or a `railway ssh` shell, the way back in). `ADMIN_TOKEN` can be deleted from Railway once #57 is live.
+
+**Next, by choice:** email alerts, the tracker plan's phase 3. Resend is set up, and favorites and Who's Hot give people
+things to hear about. They need an opt-in on Preferences and an unsubscribe link in every email.
 
 ## Open questions for you
 
