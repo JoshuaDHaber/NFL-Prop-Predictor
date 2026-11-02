@@ -12,21 +12,23 @@ interface Props {
   onChange: (f: Filters) => void;
   games: Game[];
   showPickControls: boolean;
+  /** The market menu's "every market" entry; by default "All markets" on Best props, "All projections" elsewhere. */
+  allMarkets?: string;
 }
 
 /** The market's name in the bar and its chip: "All markets", "Receiving yds". */
-const marketName = (k: Kind | "all", picks: boolean) => (k === "all" ? (picks ? "All markets" : "All projections") : KIND_LABEL[k]);
+const marketName = (k: Kind | "all", picks: boolean, all?: string) => (k === "all" ? all ?? (picks ? "All markets" : "All projections") : KIND_LABEL[k]);
 
 /** Best props and Projections filters in one bar (market, side, game, search, and the finer settings behind Filters), with
  *  whatever differs from the defaults repeated below as chips that clear it. */
-export default function Controls({ filters, onChange, games, showPickControls: picks }: Props) {
+export default function Controls({ filters, onChange, games, showPickControls: picks, allMarkets }: Props) {
   const set = (patch: Partial<Filters>) => onChange({ ...filters, ...patch });
   const nba = getLeague() === "nba";
   const sideName = (s: Filters["side"]) => (s === "all" ? "Overs and unders" : isYesNo(filters.kind) ? playLabel(filters.kind as Kind, s, 0.5) : `${s}s`);
   const game = games.find((g) => g.game_id === filters.game);
   const finer = picks ? [filters.minEv !== DEFAULT_FILTERS.minEv, filters.marketWeight !== DEFAULT_FILTERS.marketWeight, filters.flagged].filter(Boolean).length : 0;
   const chips: [string, Partial<Filters>][] = [
-    ...(filters.kind !== "all" ? [[marketName(filters.kind, picks), { kind: "all" }] as [string, Partial<Filters>]] : []),
+    ...(filters.kind !== "all" ? [[marketName(filters.kind, picks, allMarkets), { kind: "all" }] as [string, Partial<Filters>]] : []),
     ...(picks && filters.side !== "all" ? [[sideName(filters.side), { side: "all" }] as [string, Partial<Filters>]] : []),
     ...(game ? [[game.label, { game: "all" }] as [string, Partial<Filters>]] : []),
     ...(filters.q.trim() ? [[`"${filters.q.trim()}"`, { q: "" }] as [string, Partial<Filters>]] : []),
@@ -37,7 +39,7 @@ export default function Controls({ filters, onChange, games, showPickControls: p
   return (
     <section className="controls" aria-label="Filters">
       <div className="filter-bar">
-        <Menu align="start" ariaLabel={`Market: ${marketName(filters.kind, picks)}`} label={<><MarketIcon k={filters.kind} />{marketName(filters.kind, picks)}</>}>
+        <Menu align="start" ariaLabel={`Market: ${marketName(filters.kind, picks, allMarkets)}`} label={<><MarketIcon k={filters.kind} />{marketName(filters.kind, picks, allMarkets)}</>}>
           {(close) => (nba ? NBA_MARKET_TABS : MARKET_TABS).map((k) => typeof k === "object" ? (
             <div key={k.label} className="menu-group">
               <div className="menu-group-h">{k.label}</div>
@@ -49,7 +51,7 @@ export default function Controls({ filters, onChange, games, showPickControls: p
             </div>
           ) : (
             <MenuItem key={k} on={filters.kind === k} onClick={() => { close(); set({ kind: k }); }}>
-              <span className="with-icon"><MarketIcon k={k} />{marketName(k, picks)}</span>
+              <span className="with-icon"><MarketIcon k={k} />{marketName(k, picks, allMarkets)}</span>
             </MenuItem>
           ))}
         </Menu>

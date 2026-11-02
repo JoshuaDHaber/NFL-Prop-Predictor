@@ -231,6 +231,15 @@ export interface GradeReport {
   clv?: ClvLine[]; clv_by_market?: ClvLine[]; market_fit?: MarketFit | null;
 }
 
+/** A Who's hot row: a priced pick whose last `window` games mostly cleared its line (backend engine/hot.py). */
+export interface HotPick extends Pick {
+  window: number; hits: number; streak: number;
+  /** The last `window` games' values, oldest first. */
+  recent: number[]; avg: number;
+  /** His average in the games before those, when there are any. */
+  prior_avg: number | null;
+}
+
 /** marketWeight: how much to trust the market, 0-1, or null for the weights fitted per market and time to kickoff. */
 export interface Filters { kind: Kind | "all"; side: "all" | "Over" | "Under"; game: string; book: string; q: string; minEv: number; marketWeight: number | null; flagged: boolean;
   /** NBA only: one Eastern game date ("YYYY-MM-DD"), or every date when unset. */
@@ -251,6 +260,10 @@ export const api = {
   picks: (f: Filters, limit = 300) =>
     get<Pick[]>(lg("picks"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, side: f.side, game_id: f.game, gameday: f.date, book: bookParam(f.book), q: f.q, min_ev: f.minEv, market_weight: f.marketWeight ?? undefined,
       include_flagged: f.flagged, limit }),
+  /** Players whose last `window` games cleared tonight's line (Under: stayed below it), best run first. */
+  hot: (f: Filters, window: number, side: "Over" | "Under") =>
+    get<HotPick[]>(lg("hot"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, side, game_id: f.game, gameday: f.date,
+      book: bookParam(f.book), q: f.q, window }),
   projections: (f: Filters) => get<Projection[]>(lg("projections"), { kind: f.kind, exclude_kind: f.kind === "all" ? "td" : undefined, game_id: f.game, gameday: f.date, q: f.q }),
   /** Every market for every projected player, anytime TD included (the player compare tab). */
   allProjections: () => get<Projection[]>(lg("projections")),

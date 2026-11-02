@@ -13,13 +13,14 @@ from sqlalchemy.orm import Session
 
 from .. import books, config, market_fit, standings
 from ..db import NbaAltLine, NbaOddsLine, NbaProjection, NbaRun, SessionLocal, current_lines
+from ..engine import hot as hotm
 from ..engine import moneyline as mlm
 from ..engine import odds
 from ..engine.ladder import build_ladder, ladder_curve
 from ..engine.market import weight_for
 from ..engine.picks import best_picks, build_picks
 from ..engine.search import rank_hits
-from ..schemas import (AutoSync, BacktestStat, Correlations, Game, GameLogEntry, GradeReport, HistoryPoint, InjuredPlayer, InjuryReport, LadderOut,
+from ..schemas import (AutoSync, BacktestStat, Correlations, Game, GameLogEntry, GradeReport, HistoryPoint, HotOut, InjuredPlayer, InjuryReport, LadderOut,
                        MoneylineGame, NbaMeta, NbaRunInfo, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut)
 from . import espn, grading, model
 from . import odds as nba_odds
@@ -174,6 +175,53 @@ def picks(kind: Optional[NbaKind] = None, side: Optional[Literal["Over", "Under"
     return _records(df.head(limit))
 
 
+@router.get("/hot", response_model=list[HotOut])
+def hot(kind: Optional[NbaKind] = None, side: Literal["Over", "Under"] = "Over", game_id: Optional[str] = None,
+        gameday: Optional[str] = None, q: Optional[str] = None, book: Optional[str] = None,
+        window: int = Query(10, ge=3, le=30), limit: int = Query(200, ge=1, le=1000), db: Session = Depends(get_db)):
+    """Who's hot: players whose last `window` games mostly cleared the line they're posted at now (Under: stayed below it)."""
+    run = latest_run(db)
+    if not run:
+        return []
+    df = all_picks(db, run, None, book)
+    if df.empty:
+        return []
+    df = df[df.side == side]
+    if kind:
+        df = df[df.kind == kind]
+    if game_id:
+        df = df[df.game_id == game_id]
+    if gameday:
+        df = df[df.gameday == gameday]
+    if q:
+        df = df[df.name.str.contains(q, case=False, regex=False)]
+    return hotm.hot_rows(df.replace({np.nan: None}), _hot_logs(run.id, run.season, sorted(df.player_id.unique()), int(time.time() // 10800)), window)[:limit]
+
+
+_hot_cache: dict = {}
+
+
+def _hot_logs(run_id: int, season: int, player_ids: list, slot: int) -> dict:
+    """(player_id, kind) -> values oldest first, the drawer's logs for every player asked about. Kept per run and
+    three-hour slot (ESPN's current-season logs are re-read after three hours), so a page view reads the disk cache once."""
+    key = (run_id, slot)
+    if _hot_cache.get("key") != key:
+        _hot_cache.clear()
+        _hot_cache["key"], _hot_cache["logs"] = key, {}
+    have = _hot_cache["logs"]
+    todo = [pid for pid in player_ids if pid not in have]
+    if todo:
+        logs = espn.gamelogs(todo, [season - 1, season], season, log=lambda _: None)
+        logs = logs[logs["min"] > 0]
+        by = {pid: g for pid, g in logs.groupby("player_id")}
+        for pid in todo:
+            g = by.get(pid)
+            # the drawer's double- and triple-double logs count the stats in double figures; the line asks yes or no
+            have[pid] = {} if g is None else {k: [float(e.yards >= model.DOUBLES[k]) if k in model.DOUBLES else e.yards for e in v]
+                                               for k, v in _logs_from(g.tail(120)).items()}
+    return {(pid, k): v for pid in player_ids for k, v in have[pid].items()}
+
+
 @router.get("/correlations", response_model=Correlations)
 def correlations(db: Session = Depends(get_db)):
     """The latest NBA run's same-game correlations (same shape as /api/correlations), for pricing parlays."""
@@ -285,7 +333,11 @@ def _game_logs(player_id: str, season: int, n: int = 120) -> dict:
     cached ESPN logs: the drawer charts the last 12 and works out hit rates from the rest. For double- and
     triple-doubles the value is how many stats reached double figures."""
     logs = espn.gamelogs([player_id], [season - 1, season], season, log=lambda _: None)
-    logs = logs[logs["min"] > 0].tail(n)
+    return _logs_from(logs[logs["min"] > 0].tail(n))
+
+
+def _logs_from(logs: pd.DataFrame) -> dict:
+    """One player's game log rows (oldest first) as GameLogEntry lists per stat."""
     label = lambda d: datetime.fromisoformat(d).strftime("%b %-d")  # noqa: E731
     return {k: [GameLogEntry(label=label(r.date), opp=r.opp or "", yards=float(model.tens(r) if k in model.DOUBLES else model.actual(r, k)),
                              volume=float(r.min), season=int(r.season), home=bool(r.home))
@@ -337,5 +389,6 @@ def player_history(player_id: str, kind: NbaKind, db: Session = Depends(get_db))
 
 def clear_caches():
     _pick_cache.clear()
+    _hot_cache.clear()
     _priced_cache.clear()
     _injuries.cache_clear()

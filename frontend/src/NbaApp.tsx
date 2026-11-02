@@ -8,6 +8,7 @@ import Methodology from "./components/Methodology";
 import { routeClick } from "./components/NavLink";
 import { useBetSlip } from "./BetSlipContext";
 import { type DrawerPick, useSelectedPlayer } from "./playerHash";
+import HotBoard, { hotTiles, useHotBoard } from "./components/HotBoard";
 import HowToRead from "./components/HowToRead";
 import PageHead from "./components/PageHead";
 import ResponsibleGaming from "./components/ResponsibleGaming";
@@ -38,18 +39,18 @@ import { PREFERRED_GAME_BOOK, useBoardBook, usePref } from "./prefs";
 const PlayerDrawer = lazy(() => importOrReload(() => import("./components/PlayerDrawer")));
 const AdminPage = lazy(() => importOrReload(() => import("./components/AdminPage")));
 
-type Tab = "games" | "picks" | "parlays" | "injuries" | "projections" | "compare" | "check" | "admin" | "account" | "bets";
-const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["injuries", "Injuries"], ["projections", "Projections"], ["compare", "Compare"],
+type Tab = "games" | "picks" | "hot" | "parlays" | "injuries" | "projections" | "compare" | "check" | "admin" | "account" | "bets";
+const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["hot", "Who's hot"], ["injuries", "Injuries"], ["projections", "Projections"], ["compare", "Compare"],
   ["check", "Model check"], ["admin", "Admin"]];
 /** Sections under the top bar's More menu. */
 const MORE: Tab[] = ["injuries", "compare", "check", "admin"];
 /** Sections only the site owner sees (signed in with an ADMIN_EMAILS account, or the admin password): meta.can_write. */
 const OWNER_ONLY: Tab[] = ["check", "admin"];
 /** Each section's path under /nba: /nba/props, /nba/parlays, ... (Games is the front page). */
-const SLUGS: Record<Tab, string> = { games: "", picks: "props", parlays: "parlays", injuries: "injuries", projections: "projections", compare: "compare",
+const SLUGS: Record<Tab, string> = { games: "", picks: "props", hot: "hot", parlays: "parlays", injuries: "injuries", projections: "projections", compare: "compare",
   check: "model", admin: "admin", account: "account", bets: "bets" };
 /** Each section's page title (Best props and Parlays add their sportsbook picker). */
-const TITLE: Record<Tab, string> = { games: "Games", picks: "Best props", parlays: "Parlays", injuries: "Injury report", projections: "Projections",
+const TITLE: Record<Tab, string> = { games: "Games", picks: "Best props", hot: "Who's hot", parlays: "Parlays", injuries: "Injury report", projections: "Projections",
   compare: "Compare players", check: "Model check", admin: "Admin", account: "Preferences", bets: "My bets" };
 const gameFromHash = () => new URLSearchParams(window.location.hash.slice(1)).get("game");
 /** "Tue Oct 20" from an Eastern date. */
@@ -125,7 +126,7 @@ export default function NbaApp() {
   useEffect(() => {
     if (gameId) return;
     const dated = { date: datePick && datePick !== today ? datePick : null };
-    setParams(tab === "picks" || tab === "projections" ? { ...filterParams(filters, tab === "picks", boardBook), ...dated }
+    setParams(tab === "picks" || tab === "projections" || tab === "hot" ? { ...filterParams(filters, tab !== "projections", boardBook), ...(tab === "hot" && { side: null }), ...dated }
       : tab === "parlays" ? { book: board.pickedBook, games: parlayGames.join(",") || null, ...dated }
       : tab === "games" || tab === "injuries" ? dated : {});
   }, [tab, gameId, filters, board.pickedBook, parlayGames, datePick, today, boardBook]);
@@ -135,6 +136,7 @@ export default function NbaApp() {
   const moneylines = useQuery({ queryKey: ["moneylines", debounced.book, debounced.marketWeight], queryFn: () => api.moneylines(debounced.book, debounced.marketWeight),
     enabled: onSlate, placeholderData: (p) => p });
   const injuries = useQuery({ queryKey: ["injuries"], queryFn: api.injuries, enabled: tab === "injuries" || onSlate, refetchInterval: 15 * 60_000 });
+  const hot = useHotBoard(debounced, tab === "hot");
   const projections = useQuery({ queryKey: ["projections", debounced], queryFn: () => api.projections(debounced), enabled: tab === "projections", placeholderData: (p) => p });
 
   if (meta.isLoading) return <div className="wrap"><Skeleton kind="page" /></div>;
@@ -160,6 +162,7 @@ export default function NbaApp() {
         meta: `${p.pos} ${p.team} ${matchup(p.opp, p.home)}`, value: <>{fmtProj(p.kind, p.mu)} {!isYesNo(p.kind) && <em>{fmtSd(p.kind, p.sd)}</em>}</>, caption: projCaption(p.kind),
         onClick: () => select(p.player_id, p.kind),
       }))
+      : tab === "hot" ? hotTiles(hot.query.data ?? [], (p) => select(p.player_id, p.kind, { side: p.side, line: p.line, book: p.book }))
       : [];
   const openedGame = gameId ? m.games.find((g) => g.game_id === gameId) : undefined;
   const pageBook = gameBook === "all" || m.books.includes(gameBook) ? gameBook : m.books.includes(PREFERRED_GAME_BOOK) ? PREFERRED_GAME_BOOK : m.books[0] ?? "all";
@@ -168,7 +171,7 @@ export default function NbaApp() {
   const hasLines = Object.keys(m.odds).length > 0;
   const hasProps = NBA_KINDS.some((k) => m.odds[k]?.lines);
   const latestOdds = oddsAt;
-  const pricedPage = !!openedGame || tab === "games" || tab === "picks" || tab === "parlays";
+  const pricedPage = !!openedGame || tab === "games" || tab === "picks" || tab === "hot" || tab === "parlays";
   const href = (t: Tab) => leaguePath("nba", SLUGS[t]);
   const seasonLabel = m.run ? `${m.run.season - 1}-${String(m.run.season).slice(2)}` : "";
 
@@ -186,7 +189,7 @@ export default function NbaApp() {
         <div className="banner">{m.has_odds_key ? "No sportsbook lines are loaded yet. Moneylines come with every sync; player props are fetched the day of each game, once books post them."
           : "No NBA odds key is set (ODDS_API_KEY_NBA), so there are projections but no lines."}</div>
       )}
-      {m.run && hasLines && !hasProps && (tab === "picks" || tab === "parlays") && (
+      {m.run && hasLines && !hasProps && (tab === "picks" || tab === "hot" || tab === "parlays") && (
         <div className="banner">Player props aren't loaded yet. They're fetched the day of each game (10 AM, 2 PM and 6 PM ET syncs).</div>
       )}
 
@@ -200,6 +203,7 @@ export default function NbaApp() {
       ) : <>
         <PageHead
           title={tab === "picks" ? <>Best props at <BookSelect inline books={m.books} book={filters.book} allLabel="every book" onChange={(b) => setFilters({ ...filters, book: b })} /></>
+            : tab === "hot" ? <>Who's hot at <BookSelect inline books={m.books} book={filters.book} allLabel="every book" onChange={(b) => setFilters({ ...filters, book: b })} /></>
             : tab === "parlays" && board.book ? <>Parlays at <BookSelect inline books={m.books} book={board.book} onChange={board.setBook} /></>
             : TITLE[tab]}
           aside={dates.length > 1 && tab !== "compare" && tab !== "check" && tab !== "account" && tab !== "bets" && (
@@ -210,10 +214,11 @@ export default function NbaApp() {
           )} />
         <TopTiles tiles={tiles} />
         {tab === "games" && <Games games={dateGames} picks={slatePicks.data ?? []} moneylines={moneylines.data ?? []} injuries={injuries.data} onOpen={openGame} />}
-        {(tab === "picks" || tab === "projections") && <Controls filters={filters} onChange={setFilters} games={dateGames} showPickControls={tab === "picks"} />}
+        {(tab === "picks" || tab === "projections" || tab === "hot") && <Controls filters={filters} onChange={setFilters} games={dateGames} showPickControls={tab === "picks"} allMarkets={tab === "hot" ? "All markets" : undefined} />}
       {tab === "picks" && <HowToRead />}
         {tab === "picks" && (picks.isLoading ? <Skeleton kind="rows" /> :
           <PicksTable picks={picks.data ?? []} onSelect={(p) => select(p.player_id, p.kind, { side: p.side, line: p.line, book: p.book })} />)}
+        {tab === "hot" && <HotBoard board={hot} onSelect={(p) => select(p.player_id, p.kind, { side: p.side, line: p.line, book: p.book })} />}
         {tab === "parlays" && (board.loading ? <Skeleton kind="cards" /> :
           <ParlayTiles book={board.book} parlayCounts={board.parlayCounts} onBook={board.setBook} games={dateGames} selectedGames={chosenGames} onGames={setParlayGames} parlays={board.parlays}
             tdParlays={board.tdParlays} ladders={board.ladders} altProps={board.altProps} laddersLoading={board.laddersLoading} onSelect={select} />)}

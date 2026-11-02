@@ -179,6 +179,16 @@ class PickOut(BaseModel):
     dvp_n: Optional[int] = None
 
 
+class HotOut(PickOut):
+    """A Who's hot row (engine/hot.py): a priced pick whose last `window` games mostly cleared its line."""
+    window: int
+    hits: int                          # of the last `window` games, how many cleared the line on this side
+    streak: int                        # games in a row, most recent back, that cleared it
+    recent: list[float]                # those games' values, oldest first
+    avg: float                         # their average
+    prior_avg: Optional[float] = None  # his average in the games before them (this season and last), when there are any
+
+
 class GradeLine(BaseModel):
     """Record and units (1 unit a pick at the logged price) for one slice of the graded board."""
     label: str
