@@ -28,13 +28,14 @@ from .db import AltLine, OddsLine, Projection, Run, SessionLocal, SyncRun, curre
 from .engine import data, model, odds
 from .engine import injuries as injm
 from .engine import moneyline as mlm
+from .engine import hot as hotm
 from .engine import td as tdm
 from .engine.ladder import build_ladder, ladder_curve
 from .engine.market import weight_for
 from .engine.picks import best_picks, build_picks
 from .engine.search import rank_hits
 from .nba import routes as nba_routes
-from .schemas import (AdminState, Correlations, GradeReport, AltFetchResult, AutoSync, CreditStatus, KeyBalance, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, HistoryPoint, InjuryReport, LadderOut, ByeTeam, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, PickOut, PlayerDetail, PlayerHit, ProjectionOut,
+from .schemas import (AdminState, Correlations, GradeReport, AltFetchResult, AutoSync, CreditStatus, KeyBalance, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, HistoryPoint, InjuryReport, LadderOut, ByeTeam, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, HotOut, PickOut, PlayerDetail, PlayerHit, ProjectionOut,
                       RefreshRequest, RunInfo, SiteSettings)
 
 @asynccontextmanager
@@ -227,6 +228,7 @@ def _release_memory():
     _stats.cache_clear()   # game logs in the player drawer come from the stats files, which a sync just refreshed
     _pick_cache.clear()
     _priced_cache.clear()
+    _hot_cache.clear()
     market_fit.clear_cache()
     nba_routes.clear_caches()
     gc.collect()
@@ -365,6 +367,47 @@ def picks(kind: Optional[Kind] = None, exclude_kind: Optional[Kind] = None, side
     if q:
         df = df[df.name.str.contains(q, case=False, regex=False)]
     return records(df.head(limit))
+
+
+@app.get("/api/hot", response_model=list[HotOut])
+def hot(kind: Optional[Kind] = None, exclude_kind: Optional[Kind] = None, side: Literal["Over", "Under"] = "Over",
+        game_id: Optional[str] = None, q: Optional[str] = None, book: Optional[str] = None,
+        window: int = Query(5, ge=3, le=20), limit: int = Query(200, ge=1, le=1000), db: Session = Depends(get_db)):
+    """Who's hot: players whose last `window` games mostly cleared the line they're posted at now (Under: stayed below
+    it), with the board's price and EV at that line. Lines come from the board at `book` (default: the best price)."""
+    run = latest_run(db)
+    if not run:
+        return []
+    df = all_picks(db, run, None, book)
+    if df.empty:
+        return []
+    df = df[df.side == side]
+    if kind:
+        df = df[df.kind == kind]
+    if exclude_kind:
+        df = df[~df.kind.isin(_excluded(exclude_kind))]
+    if game_id:
+        df = df[df.game_id == game_id]
+    if q:
+        df = df[df.name.str.contains(q, case=False, regex=False)]
+    return hotm.hot_rows(df.replace({np.nan: None}), _hot_logs(run.id, run.season, db), window)[:limit]
+
+
+_hot_cache: dict = {}
+
+
+def _hot_logs(run_id: int, season: int, db: Session) -> dict:
+    """(player_id, kind) -> values oldest first, for every player projected in the run (the drawer's logs, all at once)."""
+    if run_id not in _hot_cache:
+        _hot_cache.clear()
+        kinds: dict = {}
+        for pid, k in db.execute(select(Projection.player_id, Projection.kind).where(Projection.run_id == run_id)).all():
+            kinds.setdefault(pid, []).append(k)
+        st = _stats(season)
+        st = st[st.player_id.isin(kinds)].sort_values("t")
+        _hot_cache[run_id] = {(pid, k): [e.yards for e in entries] for pid, g in st.groupby("player_id")
+                              for k, entries in _logs_from(g.tail(60), kinds[pid]).items()}
+    return _hot_cache[run_id]
 
 
 @app.get("/api/correlations", response_model=Correlations)
@@ -566,7 +609,11 @@ def _game_logs(player_id: str, kinds: list[str], season: int, n: int = 60) -> di
     """The player's games per market this season and last (up to the last n): the drawer charts the last 12 and works
     out hit rates from the rest."""
     st = _stats(season)
-    g = st[st.player_id == player_id].sort_values("t").tail(n)
+    return _logs_from(st[st.player_id == player_id].sort_values("t").tail(n), kinds)
+
+
+def _logs_from(g: pd.DataFrame, kinds) -> dict:
+    """One player's game log rows (oldest first) as GameLogEntry lists per market."""
     out = {}
     for kind in kinds:
         if kind == "td":  # touchdowns scored per game (rushing + receiving) against touches
