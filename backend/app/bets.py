@@ -183,6 +183,21 @@ def _game(db: Session, league: str, game_id: str, player_id: str) -> Optional[di
     return dict(name=row.name, team=row.team, opp=row.opp, gameday=row.gameday, kickoff=ko)
 
 
+def leg_ev_close(leg: BetLeg) -> Optional[float]:
+    return None if leg.close_p is None else round(leg.close_p * to_decimal(leg.odds) - 1, 4)
+
+
+def bet_ev_close(bet: Bet) -> Optional[float]:
+    """The bet's price measured at the close: its legs' closing chances multiplied (as if independent: same-game legs
+    move together, so a same-game parlay's is a rough guide), times its recorded odds, minus 1. None until every leg has one."""
+    if not bet.legs or any(leg.close_p is None for leg in bet.legs):
+        return None
+    p = 1.0
+    for leg in bet.legs:
+        p *= leg.close_p
+    return round(p * to_decimal(bet.odds) - 1, 4)
+
+
 def _out(bet: Bet, now: datetime) -> BetOut:
     settled = bet.status != "open"
     return BetOut(
@@ -190,10 +205,11 @@ def _out(bet: Bet, now: datetime) -> BetOut:
         payout=bet.payout, profit=round(bet.payout - bet.stake, 2) if settled and bet.payout is not None else None,
         to_pay=round(bet.stake * to_decimal(bet.odds), 2), settled_by=bet.settled_by, notes=bet.notes, tags=bet.tags or [],
         placed_at=bet.placed_at.isoformat(), settled_at=bet.settled_at.isoformat() if bet.settled_at else None,
-        started=min(leg.kickoff for leg in bet.legs) <= now,
+        started=min(leg.kickoff for leg in bet.legs) <= now, ev_close=bet_ev_close(bet),
         legs=[BetLegOut(id=leg.id, game_id=leg.game_id, gameday=leg.gameday, kickoff=leg.kickoff.isoformat(), player_id=leg.player_id,
                         name=leg.name, team=leg.team, opp=leg.opp, kind=leg.kind, side=leg.side, line=leg.line, odds=leg.odds,
-                        alt=leg.alt, prob=leg.prob, ev=leg.ev, actual=leg.actual, result=leg.result) for leg in bet.legs])
+                        alt=leg.alt, prob=leg.prob, ev=leg.ev, actual=leg.actual, result=leg.result,
+                        close_p=leg.close_p, ev_close=leg_ev_close(leg)) for leg in bet.legs])
 
 
 def summarize(bets: list) -> BetSummary:
@@ -205,7 +221,9 @@ def summarize(bets: list) -> BetSummary:
         running += (b.payout or 0) - b.stake if b.status in ("won", "lost") else 0
         curve.append((b.settled_at.isoformat(), round(running, 2)))
     open_ = [b for b in bets if b.status == "open"]
-    return BetSummary(wins=sum(b.status == "won" for b in bets), losses=sum(b.status == "lost" for b in bets),
+    clv = [e for b in bets if b.status != "void" and (e := bet_ev_close(b)) is not None]
+    return BetSummary(clv_n=len(clv), beat_close=round(sum(e > 0 for e in clv) / len(clv), 4) if clv else None,
+                      ev_close=round(sum(clv) / len(clv), 4) if clv else None,wins=sum(b.status == "won" for b in bets), losses=sum(b.status == "lost" for b in bets),
                       pushes=sum(b.status in ("push", "void") for b in bets), open=len(open_),
                       open_stake=round(sum(b.stake for b in open_), 2), staked=round(staked, 2), profit=round(profit, 2),
                       roi=round(profit / staked, 4) if staked else None, curve=curve)
@@ -224,13 +242,47 @@ def my_bets(league: Optional[str] = Query(None, pattern="^(nfl|nba)$"), book: Op
     """This person's tracked bets, newest first, and their record, for the filters given: a league, a sportsbook, a tag
     (ignoring case) and the last `months` calendar months (by when the bet was placed)."""
     now = datetime.utcnow()
+    every, bets = _view(db, user, league, book, tag, months, now)
+    tags = sorted({t.lower(): t for b in every for t in b.tags or []}.values(), key=str.lower)
+    return BetsOut(bets=[_out(b, now) for b in bets], summary=summarize(bets), books=sorted({b.book for b in every}), tags=tags)
+
+
+def _view(db: Session, user: User, league, book, tag, months, now: datetime) -> tuple:
+    """(every bet of this person's, the ones in this view), newest first."""
     every = db.scalars(select(Bet).where(Bet.user_id == user.id).order_by(Bet.placed_at.desc(), Bet.id.desc())).all()
     since = months_ago(now, months) if months else None
     want = tag.strip().lower() if tag else None
-    bets = [b for b in every if (not league or b.league == league) and (not book or b.book == book)
-            and (not want or want in {t.lower() for t in b.tags or []}) and (not since or b.placed_at >= since)]
-    tags = sorted({t.lower(): t for b in every for t in b.tags or []}.values(), key=str.lower)
-    return BetsOut(bets=[_out(b, now) for b in bets], summary=summarize(bets), books=sorted({b.book for b in every}), tags=tags)
+    return every, [b for b in every if (not league or b.league == league) and (not book or b.book == book)
+                   and (not want or want in {t.lower() for t in b.tags or []}) and (not since or b.placed_at >= since)]
+
+
+CSV_COLUMNS = ["bet_id", "placed_at", "league", "sportsbook", "type", "stake", "odds", "status", "payout", "profit", "settled_at",
+               "tags", "ev_at_close", "leg_player", "leg_team", "leg_opponent", "leg_game_date", "leg_market", "leg_side", "leg_line",
+               "leg_odds", "leg_alt_line", "leg_result", "leg_actual", "leg_close_chance"]
+
+
+@router.get("/bets.csv")
+def export_csv(league: Optional[str] = Query(None, pattern="^(nfl|nba)$"), book: Optional[str] = None, tag: Optional[str] = None,
+               months: Optional[int] = Query(None, ge=1, le=120), user: User = Depends(require_member), db: Session = Depends(auth.get_db)):
+    """The bets in this view as a spreadsheet: one row per leg, the bet's own columns repeated on each of its legs."""
+    import csv
+    import io
+    now = datetime.utcnow()
+    _, bets = _view(db, user, league, book, tag, months, now)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(CSV_COLUMNS)
+    for b in reversed(bets):   # oldest first, as a ledger reads
+        settled = b.status != "open" and b.payout is not None
+        head = [b.id, b.placed_at.isoformat(timespec="seconds"), b.league.upper(), b.book, b.kind, b.stake, b.odds, b.status,
+                b.payout if settled else "", round(b.payout - b.stake, 2) if settled else "",
+                b.settled_at.isoformat(timespec="seconds") if b.settled_at else "", "; ".join(b.tags or []),
+                "" if (e := bet_ev_close(b)) is None else e]
+        for leg in b.legs:
+            w.writerow([*head, leg.name, leg.team, leg.opp, leg.gameday, leg.kind, leg.side, leg.line, leg.odds, "yes" if leg.alt else "",
+                        leg.result or "", "" if leg.actual is None else leg.actual, "" if leg.close_p is None else round(leg.close_p, 4)])
+    name = f"my-bets-{now.date().isoformat()}.csv"
+    return Response(buf.getvalue(), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 @router.post("/bets", response_model=BetOut, dependencies=[Depends(auth.same_origin)])

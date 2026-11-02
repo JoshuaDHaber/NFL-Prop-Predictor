@@ -9,15 +9,21 @@ export interface TrackedLeg {
   id: number; game_id: string; gameday: string; kickoff: string; player_id: string; name: string; team: string; opp: string;
   kind: Kind; side: "Over" | "Under"; line: number; odds: number; alt: boolean; prob: number | null; ev: number | null;
   actual: number | null; result: "win" | "loss" | "push" | "void" | null;
+  /** The market's fair chance of this leg at kickoff, and what the price taken was worth at it (null until it closes). */
+  close_p: number | null; ev_close: number | null;
 }
 export interface TrackedBet {
   id: number; league: "nfl" | "nba"; book: string; kind: "single" | "parlay"; stake: number; odds: number; status: BetStatus;
   payout: number | null; profit: number | null; to_pay: number; settled_by: "grading" | "user" | null; notes: string | null; tags: string[];
   placed_at: string; settled_at: string | null; started: boolean; legs: TrackedLeg[];
+  /** The bet's price measured at the close (a parlay's legs multiplied); null until every leg has closed. */
+  ev_close: number | null;
 }
 export interface BetSummary {
   wins: number; losses: number; pushes: number; open: number; open_stake: number; staked: number; profit: number;
   roi: number | null; curve: [string, number][];
+  /** Bets with a closing price, the share priced better than the close, and their average EV at the close. */
+  clv_n: number; beat_close: number | null; ev_close: number | null;
 }
 /** A view of My bets: one league, one sportsbook, one tag and the last 1, 3 or 12 months (unset: everything). */
 export interface BetFilters { league?: "nfl" | "nba"; book?: string; tag?: string; months?: 1 | 3 | 12 }
@@ -33,9 +39,15 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
-export const myBets = (f: BetFilters) => {
+const query = (f: BetFilters) => {
   const qs = new URLSearchParams(Object.entries(f).filter(([, v]) => v != null && v !== "").map(([k, v]) => [k, String(v)]));
-  return call<{ bets: TrackedBet[]; summary: BetSummary; books: string[]; tags: string[] }>(`bets${qs.size ? `?${qs}` : ""}`);
+  return qs.size ? `?${qs}` : "";
+};
+/** The view as a spreadsheet: one row per leg (backend bets.export_csv). */
+export const csvUrl = (f: BetFilters) => `/api/me/bets.csv${query(f)}`;
+
+export const myBets = (f: BetFilters) => {
+  return call<{ bets: TrackedBet[]; summary: BetSummary; books: string[]; tags: string[] }>(`bets${query(f)}`);
 };
 
 const legBody = (l: Leg) => ({ game_id: l.gameId, player_id: l.playerId, kind: l.kind, side: l.side, line: l.line, odds: l.odds, alt: l.alt, prob: l.prob, ev: l.ev });

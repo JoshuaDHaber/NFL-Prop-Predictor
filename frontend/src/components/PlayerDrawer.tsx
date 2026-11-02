@@ -17,6 +17,7 @@ import LineLadder, { ODDS_RANGE, bestOf, legFor, type Cell, type PlayerCtx } fro
 import LineMovement from "./LineMovement";
 import Sheet from "./Sheet";
 import Skeleton from "./Skeleton";
+import TrackBetSheet from "./TrackBetSheet";
 import { FavStar } from "./icons";
 import { openSignIn } from "./SignIn";
 import { HitSplits, WhyPanel } from "./Why";
@@ -132,7 +133,7 @@ export default function PlayerDrawer({ playerId, initialKind, pick, marketWeight
             </div>
 
             <div role="tabpanel" aria-label={KIND_LABEL[kind]}>
-            {!proj.thin && <Verdict kind={kind} mu={proj.mu} play={play} picked={!!picked} book={book} ctx={ctx} loading={ladder.isLoading} stale={slip.staleSince} />}
+            {!proj.thin && <Verdict kind={kind} mu={proj.mu} play={play} picked={!!picked} book={book} ctx={ctx} loading={ladder.isLoading} stale={slip.staleSince} onLeave={onClose} />}
 
             <div className="facts">
               {yesNo ? (
@@ -256,10 +257,13 @@ function MarketTabs({ kinds, kind, hasEv, onPick }: { kinds: Kind[]; kind: Kind;
 
 /** The drawer's answer up top: the play it was opened from (or the best-EV main line at the chosen book), its price and
  *  chances, and a button to slip it. With old odds it says the price needs checking. */
-function Verdict({ kind, mu, play, picked, book, ctx, loading, stale }: {
+function Verdict({ kind, mu, play, picked, book, ctx, loading, stale, onLeave }: {
   kind: Kind; mu: number; play: Cell | null; picked: boolean; book: string; ctx: PlayerCtx; loading: boolean; stale: string | null;
+  /** going to My bets from the Track sheet: close the drawer under it */
+  onLeave: () => void;
 }) {
   const slip = useBetSlip();
+  const [tracking, setTracking] = useState(false);
   if (loading) return <div className="verdict"><Skeleton kind="rows" count={1} /></div>;
   const at = book !== "all" ? ` at ${book}` : "";
   if (!play) return <div className="verdict none mut">No {KIND_LABEL[kind].toLowerCase()} lines posted{at} yet. Books post props mid-week; the scheduled syncs pick them up.</div>;
@@ -288,6 +292,10 @@ function Verdict({ kind, mu, play, picked, book, ctx, loading, stale }: {
         title={clash ? `Another ${KIND_LABEL[kind]} line is already on your slip at ${play.row.book}: books usually won't parlay both` : undefined}>
         {inSlip ? "✓ On your slip" : clash ? "Add to slip (clashes with a leg)" : "Add to slip"}
       </button>
+      {/* a one-off bet placed straight from here, without building a slip */}
+      <p className="v-track"><button type="button" className="link" onClick={() => setTracking(true)}>Placed it? Track this bet</button></p>
+      {tracking && <TrackBetSheet book={leg.book} legs={[leg]} stake={slip.stakes[leg.book] ?? 10} onClose={() => setTracking(false)}
+        onLeave={() => { setTracking(false); onLeave(); }} />}
     </section>
   );
 }
