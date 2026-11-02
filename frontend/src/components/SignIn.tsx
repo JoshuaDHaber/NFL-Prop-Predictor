@@ -64,7 +64,7 @@ function SignInSheet({ error }: { error?: string }) {
   };
 
   return (
-    <Sheet label="Sign in" onClose={closeSignIn}>
+    <Sheet label="Sign in" overlayClass="signin-overlay" onClose={closeSignIn}>
       {sentTo ? <>
         <h2>Check your email</h2>
         <p className="sub auth-lede">We sent a sign-in link and a 6-digit code to <b>{sentTo}</b>. Open the link on this device, or enter the code here.</p>
@@ -111,7 +111,7 @@ function AgeGate({ onDismiss }: { onDismiss: () => void }) {
     try { await confirmAge(); refetch(); } catch (err) { setProblem((err as Error).message); setBusy(false); }
   };
   return (
-    <Sheet label="Confirm your age" onClose={onDismiss}>
+    <Sheet label="Confirm your age" overlayClass="signin-overlay" onClose={onDismiss}>
       <h2>One more step</h2>
       <p className="sub auth-lede">The Haber Process is about sports betting, so accounts are for people 21 and older.</p>
       {problem && <p className="err auth-problem" role="alert">{problem}</p>}

@@ -191,6 +191,8 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
 def delete_account(response: Response, user: User = Depends(require_user), db: Session = Depends(get_db)):
     from . import bets   # bets imports this module
     bets.delete_all(db, user.id)
+    from . import slip_sync
+    slip_sync.delete_for(db, user.id)
     db.execute(delete(UserSession).where(UserSession.user_id == user.id))   # SQLite doesn't enforce the cascade
     db.execute(delete(LoginToken).where(LoginToken.email == user.email))
     db.delete(db.get(User, user.id))

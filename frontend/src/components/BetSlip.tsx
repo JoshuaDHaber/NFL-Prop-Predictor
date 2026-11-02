@@ -1,11 +1,13 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import { useAuth } from "../auth";
 import { useBetSlip } from "../BetSlipContext";
 import { detectState } from "../geoState";
 import BookBadge from "./BookBadge";
 import Sheet from "./Sheet";
 import TrackBetSheet from "./TrackBetSheet";
+import { openSignIn } from "./SignIn";
 import SidePill from "./SidePill";
 import { isYesNo, KIND_SHORT, americanOdds, pct, playLabel, signedPct, timeAgo } from "../format";
 import { alternativesAtBook, bookCoverage, clusterConflicts, conflicts, bookOptions, groupByBook, combinedLink, legLink, slipLinksText, linkStatus, openProgress, parlay, parseStake, priceDrift, rebook, sameGame, slipHitChance, toAmerican, toWin, withLinks, type BookOption, type Leg } from "../slip";
@@ -21,6 +23,7 @@ export default function BetSlip() {
   const [checkedStale, setCheckedStale] = useState<string | null>(null);
   const gated = !!staleSince && checkedStale !== staleSince;
   const close = () => setOpen(false);
+  const auth = useAuth();
   // the book whose group is being recorded on My bets ("Track this bet")
   const [tracking, setTracking] = useState<string | null>(null);
   // what's in each stake box while it's being typed in ("" or "12."), so the box doesn't fight the bettor
@@ -224,7 +227,7 @@ export default function BetSlip() {
   return (
     <>
       <button className="slip-fab" onClick={() => setOpen(true)}
-        aria-label={`Open betslip, ${legs.length} selections${clashCount ? `, ${clashCount} to fix` : ""}`}>
+        aria-label={`Open betslip, ${legs.length} ${legs.length === 1 ? "selection" : "selections"}${clashCount ? `, ${clashCount} to fix` : ""}`}>
         Betslip <span className="count">{legs.length}</span>{clashCount > 0 && <span className="slip-alert" aria-hidden>!</span>}
       </button>
       {open && (
@@ -393,6 +396,9 @@ export default function BetSlip() {
             {placeMsg && <p className="mut slip-place-msg" aria-live="polite">{placeMsg}</p>}
             {legs.length > 1 && (
               <p className="slip-clear-row"><button className="link slip-clear" onClick={clear}>Clear all {legs.length} legs</button></p>
+            )}
+            {legs.length > 0 && auth && !auth.user && (
+              <p className="mut slip-sync-hint">Saved in this browser only. <button className="link" onClick={() => openSignIn()}>Sign in</button> to keep this slip on every device.</p>
             )}
             <p className="mut slip-disclaimer">
               This app doesn't place bets: you sign in and confirm at the sportsbook. Check the line and price first.
