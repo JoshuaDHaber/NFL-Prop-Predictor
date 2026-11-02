@@ -2,9 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type GameWeather, type Kind, type PlayerHit, type Projection } from "../api";
 import { isDouble, isYesNo, KIND_LABEL, NBA_KINDS, effText, fmtProj, fmtSd, kickoff, matchup, volLabel } from "../format";
+import { useAuth } from "../auth";
+import { MAX_FAV_PLAYERS, toggleFavPlayer, useFavorites } from "../favorites";
 import { getLeague } from "../league";
 import { useDebounced } from "../useDebounced";
 import Avatar from "./Avatar";
+import { FavStar } from "./icons";
+import { openSignIn } from "./SignIn";
 import Spark from "./Spark";
 import WeatherChip from "./WeatherChip";
 
@@ -28,6 +32,9 @@ export default function PlayerCompare({ onSelect, weather = {} }: { onSelect: (i
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const query = useDebounced(q.trim(), 200);
+  const auth = useAuth();
+  const favs = useFavorites();
+  const [favProblem, setFavProblem] = useState("");
   const box = useRef<HTMLDivElement>(null);
 
   const hits = useQuery({ queryKey: ["player-search", nba, query], queryFn: () => api.searchPlayers(query), enabled: query.length >= 2, placeholderData: (p) => p });
@@ -55,6 +62,16 @@ export default function PlayerCompare({ onSelect, weather = {} }: { onSelect: (i
   const pending = q.trim() !== query || hits.isFetching;
   const add = (h: PlayerHit) => { if (full || chosen.has(h.player_id)) return; setPlayers([...players, h]); setQ(""); setActive(0); };
   const remove = (id: string) => setPlayers(players.filter((p) => p.player_id !== id));
+  const isFav = (id: string) => favs.players.some((f) => f.player_id === id);
+  const favHit = (f: (typeof favs.players)[number]): PlayerHit => ({ ...f, projected: byPlayer.has(f.player_id) });
+  // a favorite chip adds the player, or takes them back out; "Compare favorites" fills the table with the first few
+  const pickFav = (f: (typeof favs.players)[number]) => (chosen.has(f.player_id) ? remove(f.player_id) : add(favHit(f)));
+  const starIt = (h: PlayerHit) => {
+    if (!favs.ready) return void (auth?.user ? setFavProblem("Confirm you're 21 or older to save favorites.") : openSignIn());
+    if (!isFav(h.player_id) && favs.players.length >= MAX_FAV_PLAYERS) return setFavProblem(`You have ${MAX_FAV_PLAYERS} favorites. Unstar one first.`);
+    setFavProblem("");
+    toggleFavPlayer(getLeague(), favs.players, h).catch((err) => setFavProblem((err as Error).message));
+  };
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setActive((a) => Math.min(a + 1, options.length - 1)); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
@@ -92,6 +109,32 @@ export default function PlayerCompare({ onSelect, weather = {} }: { onSelect: (i
         )}
       </div>
 
+      {favs.ready && favs.players.length > 0 ? (
+        <div className="cmp-favs" aria-label="Your favorite players">
+          <span className="tile-label">Favorites</span>
+          {favs.players.map((f) => {
+            const on = chosen.has(f.player_id);
+            return (
+              <button key={f.player_id} type="button" className="chip-btn cmp-fav" aria-pressed={on} disabled={!on && full}
+                onClick={() => pickFav(f)} title={on ? `Take ${f.name} out of the comparison` : `Compare ${f.name}`}>
+                <Avatar name={f.name} src={f.headshot} size={22} />{f.name}{!byPlayer.has(f.player_id) && !projections.isLoading && <small className="mut"> · no projection</small>}
+              </button>
+            );
+          })}
+          {favs.players.length >= 2 && (
+            <button type="button" className="link cmp-fav-all" onClick={() => setPlayers(favs.players.slice(0, MAX_COMPARE).map(favHit))}>
+              Compare {favs.players.length > MAX_COMPARE ? `first ${MAX_COMPARE}` : "all"}
+            </button>
+          )}
+        </div>
+      ) : !favs.loading && (
+        <p className="mut cmp-fav-hint">
+          {favs.ready ? "Star a player here, or beside their name when you open them, to keep them one tap away."
+            : <><button type="button" className="link" onClick={() => openSignIn()}>Sign in</button> to save favorite players and compare them in one tap.</>}
+        </p>
+      )}
+      {favProblem && <p className="err">{favProblem}</p>}
+
       {!players.length ? (
         <div className="card empty">Search for two to {MAX_COMPARE} players above to compare this week's projections side by side.</div>
       ) : (
@@ -105,6 +148,10 @@ export default function PlayerCompare({ onSelect, weather = {} }: { onSelect: (i
                   return (
                     <th key={h.player_id} scope="col" className="cmp-player">
                       <button className="cmp-x" onClick={() => remove(h.player_id)} aria-label={`Remove ${h.name}`} title="Remove">×</button>
+                      <button className={`cmp-star fav-btn${isFav(h.player_id) ? " on" : ""}`} onClick={() => starIt(h)} aria-pressed={isFav(h.player_id)}
+                        aria-label={isFav(h.player_id) ? `Remove ${h.name} from favorites` : `Add ${h.name} to favorites`} title={isFav(h.player_id) ? "Unstar" : "Star as a favorite"}>
+                        <FavStar on={isFav(h.player_id)} size={16} />
+                      </button>
                       <Avatar name={h.name} src={h.headshot} size={48} />
                       <b>{h.name}</b>
                       <span><span className="pos-pill">{h.pos}</span> {p?.team ?? h.team}</span>

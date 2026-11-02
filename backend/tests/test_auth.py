@@ -135,6 +135,27 @@ def test_age_prefs_logout_and_delete(sent):
         assert c.get("/api/auth/me").json()["user"]["prefs"]["theme"] is None              # a fresh account
 
 
+def test_favorites_per_league(sent):
+    with remote() as c:
+        assert c.put("/api/auth/favorites", json={"league": "nfl", "teams": ["KC"]}).status_code == 401
+        sign_in(c, sent, "favs@example.com")
+        assert c.get("/api/auth/me").json()["user"]["favorites"] == {"nfl": {"teams": [], "players": []}, "nba": {"teams": [], "players": []}}
+        mahomes = {"player_id": "00-0033873", "name": "Patrick Mahomes", "pos": "QB", "team": "KC", "headshot": None}
+        c.put("/api/auth/favorites", json={"league": "nfl", "teams": ["kc", "DET", "KC"]})
+        r = c.put("/api/auth/favorites", json={"league": "nfl", "players": [mahomes, mahomes]})
+        favs = r.json()["user"]["favorites"]
+        assert favs["nfl"] == {"teams": ["KC", "DET"], "players": [mahomes]}   # teams kept, duplicates dropped
+        assert favs["nba"] == {"teams": [], "players": []}                     # leagues apart: NFL DET isn't NBA DET
+        c.put("/api/auth/favorites", json={"league": "nba", "teams": ["DET"]})
+        assert c.get("/api/auth/me").json()["user"]["favorites"]["nfl"]["teams"] == ["KC", "DET"]
+
+        assert c.put("/api/auth/favorites", json={"league": "nfl", "teams": ["<script>"]}).status_code == 422
+        assert c.put("/api/auth/favorites", json={"league": "nfl", "teams": [f"T{chr(65 + i)}" for i in range(9)]}).status_code == 422
+        assert c.put("/api/auth/favorites", json={"league": "mlb", "teams": []}).status_code == 422
+        many = [{**mahomes, "player_id": str(i)} for i in range(31)]
+        assert c.put("/api/auth/favorites", json={"league": "nfl", "players": many}).status_code == 422
+
+
 def test_admin_emails_get_the_admin_page_once_21_is_confirmed(sent, monkeypatch):
     monkeypatch.setenv("ADMIN_EMAILS", "Owner@example.com")
     with remote() as c:

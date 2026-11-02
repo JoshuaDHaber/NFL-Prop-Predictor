@@ -1,4 +1,6 @@
 import { useSyncExternalStore } from "react";
+import type { PlayerHit } from "./api";
+import type { League } from "./league";
 import { changedPrefs, setPrefs, setPrefsSink, type Prefs } from "./prefs";
 
 /** The admin password, kept in this browser only. Sent as a Bearer token on every request. */
@@ -24,7 +26,11 @@ export interface Account {
   is_admin: boolean;
   age_confirmed: boolean;
   prefs: { [K in keyof Prefs]: Prefs[K] | null };
+  /** Per league (abbreviations overlap: NFL DET isn't NBA DET). Older servers leave it out. */
+  favorites?: Record<League, LeagueFavorites>;
 }
+export type FavPlayer = Omit<PlayerHit, "projected">;
+export interface LeagueFavorites { teams: string[]; players: FavPlayer[] }
 export interface AuthState { user: Account | null; google: boolean; next?: string | null }
 
 /** null until /api/auth/me answers (the site works the same meanwhile: signing in is optional). */
@@ -74,6 +80,18 @@ async function savePrefs(p: Partial<Prefs>) {
   try { apply(await call("prefs", { method: "PUT", body: JSON.stringify(p) })); } catch { /* kept in this browser */ }
 }
 setPrefsSink((p) => { void savePrefs(p); });
+
+/** Replace one league's favorite teams or players. Shown at once; put back as the account has them if the save fails. */
+export async function saveFavorites(league: League, change: Partial<LeagueFavorites>) {
+  const user = auth?.user;
+  if (!user) return;
+  const was = user.favorites;
+  const mine = was?.[league] ?? { teams: [], players: [] };
+  const optimistic = (f: Account["favorites"]) => { auth = { ...auth!, user: { ...user, favorites: f } }; authListeners.forEach((l) => l()); };
+  optimistic({ nfl: { teams: [], players: [] }, nba: { teams: [], players: [] }, ...was, [league]: { ...mine, ...change } });
+  try { apply(await call("favorites", { method: "PUT", body: JSON.stringify({ league, ...change }) })); }
+  catch (err) { optimistic(was); throw err; }
+}
 
 /** Each returns whether who's signed in changed, so callers can refetch what depends on it (the admin page, can_write). */
 export const emailSignIn = (email: string, next: string) => call("email", { method: "POST", body: JSON.stringify({ email, next }) });

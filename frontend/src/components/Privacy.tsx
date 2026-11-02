@@ -39,6 +39,7 @@ export default function Privacy() {
             your Gmail, contacts, files or anything else in your Google account.</li>
           <li><b>That you confirmed you're 21 or older</b>, and when.</li>
           <li><b>Your preferences:</b> theme, default sportsbook and how Best props are shown.</li>
+          <li><b>Your teams and favorite players</b>, used to put your teams' games first and list your players on the compare page.</li>
           <li><b>Bets you track</b> on My bets: the sportsbook, stake, odds and each leg (player, market, line), when you tracked
             it and how it settled. They're used only to grade your bets and show your record, and no one else can see them.</li>
           <li><b>When you created the account and last signed in.</b></li>

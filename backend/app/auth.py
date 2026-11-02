@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from . import config
 from .db import LoginToken, SessionLocal, User, UserSession
-from .schemas import AccountOut, AuthState, EmailSignIn, EmailVerify, Prefs
+from .schemas import AccountOut, AuthState, EmailSignIn, EmailVerify, Favorites, FavoritesIn, Prefs
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -30,6 +30,8 @@ COOKIE, STATE_COOKIE = "sid", "g_state"
 SESSION_DAYS = 30
 TOKEN_MINUTES = 15
 MAX_CODE_TRIES = 5
+MAX_FAV_TEAMS, MAX_FAV_PLAYERS = 8, 30
+TEAM_RE = re.compile(r"^[A-Z]{2,4}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 GOOGLE_AUTH, GOOGLE_TOKEN = "https://accounts.google.com/o/oauth2/v2/auth", "https://oauth2.googleapis.com/token"
 GOOGLE_ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
@@ -149,7 +151,8 @@ def require_user(request: Request, db: Session = Depends(get_db)) -> User:
 
 def _account(user: User) -> AccountOut:
     return AccountOut(email=user.email, name=user.name, avatar_url=user.avatar_url, is_admin=is_admin_user(user),
-                      age_confirmed=user.age_confirmed_at is not None, prefs=Prefs(**(user.prefs or {})))
+                      age_confirmed=user.age_confirmed_at is not None, prefs=Prefs(**(user.prefs or {})),
+                      favorites=Favorites(**(user.favorites or {})))
 
 
 def _state(user: Optional[User], next_path: Optional[str] = None) -> AuthState:
@@ -211,6 +214,26 @@ def save_prefs(body: Prefs, user: User = Depends(require_user), db: Session = De
         raise HTTPException(422, "Unknown sportsbook")
     user = db.get(User, user.id)
     user.prefs = {**(user.prefs or {}), **body.model_dump(exclude_none=True)}
+    db.commit()
+    return _state(user)
+
+
+@router.put("/favorites", response_model=AuthState, dependencies=[Depends(same_origin)])
+def save_favorites(body: FavoritesIn, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    """One league's favorite teams (the Games tab lists their games first) or players (the compare page offers them)."""
+    user = db.get(User, user.id)
+    league = dict((user.favorites or {}).get(body.league) or {})
+    if body.teams is not None:
+        teams = list(dict.fromkeys(t.strip().upper() for t in body.teams))
+        if len(teams) > MAX_FAV_TEAMS or not all(TEAM_RE.match(t) for t in teams):
+            raise HTTPException(422, f"Pick up to {MAX_FAV_TEAMS} teams")
+        league["teams"] = teams
+    if body.players is not None:
+        players = list({p.player_id: p.model_dump() for p in body.players}.values())
+        if len(players) > MAX_FAV_PLAYERS:
+            raise HTTPException(422, f"Up to {MAX_FAV_PLAYERS} favorite players")
+        league["players"] = players
+    user.favorites = {**(user.favorites or {}), body.league: league}   # a new dict, so the JSON column sees the change
     db.commit()
     return _state(user)
 

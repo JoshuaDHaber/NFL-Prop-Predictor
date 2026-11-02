@@ -2,7 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Bar, BarChart, CartesianGrid, Cell as BarCell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, type Kind } from "../api";
+import { useAuth } from "../auth";
 import { useBetSlip } from "../BetSlipContext";
+import { MAX_FAV_PLAYERS, toggleFavPlayer, useFavorites } from "../favorites";
+import { getLeague } from "../league";
 import { DOUBLE_NEED, isDouble, isYesNo, KIND_LABEL, KIND_SHORT, americanOdds, effText, fmtEdge, fmtProj, fmtSd, isCount, isNba, matchup, pct, playLabel, signedPct,
   timeAgo, unit, volLabel, weatherText, wxEffect } from "../format";
 import { hitRate, hits, seasonStarts, withGaps, type LogBar } from "../gameLog";
@@ -14,6 +17,8 @@ import LineLadder, { ODDS_RANGE, bestOf, legFor, type Cell, type PlayerCtx } fro
 import LineMovement from "./LineMovement";
 import Sheet from "./Sheet";
 import Skeleton from "./Skeleton";
+import { FavStar } from "./icons";
+import { openSignIn } from "./SignIn";
 import { HitSplits, WhyPanel } from "./Why";
 
 interface Props {
@@ -107,7 +112,7 @@ export default function PlayerDrawer({ playerId, initialKind, pick, marketWeight
             <div className="player-head" ref={headRef}>
               <Avatar name={data.name} src={data.headshot} size={84} />
               <div>
-                <h2>{data.name}</h2>
+                <div className="pd-name"><h2>{data.name}</h2><FavButton player={data} /></div>
                 <div className="mut"><span className="pos-pill">{data.pos}</span> {data.team} {matchup(proj.opp, proj.home)}{proj.thin && <> <span className="thin-pill">Thin history</span></>}</div>
               </div>
             </div>
@@ -284,5 +289,31 @@ function Verdict({ kind, mu, play, picked, book, ctx, loading, stale }: {
         {inSlip ? "✓ On your slip" : clash ? "Add to slip (clashes with a leg)" : "Add to slip"}
       </button>
     </section>
+  );
+}
+
+/** Star a player: the compare page lists favorites to pick from. Signed out, it opens sign-in. */
+function FavButton({ player }: { player: { player_id: string; name: string; pos: string; team: string; headshot?: string | null } }) {
+  const auth = useAuth();
+  const league = getLeague();
+  const favs = useFavorites(league);
+  const [problem, setProblem] = useState("");
+  const on = favs.players.some((p) => p.player_id === player.player_id);
+  const full = !on && favs.players.length >= MAX_FAV_PLAYERS;
+  const click = () => {
+    if (!auth?.user) return openSignIn();
+    if (!favs.ready) return setProblem("Confirm you're 21 or older to save favorites.");
+    if (full) return setProblem(`You have ${MAX_FAV_PLAYERS} favorites. Remove one on the Compare page first.`);
+    setProblem("");
+    toggleFavPlayer(league, favs.players, player).catch((err) => setProblem((err as Error).message));
+  };
+  const label = on ? `Remove ${player.name} from favorites` : `Add ${player.name} to favorites`;
+  return (
+    <>
+      <button type="button" className={`fav-btn${on ? " on" : ""}`} onClick={click} aria-pressed={on} aria-label={label} title={problem || label} disabled={favs.loading}>
+        <FavStar on={on} size={20} />
+      </button>
+      {problem && <small className="fav-msg" role="status">{problem}</small>}
+    </>
   );
 }

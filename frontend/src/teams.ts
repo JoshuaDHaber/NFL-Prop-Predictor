@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { getLeague } from "./league";
+import { getLeague, type League } from "./league";
 
 /** Team colors (primary, secondary) and logos, keyed by the nflverse abbreviations the API uses. Logos are ESPN's, as linked by nflverse. */
 const TEAMS: Record<string, [string, string]> = {
@@ -28,8 +28,11 @@ const colors = () => (getLeague() === "nba" ? NBA_TEAMS : TEAMS);
 /** ESPN's file names where they differ from nflverse's abbreviations. */
 const ESPN_SLUG: Record<string, string> = { LA: "lar", WAS: "wsh" };
 
-export const teamLogo = (team: string) => {
-  if (getLeague() === "nba") return team in NBA_TEAMS ? `https://a.espncdn.com/i/teamlogos/nba/500/${team.toLowerCase()}.png` : null;
+/** Every team in a league, alphabetical by abbreviation (the favorite-team picker). */
+export const teamsOf = (league: League) => Object.keys(league === "nba" ? NBA_TEAMS : TEAMS).sort();
+
+export const teamLogo = (team: string, league: League = getLeague()) => {
+  if (league === "nba") return team in NBA_TEAMS ? `https://a.espncdn.com/i/teamlogos/nba/500/${team.toLowerCase()}.png` : null;
   return team in TEAMS ? `https://a.espncdn.com/i/teamlogos/nfl/500/${ESPN_SLUG[team] ?? team.toLowerCase()}.png` : null;
 };
 
