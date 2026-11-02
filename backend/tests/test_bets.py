@@ -264,3 +264,45 @@ def test_closing_line_value_and_csv_export(sent):
         assert len(c.get("/api/me/bets.csv?book=DraftKings").text.strip().splitlines()) == 2  # the view's filters apply
     with TestClient(main.app, client=("198.51.100.10", 5000)) as anon:
         assert anon.get("/api/me/bets.csv").status_code == 401
+
+
+# ---------- bets placed elsewhere ----------
+def test_finding_a_player_to_add_a_prop_placed_elsewhere(sent):
+    with member(sent, "elsewhere@example.com", "198.51.100.11") as c:
+        hits = c.get("/api/me/bet-players?league=nfl&q=wideout").json()
+        assert [(h["name"], h["game_id"], h["kinds"]) for h in hits] == [("Wideout One", NFL_GAME, ["rush"])]
+        # the started game's rows (NFL_OLD) never show: a bet is only tracked before kickoff
+        assert [h["game_id"] for h in c.get("/api/me/bet-players?league=nfl&q=rusher").json()] == [NFL_GAME]
+        assert c.get("/api/me/bet-players?league=nba&q=guard").json()[0]["player_id"] == "9001"
+        assert c.get("/api/me/bet-players?league=nfl&q=").json() == []
+    with TestClient(main.app, client=("198.51.100.12", 5000)) as anon:
+        assert anon.get("/api/me/bet-players?league=nfl&q=r").status_code == 401
+
+
+def test_custom_bets_are_tracked_before_they_start_and_settled_by_hand(sent):
+    from app import market_fit
+    soon = (datetime.utcnow() + timedelta(hours=5)).isoformat() + "Z"
+    with member(sent, "custom@example.com", "198.51.100.13") as c:
+        post = lambda **kw: c.post("/api/me/bets", json={"book": "Hard Rock", "kind": "custom", "stake": 25, "odds": -110,
+                                                         "description": "Chiefs -3.5 vs Bills", "starts_at": soon, "league": "nfl", **kw})
+        b = post(tags=["Spreads"]).json()
+        assert (b["kind"], b["league"], b["description"], b["status"], b["book"]) == ("custom", "nfl", "Chiefs -3.5 vs Bills", "open", "Hard Rock")
+        assert b["legs"][0]["kind"] == "custom" and b["to_pay"] == pytest.approx(25 + 25 * 100 / 110, abs=0.01)
+        assert post(league="oth", description="Arsenal to win").json()["league"] == "oth"
+        # before it starts only, a real description, real odds
+        past = (datetime.utcnow() - timedelta(hours=1)).isoformat() + "Z"
+        assert "started" in post(starts_at=past).json()["detail"]
+        assert post(description="x").status_code == 422 and post(odds=50).status_code == 422 and post(starts_at="soon").status_code == 422
+        # nothing grades it or prices its close: it stays open until it's marked
+        with SessionLocal() as s:
+            bet = s.get(Bet, b["id"])
+            bet.legs[0].kickoff = datetime.utcnow() - timedelta(hours=1)
+            s.commit()
+            assert bets.grade_nfl(s, pd.DataFrame([dict(player_id="x", season=2099, week=5, team="HOU", rushing_yards=1)]),
+                                  pd.DataFrame([dict(game_id=NFL_GAME, home_score=1)])) == 0
+            assert market_fit.attach_bet_closing(s, "nfl") == 0
+            assert s.get(Bet, b["id"]).status == "open"
+        r = c.patch(f"/api/me/bets/{b['id']}", json={"status": "won"}).json()
+        assert (r["status"], r["profit"]) == ("won", pytest.approx(22.73, abs=0.01))
+        csv_rows = c.get("/api/me/bets.csv?tag=Spreads").text.strip().splitlines()
+        assert len(csv_rows) == 2 and "Chiefs -3.5 vs Bills" in csv_rows[1]

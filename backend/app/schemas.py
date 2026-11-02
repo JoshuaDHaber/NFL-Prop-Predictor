@@ -612,12 +612,28 @@ class BetLegIn(BaseModel):
 
 class BetIn(BaseModel):
     book: str
-    kind: Literal["single", "parlay"]
+    kind: Literal["single", "parlay", "custom"]
     stake: float
-    odds: Optional[int] = None      # a parlay's price at the book; a single uses its leg's
-    legs: list[BetLegIn]
+    odds: Optional[int] = None      # a parlay's or custom bet's price at the book; a single uses its leg's
+    legs: list[BetLegIn] = []
     notes: Optional[str] = None
     tags: list[str] = []
+    # a custom bet (anything the site can't grade: a spread, a total, another sport, a boost), settled by hand
+    description: Optional[str] = None
+    starts_at: Optional[str] = None  # when its event starts (ISO, UTC): it can only be tracked before then
+    league: Optional[Literal["nfl", "nba", "oth"]] = None
+
+
+class BetPlayer(BaseModel):
+    """A player with a game still to start, for adding a prop placed elsewhere (app/bets.py bet_players)."""
+    player_id: str
+    name: str
+    pos: str
+    team: str
+    opp: str
+    game_id: str
+    kickoff: str                     # UTC
+    kinds: list[str]                 # the markets he's projected in
 
 
 class BetPatch(BaseModel):
@@ -665,6 +681,7 @@ class BetOut(BaseModel):
     settled_by: Optional[str] = None
     notes: Optional[str] = None
     tags: list[str] = []
+    description: Optional[str] = None
     placed_at: str
     settled_at: Optional[str] = None
     started: bool                    # its first game has kicked off
@@ -692,6 +709,7 @@ class BetsOut(BaseModel):
     summary: BetSummary
     books: list[str]                 # every book this person has tracked at, for the filter
     tags: list[str]                  # every tag they've used, for the filter and suggestions
+    leagues: list[str] = []          # the leagues they have bets in (nfl, nba, oth), for the filter
 
 
 # ---------- the betslip, synced between a signed-in visitor's devices (app/slip_sync.py) ----------

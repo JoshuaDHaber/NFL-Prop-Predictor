@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconCheck, IconDots, IconDownload, IconMinus, IconX } from "@tabler/icons-react";
+import { IconCheck, IconDots, IconDownload, IconMinus, IconPlus, IconX } from "@tabler/icons-react";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth";
@@ -7,6 +7,7 @@ import { csvUrl, deleteBet, editBet, money, myBets, parseOdds, signedMoney, type
 import { isYesNo, KIND_SHORT, americanOdds, pct, signedPct } from "../format";
 import { useLeague } from "../LeagueContext";
 import { leaguePath, goToPath } from "../route";
+import AddBetSheet from "./AddBetSheet";
 import BookBadge from "./BookBadge";
 import BookSelect from "./BookSelect";
 import Menu, { MenuItem } from "./Menu";
@@ -15,7 +16,7 @@ import { openSignIn } from "./SignIn";
 import Skeleton from "./Skeleton";
 import TagInput from "./TagInput";
 
-const LEAGUES: [BetFilters["league"], string][] = [[undefined, "All"], ["nfl", "NFL"], ["nba", "NBA"]];
+const LEAGUES: [BetFilters["league"], string][] = [[undefined, "All"], ["nfl", "NFL"], ["nba", "NBA"], ["oth", "Other"]];
 const PERIODS: [BetFilters["months"], string][] = [[1, "Last month"], [3, "Last 3 months"], [12, "Last 12 months"], [undefined, "All time"]];
 const STATUS_TEXT: Record<BetStatus, string> = { open: "Open", won: "Won", lost: "Lost", push: "Push", void: "Void" };
 // the site's one icon set (Tabler), as everywhere else, rather than text marks
@@ -26,13 +27,23 @@ const VIEW_KEY = "my-bets-view";
 const storedView = (): BetFilters => { try { return JSON.parse(localStorage.getItem(VIEW_KEY) ?? "{}"); } catch { return {}; } };
 
 function Status({ bet }: { bet: TrackedBet }) {
-  if (bet.status === "open") return <span className="st">{bet.started ? "Awaiting stats" : "Open"}</span>;
+  if (bet.status === "open") return <span className="st">{!bet.started ? "Open" : bet.kind === "custom" ? "Awaiting your result" : "Awaiting stats"}</span>;
   const cls = bet.status === "won" ? "st st-ok" : bet.status === "lost" ? "st st-error" : "st";
   return <span className={cls}>{STATUS_TEXT[bet.status]}{bet.profit ? ` ${signedMoney(bet.profit)}` : ""}</span>;
 }
 
-function LegRow({ leg }: { leg: TrackedLeg }) {
+function LegRow({ leg, bet }: { leg: TrackedLeg; bet: TrackedBet }) {
   const [Mark, word] = leg.result ? LEG_MARK[leg.result] : [null, ""];
+  // a custom bet: what the bettor wrote, and when its event starts (they mark the result)
+  if (leg.kind === "custom") return (
+    <li className="bet-leg">
+      <span className="bet-leg-mark" aria-hidden />
+      <span className="bet-leg-main"><b>{bet.description ?? leg.name}</b>
+        <span className="mut bet-leg-sub">{new Date(leg.kickoff + "Z").toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+          {bet.status === "open" && " · you mark the result"}</span></span>
+      <span className="mut">{americanOdds(leg.odds)}</span>
+    </li>
+  );
   return (
     <li className={`bet-leg${leg.result ? ` r-${leg.result}` : ""}`}>
       <span className="bet-leg-mark" role="img" aria-label={word || "not graded yet"}>{Mark && <Mark size={15} stroke={2.25} aria-hidden />}</span>
@@ -60,13 +71,13 @@ function BetCard({ bet, knownTags, onTag }: { bet: TrackedBet; knownTags: string
     onError: (e: Error) => setProblem(e.message) });
   const remove = useMutation({ mutationFn: () => deleteBet(bet.id), onSuccess: done, onError: (e: Error) => setProblem(e.message) });
   const oddsN = parseOdds(odds), stakeN = Number(stake.replace(/[$,\s]/g, ""));
-  const title = bet.kind === "parlay" ? `${bet.legs.length}-leg parlay` : "Single";
+  const title = bet.kind === "parlay" ? `${bet.legs.length}-leg parlay` : bet.kind === "custom" ? "Other bet" : "Single";
   const startEdit = () => { setStake(String(bet.stake)); setOdds(americanOdds(bet.odds)); setTags(bet.tags); setEditing(true); };
 
   return (
     <article className="card bet-card">
       <header className="bet-head">
-        <span className="bet-book"><BookBadge book={bet.book} size={22} /><b>{bet.book}</b><span className="mut">{title} · {bet.league.toUpperCase()}</span></span>
+        <span className="bet-book"><BookBadge book={bet.book} size={22} /><b>{bet.book}</b><span className="mut">{title} · {bet.league === "oth" ? "Other" : bet.league.toUpperCase()}</span></span>
         <span className="bet-head-aside">
           <Status bet={bet} />
           <Menu label={<IconDots size={16} stroke={1.75} aria-hidden />} ariaLabel={`Actions for this ${title.toLowerCase()}`} caret={false} buttonClass="icon-btn">
@@ -75,7 +86,7 @@ function BetCard({ bet, knownTags, onTag }: { bet: TrackedBet; knownTags: string
               {(["won", "lost", "push", "void"] as BetStatus[]).filter((s) => !(bet.settled_by === "user" && bet.status === s)).map((s) => (
                 <MenuItem key={s} onClick={() => { close(); save.mutate({ status: s }); }}>Mark {STATUS_TEXT[s].toLowerCase()}</MenuItem>
               ))}
-              {bet.settled_by === "user" && <MenuItem onClick={() => { close(); save.mutate({ status: "open" }); }}>Back to automatic grading</MenuItem>}
+              {bet.settled_by === "user" && <MenuItem onClick={() => { close(); save.mutate({ status: "open" }); }}>{bet.kind === "custom" ? "Back to open" : "Back to automatic grading"}</MenuItem>}
               <MenuItem onClick={() => { close(); if (window.confirm(`Delete this ${title.toLowerCase()} at ${bet.book}? It comes off your record.`)) remove.mutate(); }}>Delete</MenuItem>
             </>}
           </Menu>
@@ -84,7 +95,7 @@ function BetCard({ bet, knownTags, onTag }: { bet: TrackedBet; knownTags: string
       {bet.tags.length > 0 && !editing && (
         <div className="bet-tags">{bet.tags.map((t) => <button key={t} className="tag-chip" onClick={() => onTag(t)} title={`Show bets tagged ${t}`}>{t}</button>)}</div>
       )}
-      <ul className="bet-legs">{bet.legs.map((l) => <LegRow key={l.id} leg={l} />)}</ul>
+      <ul className="bet-legs">{bet.legs.map((l) => <LegRow key={l.id} leg={l} bet={bet} />)}</ul>
       {editing ? (
         <form className="bet-edit" onSubmit={(e) => { e.preventDefault(); if (stakeN > 0 && oddsN) save.mutate({ stake: stakeN, odds: oddsN, tags }); }}>
           <div className="bet-edit-row">
@@ -173,6 +184,7 @@ export default function MyBets() {
   const auth = useAuth();
   const { league: siteLeague } = useLeague();
   const [filters, setFiltersState] = useState<BetFilters>(storedView);
+  const [adding, setAdding] = useState(false);
   const setFilters = (f: BetFilters) => {
     const clean = Object.fromEntries(Object.entries(f).filter(([, v]) => v != null)) as BetFilters;
     setFiltersState(clean);
@@ -217,7 +229,7 @@ export default function MyBets() {
     <div className="bets">
       <div className="bets-views">
         <div className="seg small" role="group" aria-label="League">
-          {LEAGUES.map(([l, label]) => (
+          {LEAGUES.filter(([l]) => l !== "oth" || q.data?.leagues.includes("oth") || filters.league === "oth").map(([l, label]) => (
             <button key={label} className={filters.league === l ? "on" : ""} aria-pressed={filters.league === l} onClick={() => setFilters({ ...filters, league: l })}>{label}</button>
           ))}
         </div>
@@ -228,6 +240,7 @@ export default function MyBets() {
         <select value={filters.months ?? ""} aria-label="Period" onChange={(e) => setFilters({ ...filters, months: (e.target.value ? Number(e.target.value) : undefined) as BetFilters["months"] })}>
           {PERIODS.map(([m, label]) => <option key={label} value={m ?? ""}>{label}</option>)}
         </select>
+        <button className="chip-menu bets-add" onClick={() => setAdding(true)}><IconPlus size={16} stroke={1.75} aria-hidden />Add a bet</button>
         {bets.length > 0 && (
           <a className="chip-menu bets-export" href={csvUrl(filters)} download title="These bets as a spreadsheet, one row per leg">
             <IconDownload size={16} stroke={1.75} aria-hidden />Export CSV
@@ -278,9 +291,12 @@ export default function MyBets() {
         <div className="card prefs-card bets-intro">
           <h3 className="sub-h">{narrowed ? "No bets in this view" : "No tracked bets yet"}</h3>
           {narrowed ? <div className="prefs-actions"><button className="primary outline" onClick={() => setFilters({})}>Show all bets</button></div> : <>
-            <p className="mut">Add props to the betslip, place the bet at your book, then tap <b>Placed it? Track this bet</b> in the slip.
-              It's graded once the stats are in.</p>
-            <div className="prefs-actions"><button className="primary outline" onClick={() => goToPath(leaguePath(siteLeague, "props"))}>Go to Best props</button></div>
+            <p className="mut">Tap <b>Placed it? Track this bet</b> in the betslip after you place a bet, or add one you placed somewhere
+              else. Player props are graded once the stats are in; anything else, you mark when it settles.</p>
+            <div className="prefs-actions">
+              <button className="primary" onClick={() => setAdding(true)}>Add a bet you placed</button>
+              <button className="primary outline" onClick={() => goToPath(leaguePath(siteLeague, "props"))}>Go to Best props</button>
+            </div>
           </>}
         </div>
       ) : <>
@@ -289,6 +305,7 @@ export default function MyBets() {
         {settled.length > 0 && <><h3 className="sub-h bets-h">Settled <small className="mut">{settled.length}</small></h3>
           {settled.map((b) => <BetCard key={b.id} bet={b} knownTags={allTags} onTag={(tag) => setFilters({ ...filters, tag })} />)}</>}
       </>}
+      {adding && <AddBetSheet defaultLeague={siteLeague} onClose={() => setAdding(false)} />}
       <p className="mut bets-note">NFL bets settle when the week's official stats come out, usually the Tuesday after the games; NBA bets the next
         morning. A player who didn't play is void, as the books settle it. If your book settled a bet differently, mark it from the bet's menu.</p>
     </div>
