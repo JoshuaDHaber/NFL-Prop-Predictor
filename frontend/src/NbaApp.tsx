@@ -31,13 +31,14 @@ import { useDebounced } from "./useDebounced";
 import { useParlayBoard } from "./useParlayBoard";
 import Skeleton from "./components/Skeleton";
 import { BASE } from "./env";
+import MyBets from "./components/MyBets";
 import Preferences from "./components/Preferences";
 import { PREFERRED_GAME_BOOK, useBoardBook, usePref } from "./prefs";
 
 const PlayerDrawer = lazy(() => importOrReload(() => import("./components/PlayerDrawer")));
 const AdminPage = lazy(() => importOrReload(() => import("./components/AdminPage")));
 
-type Tab = "games" | "picks" | "parlays" | "injuries" | "projections" | "compare" | "check" | "admin" | "account";
+type Tab = "games" | "picks" | "parlays" | "injuries" | "projections" | "compare" | "check" | "admin" | "account" | "bets";
 const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["injuries", "Injuries"], ["projections", "Projections"], ["compare", "Compare"],
   ["check", "Model check"], ["admin", "Admin"]];
 /** Sections under the top bar's More menu. */
@@ -46,10 +47,10 @@ const MORE: Tab[] = ["injuries", "compare", "check", "admin"];
 const OWNER_ONLY: Tab[] = ["check", "admin"];
 /** Each section's path under /nba: /nba/props, /nba/parlays, ... (Games is the front page). */
 const SLUGS: Record<Tab, string> = { games: "", picks: "props", parlays: "parlays", injuries: "injuries", projections: "projections", compare: "compare",
-  check: "model", admin: "admin", account: "account" };
+  check: "model", admin: "admin", account: "account", bets: "bets" };
 /** Each section's page title (Best props and Parlays add their sportsbook picker). */
 const TITLE: Record<Tab, string> = { games: "Games", picks: "Best props", parlays: "Parlays", injuries: "Injury report", projections: "Projections",
-  compare: "Compare players", check: "Model check", admin: "Admin", account: "Preferences" };
+  compare: "Compare players", check: "Model check", admin: "Admin", account: "Preferences", bets: "My bets" };
 const gameFromHash = () => new URLSearchParams(window.location.hash.slice(1)).get("game");
 /** "Tue Oct 20" from an Eastern date. */
 const day = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
@@ -201,7 +202,7 @@ export default function NbaApp() {
           title={tab === "picks" ? <>Best props at <BookSelect inline books={m.books} book={filters.book} allLabel="every book" onChange={(b) => setFilters({ ...filters, book: b })} /></>
             : tab === "parlays" && board.book ? <>Parlays at <BookSelect inline books={m.books} book={board.book} onChange={board.setBook} /></>
             : TITLE[tab]}
-          aside={dates.length > 1 && tab !== "compare" && tab !== "check" && tab !== "account" && (
+          aside={dates.length > 1 && tab !== "compare" && tab !== "check" && tab !== "account" && tab !== "bets" && (
             <select value={date} onChange={(e) => pickDate(e.target.value)} aria-label="Game date">
               {dates.map((d) => <option key={d} value={d}>{d === today ? `Today, ${day(d)}` : day(d)}</option>)}
               <option value="all">All dates</option>
@@ -224,6 +225,7 @@ export default function NbaApp() {
         {tab === "check" && <div className="stack"><TrackRecord nba /><GradesCard nba /><NbaBacktest backtest={m.backtest} /><Methodology league="nba" /></div>}
         {tab === "admin" && <Suspense fallback={<Skeleton kind="cards" />}><AdminPage embedded /></Suspense>}
         {tab === "account" && <Preferences books={m.books} />}
+        {tab === "bets" && <MyBets />}
       </>}
 
       </div>

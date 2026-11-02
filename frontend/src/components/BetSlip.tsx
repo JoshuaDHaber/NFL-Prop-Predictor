@@ -5,6 +5,7 @@ import { useBetSlip } from "../BetSlipContext";
 import { detectState } from "../geoState";
 import BookBadge from "./BookBadge";
 import Sheet from "./Sheet";
+import TrackBetSheet from "./TrackBetSheet";
 import SidePill from "./SidePill";
 import { isYesNo, KIND_SHORT, americanOdds, pct, playLabel, signedPct, timeAgo } from "../format";
 import { alternativesAtBook, bookCoverage, clusterConflicts, conflicts, bookOptions, groupByBook, combinedLink, legLink, slipLinksText, linkStatus, openProgress, parlay, parseStake, priceDrift, rebook, sameGame, slipHitChance, toAmerican, toWin, withLinks, type BookOption, type Leg } from "../slip";
@@ -20,6 +21,8 @@ export default function BetSlip() {
   const [checkedStale, setCheckedStale] = useState<string | null>(null);
   const gated = !!staleSince && checkedStale !== staleSince;
   const close = () => setOpen(false);
+  // the book whose group is being recorded on My bets ("Track this bet")
+  const [tracking, setTracking] = useState<string | null>(null);
   // what's in each stake box while it's being typed in ("" or "12."), so the box doesn't fight the bettor
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState<"link" | null>(null);
@@ -302,6 +305,11 @@ export default function BetSlip() {
                   {ls.length > 1 && !clashBooks.has(book) && sameGame(ls) && (
                     <p className="warn">Same-game legs: books price these their own way, so the payout is a guide. Take it if the book's price beats the fair odds.</p>
                   )}
+                  {!clashBooks.has(book) && (
+                    <div className="slip-track">
+                      <button className="link" onClick={() => setTracking(book)}>Placed it? Track this bet</button>
+                    </div>
+                  )}
                 </section>
               );
             })}
@@ -401,6 +409,10 @@ export default function BetSlip() {
               )}
             </div>
         </Sheet>
+      )}
+      {open && tracking && groups.some(([b]) => b === tracking) && (
+        <TrackBetSheet book={tracking} legs={groups.find(([b]) => b === tracking)![1]} stake={stakeFor(tracking)} onClose={() => setTracking(null)}
+          onLeave={() => { setTracking(null); close(); }} />
       )}
     </>
   );

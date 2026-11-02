@@ -18,7 +18,7 @@ interface Props<T extends string> {
 }
 
 /** The sticky top line: the brand, the main sections (the rest under More), and the state, league, theme and account menus.
- *  The account menu's pages (Preferences, Admin) are sections too, so the league's T includes "account" and "admin". */
+ *  The account menu's pages (My bets, Preferences, Admin) are sections too, so the league's T includes them. */
 export default function TopBar<T extends string>({ tabs = [], more = [], tab, onTab, href }: Props<T>) {
   const main = tabs.filter(([k]) => !more.includes(k));
   const extra = tabs.filter(([k]) => more.includes(k));
