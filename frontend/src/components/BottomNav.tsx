@@ -27,7 +27,7 @@ export default function BottomNav<T extends string>({ tabs, tab, onTab, href }: 
   return (
     <nav className="bnav" aria-label="Sections">
       {main.map(([k, label]) => item(k, label))}
-      <button className="bnav-item" onClick={() => setOpen(true)} aria-label={`Betslip, ${legs.length} selections${clashCount ? `, ${clashCount} to fix` : ""}`}>
+      <button className="bnav-item" onClick={() => setOpen(true)} aria-label={`Betslip, ${legs.length} ${legs.length === 1 ? "selection" : "selections"}${clashCount ? `, ${clashCount} to fix` : ""}`}>
         <span className="bnav-ico"><IconReceipt size={22} stroke={1.75} aria-hidden />{legs.length > 0 && <span className={`bnav-badge${clashCount ? " clash" : ""}`}>{clashCount ? "!" : legs.length}</span>}</span>
         <span>Slip</span>
       </button>

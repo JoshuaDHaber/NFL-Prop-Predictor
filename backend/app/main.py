@@ -1,8 +1,6 @@
 """FastAPI app: JSON API for projections, priced picks and data refresh (+ serves the built React app)."""
-import hmac
 import os
 import time
-from urllib.parse import unquote
 from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import lru_cache
@@ -23,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import auth, bets, books, config, grading, market_fit, pipeline, scheduler, standings
+from . import auth, bets, books, config, grading, slip_sync, market_fit, pipeline, scheduler, standings
 from .db import AltLine, OddsLine, Projection, Run, SessionLocal, SyncRun, current_lines, proj_frame
 from .engine import data, model, odds
 from .engine import injuries as injm
@@ -61,42 +59,18 @@ app = FastAPI(title="NFL Prop Predictor", version="1.0", lifespan=lifespan)
 LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
 
-# Failed password guesses per client, to slow brute-forcing of a human-chosen admin password.
-_FAILS: dict[str, list[float]] = {}
-MAX_FAILS, FAIL_WINDOW = 5, 60.0  # more than this many wrong guesses in a minute are refused with 429
-
-
 def client_key(request: Request) -> str:
     """Who is asking. Behind a host's proxy the real client is the last X-Forwarded-For entry (the one the proxy added)."""
     fwd = request.headers.get("x-forwarded-for", "")
     return fwd.split(",")[-1].strip() if fwd else (request.client.host if request.client else "")
 
 
-def check_admin(request: Request) -> str:
-    """'ok' (may change data / spend API credits), 'no', or 'throttled' (too many wrong guesses lately).
-
-    Allowed from this machine, for a signed-in admin account, or with the admin password sent as a Bearer token. The right password always
-    works, so a stranger's guesses can never lock the owner out; only wrong guesses are slowed.
-    """
-    host = request.client.host if request.client else ""
-    if host in LOCAL_HOSTS:
-        return "ok"
-    if auth.is_admin_user(auth.request_user(request)):   # signed in with an email in ADMIN_EMAILS
-        return "ok"
-    password = config.ADMIN_TOKEN()
-    given = request.headers.get("authorization", "")
-    if not (password and given.startswith("Bearer ")):
-        return "no"
-    if hmac.compare_digest(unquote(given[7:]).encode(), password.encode()):
-        return "ok"
-    key, now = client_key(request), time.time()
-    recent = [t for t in _FAILS.get(key, []) if now - t < FAIL_WINDOW]
-    _FAILS[key] = recent + [now]
-    return "throttled" if len(recent) >= MAX_FAILS else "no"
-
-
 def is_admin(request: Request) -> bool:
-    return check_admin(request) == "ok"
+    """May change data and spend API credits: a request from this machine (a laptop running the app, or a shell on the
+    host: the way back in if the owner's account is ever unreachable), or a signed-in, 21+ account in ADMIN_EMAILS.
+    The old admin password (ADMIN_TOKEN, a Bearer header) is retired: accounts replaced it."""
+    host = request.client.host if request.client else ""
+    return host in LOCAL_HOSTS or auth.is_admin_user(auth.request_user(request))
 
 
 PUBLIC_WRITES = ("/api/auth/", "/api/me/")   # each route checks the signed-in user and Origin itself
@@ -105,13 +79,10 @@ PUBLIC_WRITES = ("/api/auth/", "/api/me/")   # each route checks the signed-in u
 @app.middleware("http")
 async def admin_writes_only(request: Request, call_next):
     """The app can be served beyond this machine (LAN, Tailscale, a host). Writes are POSTs, and those
-    (refreshes, alt-line fetches) spend API credits, so they need to come from here or carry the admin token.
-    Signing in and saving preferences are writes anyone may make: app/auth.py guards those itself."""
+    (refreshes, alt-line fetches) spend API credits, so they need to come from here or from the owner's account.
+    Signing in, preferences and tracked bets are writes anyone may make: app/auth.py and app/bets.py guard those."""
     if request.method not in ("GET", "HEAD", "OPTIONS") and not request.url.path.startswith(PUBLIC_WRITES):
-        verdict = check_admin(request)
-        if verdict == "throttled":
-            return JSONResponse({"detail": "Too many wrong passwords. Wait a minute."}, status_code=429)
-        if verdict != "ok":
+        if not is_admin(request):
             return JSONResponse({"detail": "Admin only"}, status_code=403)
     return await call_next(request)
 
@@ -677,6 +648,7 @@ def _auto_sync(league: Optional[str] = "nfl") -> AutoSync:
 auth.client_key = client_key
 app.include_router(auth.router)
 app.include_router(bets.router)
+app.include_router(slip_sync.router)
 nba_routes.is_admin = lambda request: is_admin(request)
 nba_routes.auto_sync = lambda: _auto_sync("nba")
 app.include_router(nba_routes.router)
@@ -684,10 +656,7 @@ app.include_router(nba_routes.router)
 
 # ---------- admin page: the schedule, the run log, the key's credits ----------
 def require_admin(request: Request):
-    verdict = check_admin(request)
-    if verdict == "throttled":
-        raise HTTPException(429, "Too many wrong passwords. Wait a minute.")
-    if verdict != "ok":
+    if not is_admin(request):
         raise HTTPException(403, "Admin only")
 
 

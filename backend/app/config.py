@@ -24,7 +24,6 @@ def normalize_db_url(url: str) -> str:
 
 
 DATABASE_URL = normalize_db_url(os.environ.get("DATABASE_URL", f"sqlite:///{os.path.join(BASE_DIR, 'data', 'app.db')}"))
-ADMIN_TOKEN = lambda: os.environ.get("ADMIN_TOKEN")  # lets a remote client run refreshes and spend API credits
 CORS_ORIGINS = lambda: [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
 # the weekly model run needs ~400 MB; small hosts set this to 0 and run it elsewhere against the same database
 PROJECTIONS_ON_SERVER = lambda: os.environ.get("PROJECTIONS_ON_SERVER", "1") != "0"
@@ -57,6 +56,6 @@ GOOGLE_CLIENT_SECRET = lambda: os.environ.get("GOOGLE_CLIENT_SECRET")
 # unset: the sign-in link and code are printed to the server log instead of emailed (local development)
 RESEND_API_KEY = lambda: os.environ.get("RESEND_API_KEY")
 EMAIL_FROM = lambda: os.environ.get("EMAIL_FROM", "The Haber Process <signin@jdhaber.com>")
-# signed-in accounts with these emails get the admin page, as the admin password does
+# signed-in, 21+ accounts with these emails get the admin page (the only way in from outside the host)
 ADMIN_EMAILS = lambda: {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
 FRONTEND_DIST =os.path.join(os.path.dirname(BASE_DIR), "frontend", "dist")

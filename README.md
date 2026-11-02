@@ -28,7 +28,7 @@ A full-stack web app that projects NFL player yardage, prices the projections ag
 - **Model check:** backtest accuracy per market, **graded picks** (below) with **closing-line value**, the fitted market and book weights, the fitted weather effect with this week's outdoor forecasts, and the freshness of projections and odds.
 - **Graded picks:** every NFL sync logs the board for games still to kick off (`pick_log`; the last snapshot before a game is the one kept), and each model run grades finished games from nflverse's weekly stats once they land, usually the Tuesday after. Model check shows the record and units of what a visitor saw (Min EV 3%, flags hidden), split by market, side and EV, with one pick per player alongside, plus the projection's and the posted line's average miss per market: the backtest has no odds in it, so this is where the model is checked against the market (`GET /api/grades`). Each logged pick also keeps the price it was **first shown at** on the board (EV 3%+, no flag), and once its game starts it gets the **close**: the books' fair chance of its side at the last odds fetch before kickoff, at its line. Model check reports how often the picks beat the close, their EV measured at the close, and how far the market moved toward them, overall and by market.
 - **Scheduled syncs:** the server runs the model and fetches odds on a weekly schedule (below), so the public site has no buttons that spend credits. The header shows when the next update is due. Odds are stored in the database, so re-running the model never spends API credits.
-- **Admin page** (`/admin`, behind the admin password): the schedule with each slot's next and last run and a *Run now* button, a log of every sync (trigger, week, games fetched, credits used, full output), and the Odds API key's remaining credits.
+- **Admin page** (`/admin`, for the owner's account: an `ADMIN_EMAILS` address, signed in): the schedule with each slot's next and last run and a *Run now* button, a log of every sync (trigger, week, games fetched, credits used, full output), and the Odds API key's remaining credits.
 
 ## NBA
 
@@ -237,7 +237,10 @@ The `Dockerfile` builds the React app and the API into one container, so on Rail
 1. **New project → Deploy from GitHub repo** → this repo. Every push to `main` redeploys.
 2. **Database:** *+ New → Database → PostgreSQL* (or `railway add --database postgres`).
    **Volume:** right-click the service → *Attach volume*, mount path `/srv/backend/data`, for the ESPN cache, which must survive redeploys.
-3. **Variables:** `ODDS_API_KEY`, `ADMIN_TOKEN` (your admin password, 12+ characters), and `DATABASE_URL=${{Postgres.DATABASE_URL}}`. That URL uses Railway's private network, so the database needs no public port. Without `DATABASE_URL` the app uses a SQLite file on the volume.
+3. **Variables:** `ODDS_API_KEY`, `DATABASE_URL=${{Postgres.DATABASE_URL}}`, and for accounts `PUBLIC_URL`, `ADMIN_EMAILS` (the
+   accounts that get the admin page), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `RESEND_API_KEY` and `EMAIL_FROM` (see
+   `docs/auth-plan.md`). There's no admin password: sign in with an `ADMIN_EMAILS` account. Requests from the host itself (a
+   `railway ssh` shell) also count as admin, the way back in if that account is ever unreachable. That URL uses Railway's private network, so the database needs no public port. Without `DATABASE_URL` the app uses a SQLite file on the volume.
 4. **Settings → Networking → Generate domain** for a public `*.up.railway.app` URL.
 5. **Bring your data** (optional), so the odds you already paid for come along. From your machine, open a tunnel with `railway connect Postgres --tunnel-only --port 54329`, then run `python -m app.copy_db --from sqlite:///path/to/app.db --to 'postgresql://postgres:<password>@127.0.0.1:54329/railway' --with-history`. The password is the Postgres service's `PGPASSWORD`.
 

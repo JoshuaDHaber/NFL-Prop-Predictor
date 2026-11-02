@@ -36,3 +36,23 @@ def _no_standings_fetch(monkeypatch):
         raise standings.espn.requests.ConnectionError("offline in tests")
     monkeypatch.setattr(standings, "_download", offline)
     standings._records.cache_clear()
+
+
+def sign_in_admin(client, monkeypatch, email="site-owner@example.com"):
+    """Make `client` the site owner: a signed-in, 21+ account whose email is in ADMIN_EMAILS (the admin password is retired)."""
+    import secrets
+    from datetime import datetime, timedelta
+
+    from app import auth
+    from app.db import SessionLocal, User, UserSession
+    monkeypatch.setenv("ADMIN_EMAILS", email)
+    token, now = secrets.token_urlsafe(16), datetime.utcnow()
+    with SessionLocal() as s:
+        user = s.query(User).filter(User.email == email).first() or User(email=email)
+        user.age_confirmed_at = user.age_confirmed_at or now
+        s.add(user)
+        s.flush()
+        s.add(UserSession(id=auth._hash(token), user_id=user.id, expires_at=now + timedelta(days=1), last_seen_at=now))
+        s.commit()
+    client.cookies.set("sid", token)
+    return client

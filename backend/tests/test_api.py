@@ -191,33 +191,29 @@ def test_app_url_override_wins_for_sharing(client, monkeypatch):
     assert client.get("/api/meta").json()["lan_url"] == "http://my-mac.tail1234.ts.net:8000"
 
 
-# ---------- hosted-deployment behaviour: admin token, CORS, health, database URL ----------
-def test_remote_writes_need_the_admin_token(monkeypatch):
-    monkeypatch.setenv("ADMIN_TOKEN", "s3cret")
+# ---------- hosted-deployment behaviour: who may write, CORS, health, database URL ----------
+def test_remote_writes_need_the_owners_account(monkeypatch):
+    from conftest import sign_in_admin
     monkeypatch.setattr(main.pipeline, "run_projections", lambda log=print, **kw: None)
     monkeypatch.setattr(main.pipeline, "refresh_odds", lambda mode, log=print, **kw: None)
     with TestClient(main.app, client=("203.0.113.9", 4000)) as remote:
         assert remote.post("/api/refresh", json={"odds": "none"}).status_code == 403
-        bad = remote.post("/api/refresh", json={"odds": "none"}, headers={"Authorization": "Bearer nope"})
-        assert bad.status_code == 403
-        ok = remote.post("/api/refresh", json={"odds": "none"}, headers={"Authorization": "Bearer s3cret"})
-        assert ok.status_code == 202
+        # the retired admin password no longer opens anything
+        monkeypatch.setenv("ADMIN_TOKEN", "s3cret")
+        assert remote.post("/api/refresh", json={"odds": "none"}, headers={"Authorization": "Bearer s3cret"}).status_code == 403
+        sign_in_admin(remote, monkeypatch)
+        assert remote.post("/api/refresh", json={"odds": "none"}).status_code == 202
         main._job.update(state="idle")
 
 
 def test_meta_tells_each_client_whether_it_can_write(monkeypatch):
-    monkeypatch.setenv("ADMIN_TOKEN", "s3cret")
+    from conftest import sign_in_admin
     with TestClient(main.app, client=("203.0.113.9", 4000)) as remote:
         assert remote.get("/api/meta").json()["can_write"] is False
-        assert remote.get("/api/meta", headers={"Authorization": "Bearer s3cret"}).json()["can_write"] is True
-    with TestClient(main.app) as local:
+        assert sign_in_admin(remote, monkeypatch).get("/api/meta").json()["can_write"] is True
+    with TestClient(main.app) as local:   # this machine (a laptop, or a shell on the host) is always the owner
         assert local.get("/api/meta").json()["can_write"] is True
 
-
-def test_without_a_configured_token_remote_clients_stay_read_only(monkeypatch):
-    monkeypatch.delenv("ADMIN_TOKEN", raising=False)
-    with TestClient(main.app, client=("203.0.113.9", 4000)) as remote:
-        assert remote.post("/api/refresh", json={"odds": "none"}, headers={"Authorization": "Bearer "}).status_code == 403
 
 
 def test_forbidden_responses_still_carry_cors_headers_so_the_browser_can_read_them():
@@ -273,48 +269,6 @@ def test_old_runs_with_only_gamma_parameters_still_price(client):
     assert list(main._dists(run)) == ["rush"]
 
 
-# ---------- a human-chosen admin password ----------
-def _post(client, password):
-    return client.post("/api/refresh", json={"odds": "none"}, headers={"Authorization": f"Bearer {password}"})
-
-
-def test_a_password_with_symbols_works_when_the_browser_percent_encodes_it(monkeypatch):
-    from urllib.parse import quote
-    monkeypatch.setenv("ADMIN_TOKEN", "my p@ss/w0rd 100%!")
-    monkeypatch.setattr(main.pipeline, "run_projections", lambda log=print, **kw: None)
-    monkeypatch.setattr(main.pipeline, "refresh_odds", lambda mode, log=print, **kw: None)
-    with TestClient(main.app, client=("203.0.113.20", 4000)) as remote:
-        assert _post(remote, quote("my p@ss/w0rd 100%!", safe="")).status_code == 202
-        main._job.update(state="idle")
-
-
-def test_repeated_wrong_guesses_are_throttled_but_the_right_password_still_works(monkeypatch):
-    monkeypatch.setenv("ADMIN_TOKEN", "correct-horse")
-    monkeypatch.setattr(main.pipeline, "run_projections", lambda log=print, **kw: None)
-    monkeypatch.setattr(main.pipeline, "refresh_odds", lambda mode, log=print, **kw: None)
-    main._FAILS.clear()
-    with TestClient(main.app, client=("203.0.113.21", 4000)) as attacker:
-        assert [_post(attacker, f"guess{i}").status_code for i in range(main.MAX_FAILS)] == [403] * main.MAX_FAILS
-        assert _post(attacker, "one-more-guess").status_code == 429       # slowed down
-        assert _post(attacker, "correct-horse").status_code == 202        # but the owner is never locked out
-        main._job.update(state="idle")
-    with TestClient(main.app, client=("203.0.113.22", 4000)) as other:
-        assert _post(other, "nope").status_code == 403                   # throttling is per client
-    main._FAILS.clear()
-
-
-def test_behind_a_proxy_throttling_follows_the_forwarded_client_not_the_proxy(monkeypatch):
-    monkeypatch.setenv("ADMIN_TOKEN", "correct-horse")
-    main._FAILS.clear()
-    with TestClient(main.app, client=("10.0.0.9", 4000)) as proxy:  # every request arrives from the proxy
-        for i in range(main.MAX_FAILS + 1):
-            proxy.post("/api/refresh", json={"odds": "none"}, headers={"Authorization": f"Bearer bad{i}", "X-Forwarded-For": "198.51.100.7"})
-        blocked = proxy.post("/api/refresh", json={"odds": "none"}, headers={"Authorization": "Bearer bad", "X-Forwarded-For": "198.51.100.7"})
-        innocent = proxy.post("/api/refresh", json={"odds": "none"}, headers={"Authorization": "Bearer bad", "X-Forwarded-For": "198.51.100.8"})
-    assert blocked.status_code == 429 and innocent.status_code == 403
-    main._FAILS.clear()
-
-
 # ---------- the weekly sync from the admin UI ----------
 def _two_games():
     import pandas as pd
@@ -334,12 +288,11 @@ def test_the_sync_plan_says_what_would_run_and_what_it_costs(client, monkeypatch
 
 
 def test_only_the_admin_can_ask_for_a_sync_plan(monkeypatch):
-    monkeypatch.setenv("ADMIN_TOKEN", "pw-for-tests")
+    from conftest import sign_in_admin
     monkeypatch.setattr(main.pipeline, "upcoming_games", _two_games)
     with TestClient(main.app, client=("203.0.113.30", 4000)) as remote:
         assert remote.get("/api/refresh/plan").status_code == 403
-        assert remote.get("/api/refresh/plan", headers={"Authorization": "Bearer pw-for-tests"}).status_code == 200
-    main._FAILS.clear()
+        assert sign_in_admin(remote, monkeypatch).get("/api/refresh/plan").status_code == 200
 
 
 def test_a_finished_sync_drops_the_caches_the_new_data_outdates():
@@ -467,9 +420,7 @@ def test_hidden_offshore_books_leave_every_list_and_price(client, monkeypatch):
         assert {q["book"] for q in client.get("/api/players/p0/lines", params={"kind": "rush", "odds_range": 0}).json()["quotes"]} == {"X"}
 
         with TestClient(main.app, client=("203.0.113.31", 4000)) as remote:   # only the admin can change it
-            monkeypatch.setenv("ADMIN_TOKEN", "pw-for-tests")
             assert remote.post("/api/admin/settings", json={"hide_offshore": False}).status_code == 403
-        main._FAILS.clear()
     finally:
         client.post("/api/admin/settings", json={"hide_offshore": False})
         with SessionLocal() as s:

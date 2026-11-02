@@ -3,20 +3,8 @@ import type { PlayerHit } from "./api";
 import type { League } from "./league";
 import { changedPrefs, setPrefs, setPrefsSink, type Prefs } from "./prefs";
 
-/** The admin password, kept in this browser only. Sent as a Bearer token on every request. */
-const KEY = "nfl-props-admin-token";
-const listeners = new Set<() => void>();
-
-export function getToken(): string {
-  try { return localStorage.getItem(KEY) ?? ""; } catch { return ""; }
-}
-export function setToken(t: string) {
-  try { t ? localStorage.setItem(KEY, t) : localStorage.removeItem(KEY); } catch { /* storage blocked */ }
-  listeners.forEach((l) => l());
-}
-export function useToken(): string {
-  return useSyncExternalStore((cb) => (listeners.add(cb), () => listeners.delete(cb)), getToken);
-}
+// The admin password is retired (the owner's account opens the admin page); a browser that saved one forgets it.
+try { localStorage.removeItem("nfl-props-admin-token"); } catch { /* storage blocked: nothing saved */ }
 
 // ---------- accounts: Google or an emailed link/code; the session is an httpOnly cookie the page never sees ----------
 export interface Account {
@@ -98,10 +86,8 @@ export const emailSignIn = (email: string, next: string) => call("email", { meth
 export const verifyLink = async (token: string) => { const s = await call("email/verify", { method: "POST", body: JSON.stringify({ token }) }); apply(s, { fromSignIn: true }); return s; };
 export const verifyCode = async (email: string, code: string) => { const s = await call("email/verify", { method: "POST", body: JSON.stringify({ email, code }) }); apply(s, { fromSignIn: true }); return s; };
 export const confirmAge = async () => { apply(await call("age", { method: "POST" }), { fromSignIn: true }); };
-/** Signing out signs this browser out of everything: the account and the admin password, if one was saved here, which
- *  otherwise kept the owner's pages open after "Sign out". Forgotten even if the server can't be reached. */
-export const signOut = async () => { try { return apply(await call("logout", { method: "POST" })); } finally { setToken(""); } };
-export const deleteAccount = async () => { const changed = apply(await call("me", { method: "DELETE" })); setToken(""); return changed; };
+export const signOut = async () => apply(await call("logout", { method: "POST" }));
+export const deleteAccount = async () => apply(await call("me", { method: "DELETE" }));
 export const googleHref = (next: string) => `/api/auth/google/start?next=${encodeURIComponent(next)}`;
 /** Where you are now, to come back to after signing in. */
 export const herePath = () => window.location.pathname + window.location.search + window.location.hash;

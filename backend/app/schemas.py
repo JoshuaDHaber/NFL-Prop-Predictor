@@ -692,3 +692,16 @@ class BetsOut(BaseModel):
     summary: BetSummary
     books: list[str]                 # every book this person has tracked at, for the filter
     tags: list[str]                  # every tag they've used, for the filter and suggestions
+
+
+# ---------- the betslip, synced between a signed-in visitor's devices (app/slip_sync.py) ----------
+class SlipIn(BaseModel):
+    legs: list[dict]
+    stakes: dict[str, float] = {}
+    base: Optional[str] = None      # the updated_at this device last saw: a newer one on the server means another device saved
+
+
+class SlipOut(BaseModel):
+    legs: list[dict]
+    stakes: dict[str, float]
+    updated_at: Optional[str] = None   # None: nothing saved yet
