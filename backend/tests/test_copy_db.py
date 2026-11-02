@@ -55,3 +55,24 @@ def test_copy_refuses_to_copy_a_database_onto_itself(tmp_path):
     _seed(url)
     with pytest.raises(SystemExit):
         copy(url, url)
+
+
+def test_without_accounts_leaves_visitors_data_out_and_the_targets_own_alone(tmp_path):
+    from app.db import Bet, BetLeg, User
+    src, dst = f"sqlite:///{tmp_path}/src.db", f"sqlite:///{tmp_path}/dst.db"
+    with Session(_seed(src)) as s:   # production: a real person with a tracked bet
+        s.add(User(email="real.person@example.com"))
+        s.flush()
+        bet = Bet(user_id=s.query(User).one().id, league="nfl", book="B", kind="single", stake=10, odds=100, status="open")
+        bet.legs = [BetLeg(game_id="g", gameday="d", kickoff=datetime(2026, 10, 4), player_id="p", name="A", team="T", opp="O",
+                           kind="rush", side="Over", line=1.5, odds=100)]
+        s.add(bet)
+        s.commit()
+    with Session(make_engine(dst)) as s:   # the laptop's own test account
+        s.add(User(email="laptop.tester@example.com"))
+        s.commit()
+    counts = copy(src, dst, log=lambda m: None, with_accounts=False)
+    assert not {"users", "bets", "bet_legs", "user_sessions", "login_tokens"} & set(counts) and counts["runs"] == 1
+    with Session(make_engine(dst)) as s:
+        assert [u.email for u in s.query(User)] == ["laptop.tester@example.com"] and s.query(Bet).count() == 0
+        assert s.query(Run).count() == 1   # the site's data still came across
