@@ -26,7 +26,7 @@ export function runText(r: HotPick) {
   return `${r.hits} of ${r.window}${r.streak >= 2 ? ` · last ${r.streak} in a row` : ""}`;
 }
 
-/** Who's hot: players whose last few games cleared the line they're posted at now (or, on the Cold side, stayed under it),
+/** Who's Hot: players whose last few games cleared the line they're posted at now (or, on the Cold side, stayed under it),
  *  with the board's price beside the run. A streak isn't an edge by itself: the projections already lean on recent games,
  *  so the EV says whether the run is in the price. */
 export default function HotBoard({ board, onSelect, weather = {} }: { board: ReturnType<typeof useHotBoard>; onSelect: (r: HotPick) => void; weather?: Record<string, GameWeather | null | undefined> }) {

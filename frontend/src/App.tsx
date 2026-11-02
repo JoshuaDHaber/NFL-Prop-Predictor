@@ -21,7 +21,7 @@ import HowToRead from "./components/HowToRead";
 import PageHead from "./components/PageHead";
 import MyBets from "./components/MyBets";
 import Preferences from "./components/Preferences";
-import { PREFERRED_GAME_BOOK, useBoardBook, usePref } from "./prefs";
+import { orderTabs, PREFERRED_GAME_BOOK, useBoardBook, usePref } from "./prefs";
 import ResponsibleGaming from "./components/ResponsibleGaming";
 import TopBar from "./components/TopBar";
 import TopTiles, { type Tile } from "./components/TopTiles";
@@ -42,13 +42,13 @@ const PlayerDrawer = lazy(() => importOrReload(() => import("./components/Player
 const AdminPage = lazy(() => importOrReload(() => import("./components/AdminPage")));
 const NbaApp = lazy(() => importOrReload(() => import("./NbaApp")));
 type Tab = "games" | "picks" | "hot" | "parlays" | "injuries" | "projections" | "compare" | "model" | "admin" | "account" | "bets";
-const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["hot", "Who's hot"], ["injuries", "Injuries"], ["projections", "Projections"], ["compare", "Compare"], ["model", "Model check"], ["admin", "Admin"]];
+const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["hot", "Who's Hot"], ["injuries", "Injuries"], ["projections", "Projections"], ["compare", "Compare"], ["model", "Model check"], ["admin", "Admin"]];
 /** Sections under the top bar's More menu. */
 const MORE: Tab[] = ["injuries", "compare", "model", "admin"];
 /** Sections only the site owner sees (signed in with an ADMIN_EMAILS account, or the admin password): meta.can_write. */
 const OWNER_ONLY: Tab[] = ["model", "admin"];
 /** Each section's page title (Best props and Parlays add their sportsbook picker). */
-const TITLE: Record<Tab, string> = { games: "This week's games", picks: "Best props", hot: "Who's hot", parlays: "Parlays", injuries: "Injury report", projections: "Projections",
+const TITLE: Record<Tab, string> = { games: "This week's games", picks: "Best props", hot: "Who's Hot", parlays: "Parlays", injuries: "Injury report", projections: "Projections",
   compare: "Compare players", model: "Model check", admin: "Admin", account: "Preferences", bets: "My bets" };
 /** Each section's path: /props, /parlays, ... (Games is the front page). */
 const SLUGS: Record<Tab, string> = { games: "", picks: "props", hot: "hot", parlays: "parlays", injuries: "injuries", projections: "projections", compare: "compare",
@@ -93,6 +93,7 @@ function PublicApp() {
   const { selected, open: select, close: closePlayer, remember: rememberKind } = useSelectedPlayer();
   // the game page's sportsbook: a preference, remembered in this browser and the account (prefs.ts)
   const [gameBook, setGameBook] = usePref("game_book");
+  const [tabOrder] = usePref("tab_order");
   const debounced = useDebounced(filters, 250);
 
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
@@ -185,7 +186,7 @@ function PublicApp() {
 
   return (
     <div className="wrap">
-      <TopBar tabs={m.can_write ? TABS : TABS.filter(([k]) => !OWNER_ONLY.includes(k))} more={MORE} tab={tab} onTab={goTab} href={href} />
+      <TopBar tabs={orderTabs(m.can_write ? TABS : TABS.filter(([k]) => !OWNER_ONLY.includes(k)), tabOrder)} home="games" more={MORE} tab={tab} onTab={goTab} href={href} />
       <p className="statusline">
         {m.run ? `${m.run.season} Week ${m.run.week} · projections ${timeAgo(m.run.created_at)}` : "No projections yet"}
         {latestOdds && <> · <Freshness at={latestOdds} /></>}
@@ -207,7 +208,7 @@ function PublicApp() {
       ) : <>
       <PageHead title={
         tab === "picks" ? <>Best props at <BookSelect inline books={m.books} book={filters.book} allLabel="every book" onChange={(b) => setFilters({ ...filters, book: b })} /></>
-          : tab === "hot" ? <>Who's hot at <BookSelect inline books={m.books} book={filters.book} allLabel="every book" onChange={(b) => setFilters({ ...filters, book: b })} /></>
+          : tab === "hot" ? <>Who's Hot at <BookSelect inline books={m.books} book={filters.book} allLabel="every book" onChange={(b) => setFilters({ ...filters, book: b })} /></>
           : tab === "parlays" && board.book ? <>Parlays at <BookSelect inline books={m.books} book={board.book} onChange={board.setBook} /></>
           : TITLE[tab]} />
       <TopTiles tiles={tiles} />

@@ -121,8 +121,12 @@ def test_age_prefs_logout_and_delete(sent):
         assert c.put("/api/auth/prefs", json={"theme": "light"}).status_code == 200
         assert c.post("/api/auth/age").json()["user"]["age_confirmed"]
         r = c.put("/api/auth/prefs", json={"game_book": "DraftKings", "one_per_player": False})
-        assert r.json()["user"]["prefs"] == {"theme": "light", "game_book": "DraftKings", "one_per_player": False, "detailed_cards": None}
+        assert r.json()["user"]["prefs"] == {"theme": "light", "game_book": "DraftKings", "one_per_player": False, "detailed_cards": None,
+                                             "tab_order": None}
         assert c.put("/api/auth/prefs", json={"theme": "purple"}).status_code == 422
+        r = c.put("/api/auth/prefs", json={"tab_order": ["hot", "games", "picks", "parlays", "projections"]})
+        assert r.json()["user"]["prefs"]["tab_order"][0] == "hot"
+        assert c.put("/api/auth/prefs", json={"tab_order": ["admin"]}).status_code == 422
 
         assert c.post("/api/auth/logout").json()["user"] is None
         assert c.get("/api/auth/me").json()["user"] is None

@@ -540,6 +540,8 @@ class Prefs(BaseModel):
     game_book: Optional[str] = None         # the sportsbook game pages open at ("all": every book)
     one_per_player: Optional[bool] = None   # Best props: one pick per player
     detailed_cards: Optional[bool] = None   # Best props on phones: the detailed card layout
+    # the main sections' order in the top bar (frontend prefs.ts MAIN_TABS)
+    tab_order: Optional[list[Literal["games", "picks", "parlays", "hot", "projections"]]] = Field(None, max_length=5)
 
 
 class FavPlayer(BaseModel):

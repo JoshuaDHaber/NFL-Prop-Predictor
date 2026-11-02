@@ -34,13 +34,13 @@ import Skeleton from "./components/Skeleton";
 import { BASE } from "./env";
 import MyBets from "./components/MyBets";
 import Preferences from "./components/Preferences";
-import { PREFERRED_GAME_BOOK, useBoardBook, usePref } from "./prefs";
+import { orderTabs, PREFERRED_GAME_BOOK, useBoardBook, usePref } from "./prefs";
 
 const PlayerDrawer = lazy(() => importOrReload(() => import("./components/PlayerDrawer")));
 const AdminPage = lazy(() => importOrReload(() => import("./components/AdminPage")));
 
 type Tab = "games" | "picks" | "hot" | "parlays" | "injuries" | "projections" | "compare" | "check" | "admin" | "account" | "bets";
-const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["hot", "Who's hot"], ["injuries", "Injuries"], ["projections", "Projections"], ["compare", "Compare"],
+const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["hot", "Who's Hot"], ["injuries", "Injuries"], ["projections", "Projections"], ["compare", "Compare"],
   ["check", "Model check"], ["admin", "Admin"]];
 /** Sections under the top bar's More menu. */
 const MORE: Tab[] = ["injuries", "compare", "check", "admin"];
@@ -50,7 +50,7 @@ const OWNER_ONLY: Tab[] = ["check", "admin"];
 const SLUGS: Record<Tab, string> = { games: "", picks: "props", hot: "hot", parlays: "parlays", injuries: "injuries", projections: "projections", compare: "compare",
   check: "model", admin: "admin", account: "account", bets: "bets" };
 /** Each section's page title (Best props and Parlays add their sportsbook picker). */
-const TITLE: Record<Tab, string> = { games: "Games", picks: "Best props", hot: "Who's hot", parlays: "Parlays", injuries: "Injury report", projections: "Projections",
+const TITLE: Record<Tab, string> = { games: "Games", picks: "Best props", hot: "Who's Hot", parlays: "Parlays", injuries: "Injury report", projections: "Projections",
   compare: "Compare players", check: "Model check", admin: "Admin", account: "Preferences", bets: "My bets" };
 const gameFromHash = () => new URLSearchParams(window.location.hash.slice(1)).get("game");
 /** "Tue Oct 20" from an Eastern date. */
@@ -88,6 +88,7 @@ export default function NbaApp() {
   const { selected, open: openPlayer, close: closePlayer, remember: rememberKind } = useSelectedPlayer();
   // the game page's sportsbook: a preference, remembered in this browser and the account (prefs.ts)
   const [gameBook, setGameBook] = usePref("game_book");
+  const [tabOrder] = usePref("tab_order");
   // which game date to show: null follows today (or the next date with games), "all" shows both
   const [datePick, setDatePick] = useState<string | null>(() => param("date"));
 
@@ -177,7 +178,7 @@ export default function NbaApp() {
 
   return (
     <div className="wrap">
-      <TopBar tabs={m.can_write ? TABS : TABS.filter(([k]) => !OWNER_ONLY.includes(k))} more={MORE} tab={tab} onTab={goTab} href={href} />
+      <TopBar tabs={orderTabs(m.can_write ? TABS : TABS.filter(([k]) => !OWNER_ONLY.includes(k)), tabOrder)} home="games" more={MORE} tab={tab} onTab={goTab} href={href} />
       <p className="statusline">
         {m.run ? `${seasonLabel} · ${m.run.slate.map(day).join(" & ")} · projections ${timeAgo(m.run.created_at)}` : "No projections yet"}
         {latestOdds && <> · <Freshness at={latestOdds} /></>}
@@ -203,7 +204,7 @@ export default function NbaApp() {
       ) : <>
         <PageHead
           title={tab === "picks" ? <>Best props at <BookSelect inline books={m.books} book={filters.book} allLabel="every book" onChange={(b) => setFilters({ ...filters, book: b })} /></>
-            : tab === "hot" ? <>Who's hot at <BookSelect inline books={m.books} book={filters.book} allLabel="every book" onChange={(b) => setFilters({ ...filters, book: b })} /></>
+            : tab === "hot" ? <>Who's Hot at <BookSelect inline books={m.books} book={filters.book} allLabel="every book" onChange={(b) => setFilters({ ...filters, book: b })} /></>
             : tab === "parlays" && board.book ? <>Parlays at <BookSelect inline books={m.books} book={board.book} onChange={board.setBook} /></>
             : TITLE[tab]}
           aside={dates.length > 1 && tab !== "compare" && tab !== "check" && tab !== "account" && tab !== "bets" && (
