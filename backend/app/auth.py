@@ -1,7 +1,7 @@
 """Accounts: sign in with Google or with a link/code sent by email, then an httpOnly cookie session. No passwords are stored.
 
 Signing in is optional: every board stays public. An account keeps its preferences, and an email in ADMIN_EMAILS opens
-the admin page (as the admin password does). See docs/auth-plan.md.
+the admin page. See docs/auth-plan.md.
 """
 import base64
 import hashlib

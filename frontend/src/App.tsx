@@ -45,7 +45,7 @@ type Tab = "games" | "picks" | "hot" | "parlays" | "injuries" | "projections" | 
 const TABS: [Tab, string][] = [["games", "Games"], ["picks", "Best props"], ["parlays", "Parlays"], ["hot", "Who's Hot"], ["injuries", "Injuries"], ["projections", "Projections"], ["compare", "Compare"], ["model", "Model check"], ["admin", "Admin"]];
 /** Sections under the top bar's More menu. */
 const MORE: Tab[] = ["injuries", "compare", "model", "admin"];
-/** Sections only the site owner sees (signed in with an ADMIN_EMAILS account, or the admin password): meta.can_write. */
+/** Sections only the site owner sees (signed in with an ADMIN_EMAILS account): meta.can_write. */
 const OWNER_ONLY: Tab[] = ["model", "admin"];
 /** Each section's page title (Best props and Parlays add their sportsbook picker). */
 const TITLE: Record<Tab, string> = { games: "This week's games", picks: "Best props", hot: "Who's Hot", parlays: "Parlays", injuries: "Injury report", projections: "Projections",

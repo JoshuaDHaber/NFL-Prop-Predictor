@@ -127,12 +127,12 @@ def test_a_restart_marks_cut_off_runs_interrupted_and_catch_up_retries_them_once
     assert scheduler._already_ran(slot, at)
 
 
-def test_admin_page_needs_the_password(monkeypatch):
-    monkeypatch.setenv("ADMIN_TOKEN", "s3cret")
+def test_admin_page_needs_the_owners_account(monkeypatch):
+    from conftest import sign_in_admin
     with TestClient(main.app, client=("203.0.113.9", 4000)) as remote:
         assert remote.get("/api/admin").status_code == 403
         assert remote.post("/api/admin/run/wed-odds").status_code == 403
-        r = remote.get("/api/admin", headers={"Authorization": "Bearer s3cret"})
+        r = sign_in_admin(remote, monkeypatch).get("/api/admin")
     assert r.status_code == 200
     body = r.json()
     assert {s["id"] for s in body["slots"]} == {s.id for s in scheduler.SLOTS}
