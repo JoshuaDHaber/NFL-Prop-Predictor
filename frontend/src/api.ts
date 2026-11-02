@@ -231,7 +231,7 @@ export interface GradeReport {
   clv?: ClvLine[]; clv_by_market?: ClvLine[]; market_fit?: MarketFit | null;
 }
 
-/** A Who's hot row: a priced pick whose last `window` games mostly cleared its line (backend engine/hot.py). */
+/** A Who's Hot row: a priced pick whose last `window` games mostly cleared its line (backend engine/hot.py). */
 export interface HotPick extends Pick {
   window: number; hits: number; streak: number;
   /** The last `window` games' values, oldest first. */

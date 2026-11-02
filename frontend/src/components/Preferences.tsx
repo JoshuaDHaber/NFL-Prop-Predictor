@@ -1,9 +1,10 @@
+import { IconArrowDown, IconArrowUp } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { deleteAccount, signOut, useAuth } from "../auth";
 import { MAX_FAV_TEAMS, setFavTeams, toggled, useFavorites } from "../favorites";
 import { getLeague, type League } from "../league";
-import { usePref, type Prefs } from "../prefs";
+import { MAIN_TABS, usePref, type MainTab, type Prefs } from "../prefs";
 import { teamsOf } from "../teams";
 import { AccountAvatar } from "./AccountMenu";
 import BookSelect from "./BookSelect";
@@ -11,6 +12,7 @@ import { FavStar, LeagueIcon, MoonIcon, SunIcon, SystemIcon } from "./icons";
 import TeamLogo from "./TeamLogo";
 import { openSignIn } from "./SignIn";
 
+const TAB_LABELS: Record<MainTab, string> = { games: "Games", picks: "Best props", parlays: "Parlays", hot: "Who's Hot", projections: "Projections" };
 const THEMES: [Prefs["theme"], string, typeof SunIcon][] = [["auto", "System", SystemIcon], ["light", "Light", SunIcon], ["dark", "Dark", MoonIcon]];
 
 /** The preferences page (/account): who's signed in, and the settings that follow the account to every device. Signed out,
@@ -83,6 +85,8 @@ export default function Preferences({ books }: { books: string[] }) {
         <p className="mut">On phones, each pick's card shows every number instead of just the player, pick, win chance and EV.</p>
       </section>
 
+      <TabOrder />
+
       <section className="card prefs-card prefs-wide">
         <h3 className="sub-h">Your teams</h3>
         <p className="mut">{user?.age_confirmed ? `Their games come first on the Games tab, starred. Up to ${MAX_FAV_TEAMS} per league.`
@@ -120,5 +124,45 @@ function FavTeams({ league }: { league: League }) {
       </div>
       {problem && <p className="err">{problem}</p>}
     </div>
+  );
+}
+
+/** The main sections' order in the top bar (and the phone tab bar's first slots): saved to the account, so signed in and
+ *  21+ confirmed only, as Your teams is. */
+function TabOrder() {
+  const user = useAuth()?.user;
+  const [order, setOrder] = usePref("tab_order");
+  const [moved, setMoved] = useState("");
+  const list = useRef<HTMLOListElement>(null);
+  const move = (i: number, by: number) => {
+    const next = [...order];
+    [next[i], next[i + by]] = [next[i + by], next[i]];
+    setOrder(next);
+    setMoved(`${TAB_LABELS[next[i + by]]} moved to ${i + by + 1} of ${next.length}`);
+    // at either end the pressed arrow is disabled: keep the keyboard on the row by moving to its other arrow
+    const to = i + by;
+    if (to === 0 || to === next.length - 1) {
+      requestAnimationFrame(() => list.current?.children[to]?.querySelector<HTMLButtonElement>(`button:not(:disabled)`)?.focus());
+    }
+  };
+  const usual = order.join() === MAIN_TABS.join();
+  return (
+    <section className="card prefs-card">
+      <h3 className="sub-h">Tab order</h3>
+      {user?.age_confirmed ? <>
+        <ol className="tab-order" aria-label="Tab order" ref={list}>
+          {order.map((t, i) => (
+            <li key={t}>
+              <span>{TAB_LABELS[t]}</span>
+              <button className="icon-btn" onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move ${TAB_LABELS[t]} up`}><IconArrowUp size={16} stroke={1.75} aria-hidden /></button>
+              <button className="icon-btn" onClick={() => move(i, 1)} disabled={i === order.length - 1} aria-label={`Move ${TAB_LABELS[t]} down`}><IconArrowDown size={16} stroke={1.75} aria-hidden /></button>
+            </li>
+          ))}
+        </ol>
+        <p className="sr-only" role="status" aria-live="polite">{moved}</p>
+        <p className="mut">The order of the sections along the top. On phones, the first three get the bottom bar.
+          {!usual && <> <button className="link" onClick={() => { setOrder([...MAIN_TABS]); setMoved("Tab order reset"); }}>Reset</button></>}</p>
+      </> : <p className="mut">{user ? "Confirm you're 21 or older to save your tab order." : "Sign in to choose your tab order: the sections along the top, in the order you use them."}</p>}
+    </section>
   );
 }

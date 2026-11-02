@@ -270,7 +270,7 @@ tr.clickable:hover td:last-child { border-top-right-radius: 10px; border-bottom-
   .t-proj td:nth-child(1) { grid-column: 1 / -1; }
   .t-proj td:nth-child(2) { grid-column: 1 / 3; color: var(--mut); font-size: 12px; } .t-proj td:nth-child(3) { grid-column: 3 / 5; text-align: right; color: var(--mut); font-size: 12px; }
   .t-proj td:nth-child(n+4) { grid-row: auto; }
-  /* Who's hot: player and EV, then the line and market, then the run, its average and the win chance */
+  /* Who's Hot: player and EV, then the line and market, then the run, its average and the win chance */
   .t-hot td:nth-child(1) { grid-column: 1 / 4; grid-row: 1; } .t-hot td:nth-child(7) { grid-column: 4; grid-row: 1; justify-self: end; align-self: start; }
   .t-hot td:nth-child(3) { grid-column: 1 / 3; grid-row: 2; }
   .t-hot td:nth-child(2) { grid-column: 3 / 5; grid-row: 2; text-align: right; color: var(--mut); font-size: 12px; align-self: center; }
@@ -990,6 +990,10 @@ header .sub a { color: var(--mut); font-weight: 500; text-decoration: none; } he
 
 /* favorites: teams (Preferences, starred and first on Games) and players (the drawer's star, Compare's picker) */
 .prefs-wide { grid-column: 1 / -1; }
+.tab-order { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; counter-reset: tab; }
+.tab-order li { display: flex; align-items: center; gap: 4px; padding: 4px 4px 4px 10px; border: 1px solid var(--line); border-radius: 8px; counter-increment: tab; }
+.tab-order li::before { content: counter(tab); color: var(--mut); font-size: 12px; width: 16px; }
+.tab-order li span { flex: 1; font-weight: 600; } .tab-order .icon-btn:disabled { opacity: .35; cursor: default; border-color: var(--line); }
 .fav-teams h4 { display: flex; align-items: center; gap: 6px; margin: 4px 0 6px; font-size: 12px; font-weight: 700; letter-spacing: .06em; color: var(--mut); }
 .fav-team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
 /* the site's pressed chip (.chip-btn[aria-pressed]), with a logo */
@@ -1011,7 +1015,7 @@ header .sub a { color: var(--mut); font-weight: 500; text-decoration: none; } he
 .cmp-fav-hint { margin: 0; font-size: 13px; } .cmp-fav-hint .link { font-size: 13px; font-weight: 600; }
 .cmp-star { position: absolute; top: 6px; right: 36px; width: 28px; height: 28px; }
 
-/* Who's hot */
+/* Who's Hot */
 .hot-bar { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; margin-bottom: 10px; }
 .hot-bar .seg { margin-bottom: 0; align-items: center; }
 .seg-label { font-size: 12px; align-self: center; }
