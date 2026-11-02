@@ -226,6 +226,7 @@ class User(Base):
     avatar_url: Mapped[str] = mapped_column(String(500), nullable=True)
     age_confirmed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)  # ticked "I'm 21 or older"
     prefs: Mapped[dict] = mapped_column(JSON, nullable=True)        # the preferences page: sportsbook, theme, ...
+    favorites: Mapped[dict] = mapped_column(JSON, nullable=True)    # per league: {"nfl": {"teams": [...], "players": [...]}}
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_login_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 
@@ -495,7 +496,7 @@ def ensure_columns(eng) -> bool:
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_odds_lines_game_id ON odds_lines (game_id)"))
     for table, col, sql_type in (("runs", "weather", "JSON"), ("runs", "teams", "JSON"), ("projections", "wx", "FLOAT"),
                                  ("projections", "teammate_out", "VARCHAR(160)"), ("projections", "thin", "BOOLEAN"),
-                                 ("nba_projections", "parts", "JSON"),
+                                 ("nba_projections", "parts", "JSON"), ("users", "favorites", "JSON"),
                                  *((t, c, typ) for t in ("projections", "nba_projections")
                                    for c, typ in (("dvp", "FLOAT"), ("dvp_rank", "INTEGER"), ("dvp_n", "INTEGER"))),
                                  *((t, c, typ) for t in ("pick_log", "nba_pick_log") for c, typ in PICK_LOG_ADDED)):

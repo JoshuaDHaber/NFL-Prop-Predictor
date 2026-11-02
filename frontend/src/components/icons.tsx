@@ -1,7 +1,7 @@
 import {
   IconArrowDownRight, IconArrowUpRight, IconBallAmericanFootball, IconBallBasketball, IconBolt, IconChartBar, IconCloud, IconCloudFog,
   IconCloudRain, IconCloudSnow, IconCloudStorm, IconDeviceDesktop, IconHandGrab, IconHandStop, IconMapPin, IconMedal, IconMoon,
-  IconPlus, IconRepeat, IconRocket, IconRun, IconShield, IconSnowflake, IconStarFilled, IconSun, IconSunHigh, IconSunLow,
+  IconPlus, IconRepeat, IconRocket, IconRun, IconShield, IconSnowflake, IconStar, IconStarFilled, IconSun, IconSunHigh, IconSunLow,
   IconTarget, IconTemperatureMinus, IconTrophy, IconUsers, IconWall, IconWind, IconFirstAidKit, type Icon,
 } from "@tabler/icons-react";
 import type { Kind } from "../api";
@@ -30,4 +30,6 @@ export const LeagueIcon = ({ league, size = 16 }: { league: "nfl" | "nba"; size?
 export const SideArrow = ({ side, size = 13 }: { side: "Over" | "Under"; size?: number }) =>
   side === "Over" ? <IconArrowUpRight {...props(size)} /> : <IconArrowDownRight {...props(size)} />;
 export const Star = ({ size = 12 }: { size?: number }) => <IconStarFilled size={size} aria-hidden className="icon star" />;
+/** The favorite toggle: an outline star, filled once it's a favorite. */
+export const FavStar = ({ on, size = 18 }: { on: boolean; size?: number }) => (on ? <IconStarFilled {...props(size)} /> : <IconStar {...props(size)} />);
 export { IconMapPin as PinIcon, IconSun as SunIcon, IconMoon as MoonIcon, IconDeviceDesktop as SystemIcon, IconFirstAidKit as InjuryIcon };

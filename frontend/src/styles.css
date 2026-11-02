@@ -981,3 +981,26 @@ header .sub a { color: var(--mut); font-weight: 500; text-decoration: none; } he
 .bet-edit .auth-input { height: 36px; }
 .bets-note { margin-top: 18px; max-width: 72ch; }
 @media (max-width: 700px) { .bets .admin-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } .bets .admin-card .big { font-size: 22px; } }
+
+/* favorites: teams (Preferences, starred and first on Games) and players (the drawer's star, Compare's picker) */
+.prefs-wide { grid-column: 1 / -1; }
+.fav-teams h4 { display: flex; align-items: center; gap: 6px; margin: 4px 0 6px; font-size: 12px; font-weight: 700; letter-spacing: .06em; color: var(--mut); }
+.fav-team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+/* the site's pressed chip (.chip-btn[aria-pressed]), with a logo */
+.fav-team { display: inline-flex; align-items: center; gap: 6px; height: 36px; font-weight: 600; font-size: 13px; }
+.fav-team:disabled { opacity: .45; cursor: default; } .fav-team:disabled:hover { border-color: var(--line); }
+.fav-team:focus-visible { outline: 2px solid var(--acc2); outline-offset: 2px; }
+.fav-team .icon { margin-left: auto; color: var(--ink); }
+.gt-fav { align-self: center; display: inline-flex; color: var(--ink); }
+.pd-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fav-btn { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; color: var(--mut); }
+.fav-btn:hover { color: var(--ink); background: var(--chip); } .fav-btn.on { color: var(--ink); }
+.fav-btn:focus-visible { outline: 2px solid var(--acc2); outline-offset: 2px; } .fav-btn:disabled { opacity: .4; cursor: default; }
+.fav-msg { flex-basis: 100%; color: var(--mut); font-size: 12px; }
+.cmp-favs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; }
+.cmp-favs .tile-label { margin-right: 4px; }
+.cmp-fav { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; font-weight: 600; }
+.cmp-fav:disabled { opacity: .45; cursor: default; } .cmp-fav:disabled:hover { border-color: var(--line); }
+.cmp-fav-all { font-size: 13px; font-weight: 600; margin-left: 4px; }
+.cmp-fav-hint { margin: 0; font-size: 13px; } .cmp-fav-hint .link { font-size: 13px; font-weight: 600; }
+.cmp-star { position: absolute; top: 6px; right: 36px; width: 28px; height: 28px; }

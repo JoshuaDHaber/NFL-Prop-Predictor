@@ -1,6 +1,6 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 Kind = Literal["rush", "rec", "pass", "rr", "td", "recs", "ptd", "lng", "rlng", "ftd", "pts", "reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk", "dd", "tpl"]  # pts on: NBA
 
@@ -532,6 +532,32 @@ class Prefs(BaseModel):
     detailed_cards: Optional[bool] = None   # Best props on phones: the detailed card layout
 
 
+class FavPlayer(BaseModel):
+    """A favorite player as the compare page lists him (the search hit's fields), so the list shows without a lookup."""
+    player_id: str = Field(max_length=40)
+    name: str = Field(max_length=80)
+    pos: str = Field("", max_length=8)
+    team: str = Field("", max_length=8)
+    headshot: Optional[str] = Field(None, max_length=500)
+
+
+class LeagueFavorites(BaseModel):
+    teams: list[str] = []
+    players: list[FavPlayer] = []
+
+
+class Favorites(BaseModel):
+    nfl: LeagueFavorites = LeagueFavorites()
+    nba: LeagueFavorites = LeagueFavorites()
+
+
+class FavoritesIn(BaseModel):
+    """Replace one league's favorite teams or players (a field left out keeps what the account has)."""
+    league: Literal["nfl", "nba"]
+    teams: Optional[list[str]] = Field(None, max_length=40)
+    players: Optional[list[FavPlayer]] = Field(None, max_length=40)
+
+
 class AccountOut(BaseModel):
     email: str
     name: Optional[str] = None
@@ -539,6 +565,7 @@ class AccountOut(BaseModel):
     is_admin: bool
     age_confirmed: bool
     prefs: Prefs
+    favorites: Favorites = Favorites()
 
 
 class AuthState(BaseModel):

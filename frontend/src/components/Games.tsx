@@ -8,7 +8,8 @@ import TeamLogo from "./TeamLogo";
 import { getLeague } from "../league";
 import { matchupColors, shadeVars } from "../teams";
 import { BookName } from "./BookBadge";
-import { InjuryIcon, WeatherIcon } from "./icons";
+import { FavStar, InjuryIcon, WeatherIcon } from "./icons";
+import { favoritesFirst, useFavorites } from "../favorites";
 import SidePill from "./SidePill";
 import { routeClick } from "./NavLink";
 
@@ -34,7 +35,7 @@ function weatherBit(g: Game): ReactNode {
   return w.temp != null ? `${Math.round(w.temp)}°F` : null;
 }
 
-function Tile({ g, picks, ml, injuries, onOpen }: { g: Game; picks: Pick[]; ml?: MoneylineGame; injuries?: InjuryReport; onOpen: Props["onOpen"] }) {
+function Tile({ g, picks, ml, injuries, onOpen, favs }: { g: Game; picks: Pick[]; ml?: MoneylineGame; injuries?: InjuryReport; onOpen: Props["onOpen"]; favs: string[] }) {
   const [, , away, home] = g.game_id.split("_");
   const top = picks[0];
   const inj = injuries ? gameStatusCounts([...(injuries.teams[away] ?? []), ...(injuries.teams[home] ?? [])]) : null;
@@ -43,6 +44,7 @@ function Tile({ g, picks, ml, injuries, onOpen }: { g: Game; picks: Pick[]; ml?:
   const wx = weatherBit(g);
   const blow = blowoutAt(ml);
   const [awayColor, homeColor] = matchupColors(away, home);
+  const fav = (team: string) => favs.includes(team) && <span className="gt-fav" title="Your team" aria-label="Your team"><FavStar on size={14} /></span>;
   const rec = (team: string, at: "home" | "road") => {
     const r = g.records?.[team];
     return r && <span className="gt-rec" title={`${r.overall} this season${r[at] ? ` · ${r[at]} ${at === "home" ? "at home" : "on the road"}` : ""}`}>{r.overall}</span>;
@@ -51,9 +53,9 @@ function Tile({ g, picks, ml, injuries, onOpen }: { g: Game; picks: Pick[]; ml?:
     <a className="gt" href={`#game=${encodeURIComponent(g.game_id)}`} onClick={routeClick(() => onOpen(g.game_id))} aria-label={`Open ${g.label}`}>
       <span className="gt-top"><span>{kickoff(g.gameday, g.gametime)}</span>{wx && <span>{wx}</span>}</span>
       <span className="gt-match">
-        <span className="gt-team"><TeamLogo team={away} /><span><span className="gt-abbr"><b>{away}</b>{rec(away, "road")}</span>{a && <small>{pct(a.prob, 0)}</small>}</span></span>
+        <span className="gt-team"><TeamLogo team={away} /><span><span className="gt-abbr">{fav(away)}<b>{away}</b>{rec(away, "road")}</span>{a && <small>{pct(a.prob, 0)}</small>}</span></span>
         <span className="gt-at">@</span>
-        <span className="gt-team home"><span><span className="gt-abbr">{rec(home, "home")}<b>{home}</b></span>{h && <small>{pct(h.prob, 0)}</small>}</span><TeamLogo team={home} /></span>
+        <span className="gt-team home"><span><span className="gt-abbr">{rec(home, "home")}<b>{home}</b>{fav(home)}</span>{h && <small>{pct(h.prob, 0)}</small>}</span><TeamLogo team={home} /></span>
       </span>
       {a && h
         ? <span className="ml-bar gt-bar" aria-hidden><i className="tbar" style={{ width: `${a.prob * 100}%`, ...shadeVars(awayColor) }} /><i className="tbar" style={{ width: `${h.prob * 100}%`, ...shadeVars(homeColor) }} /></span>
@@ -81,6 +83,7 @@ const PREVIEW_UNDER = 3;
 
 /** Next week's games, kickoff and matchup only: no projections or lines until the week's first sync. */
 function NextWeek({ games, byes = [] }: { games: Game[]; byes?: Props["nextByes"] }) {
+  const { teams: favs } = useFavorites();
   const days = new Map<string, Game[]>();
   for (const g of games) days.set(g.gameday, [...(days.get(g.gameday) ?? []), g]);
   const dayName = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
@@ -97,9 +100,9 @@ function NextWeek({ games, byes = [] }: { games: Game[]; byes?: Props["nextByes"
                 return (
                   <li key={g.game_id}>
                     <span className="nw-time mut">{g.gametime ? kickoff(g.gameday, g.gametime).replace(/^\S+\s/, "") : ""}</span>
-                    <span className="nw-team"><TeamLogo team={away} size={22} /><b>{away}</b><small className="mut">{g.records?.[away]?.overall}</small></span>
+                    <span className="nw-team"><TeamLogo team={away} size={22} /><b>{away}</b>{favs.includes(away) && <span className="gt-fav" title="Your team"><FavStar on size={12} /></span>}<small className="mut">{g.records?.[away]?.overall}</small></span>
                     <span className="mut">@</span>
-                    <span className="nw-team"><TeamLogo team={home} size={22} /><b>{home}</b><small className="mut">{g.records?.[home]?.overall}</small></span>
+                    <span className="nw-team"><TeamLogo team={home} size={22} /><b>{home}</b>{favs.includes(home) && <span className="gt-fav" title="Your team"><FavStar on size={12} /></span>}<small className="mut">{g.records?.[home]?.overall}</small></span>
                   </li>
                 );
               })}
@@ -123,6 +126,7 @@ function NextWeek({ games, byes = [] }: { games: Game[]; byes?: Props["nextByes"
 
 /** The slate: one tile per game with its win chances, top prop and injury count. A tile opens that game's overview. */
 export default function Games({ games, nextGames = [], nextByes = [], picks, moneylines, injuries, onOpen }: Props) {
+  const { teams: favs } = useFavorites();
   if (!games.length) return <>
     <div className="card empty">No games on the slate yet. They appear after the next scheduled sync.</div>
     {nextGames.length > 0 && <NextWeek games={nextGames} byes={nextByes} />}
@@ -134,7 +138,7 @@ export default function Games({ games, nextGames = [], nextByes = [], picks, mon
   return (
     <>
     <section className="gt-grid" aria-label={nba ? "Upcoming games" : "This week's games"}>
-      {games.map((g) => <Tile key={g.game_id} g={g} picks={byGame.get(g.game_id) ?? []} ml={mlByGame.get(g.game_id)} injuries={injuries} onOpen={onOpen} />)}
+      {favoritesFirst(games, favs).map((g) => <Tile key={g.game_id} g={g} picks={byGame.get(g.game_id) ?? []} ml={mlByGame.get(g.game_id)} injuries={injuries} onOpen={onOpen} favs={favs} />)}
     </section>
     {games.length < PREVIEW_UNDER && nextGames.length > 0 && <NextWeek games={nextGames} byes={nextByes} />}
     </>
