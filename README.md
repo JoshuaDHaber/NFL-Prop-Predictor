@@ -7,7 +7,7 @@ A full-stack web app that projects NFL and NBA player stats, prices the projecti
 **Markets:** rushing yards, receiving yards, passing yards, rush + receiving yards, receptions, passing touchdowns, longest reception, longest rush, anytime touchdown, first touchdown scorer, and team moneyline (each team's chance to win).
 
 - **Front end:** React + TypeScript (Vite, TanStack Query, Recharts).
-- **Back end:** FastAPI + SQLAlchemy (SQLite locally, Postgres-ready).
+- **Back end:** FastAPI + SQLAlchemy (SQLite locally, Postgres in production).
 - **Model:** pandas / SciPy projection engine with a walk-forward backtest.
 - **Data:** [nflverse](https://github.com/nflverse/nflverse-data) for stats, schedules (with game-time weather), rosters and injuries; ESPN's public injury feed for news lines and estimated returns; [The Odds API](https://the-odds-api.com) for prop lines; [Open-Meteo](https://open-meteo.com) (free, no key) for kickoff forecasts at outdoor stadiums.
 
