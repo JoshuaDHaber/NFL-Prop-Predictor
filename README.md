@@ -255,6 +255,24 @@ A slot missed by a redeploy (within 3 hours) runs when the server comes back. Ev
 
 **Credit floor and key rotation.** Before fetching odds, a sync checks the key's balance (a free call) and skips any game whose cost would take it under `ODDS_CREDIT_FLOOR` (default 10). With a spare key set (`ODDS_API_KEY_NFL_SECONDARY`, `ODDS_API_KEY_NBA_SECONDARY` for the NBA), a sync switches to it instead once the first key can't afford a game, notes *rotate ODDS_API_KEY* in the sync log, and the admin page shows a banner naming the key to replace. Every sync starts from the first key, so once it's replaced it's spent first again. With no spare left, games are skipped and the sync is logged as *Partial*. To rotate, replace the key in the service's *Variables* and deploy. A free key's 500 credits a month covers roughly two to three weeks of syncs (a full week is about 180 credits before top-ups), so expect to rotate keys during the season.
 
+### Refreshing a local database
+
+A laptop's `backend/data/app.db` doesn't sync on its own, so it goes stale. To bring it up to date, copy production's
+projections, odds, logged picks and settings down instead of re-fetching them, which would spend Odds API credits:
+
+```bash
+railway connect Postgres --tunnel-only --port 54329        # from propmodel/, in another terminal; Ctrl-C when done
+cd backend && python -m app.copy_db --from 'postgresql://claude_ro@127.0.0.1:54329/railway' \
+  --to "sqlite:///$PWD/data/app.db" --without-accounts
+```
+
+- **`--without-accounts`:** leaves production's people out (accounts, sessions, tracked bets, saved slips) and keeps the
+  laptop's own test accounts.
+- **Odds history:** it stays behind unless you add `--with-history`.
+- **Credentials:** `claude_ro` is read-only, so the copy can't change production. Its password comes from `~/.pgpass`;
+  without one, use the `postgres` user and the Postgres service's `PGPASSWORD`.
+- **Time:** about 15 seconds. Back up the old file first if you want it.
+
 ## Using it from your phone anywhere (Tailscale, free)
 
 [Tailscale](https://tailscale.com) is a free private network between your own devices, so your phone can reach the app on your Mac from any network without hosting anything.
