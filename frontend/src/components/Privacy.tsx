@@ -74,6 +74,11 @@ export default function Privacy() {
             troubleshooting, and the site briefly keeps IP addresses in memory to rate-limit sign-in attempts.</li>
           <li><b>Google</b> handles "Continue with Google" when you choose it, under <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google's privacy policy</a>.</li>
           <li><b>Resend</b> delivers sign-in emails, so it receives your email address and the message.</li>
+          <li><b>Bet slip screenshots:</b> when you upload one on My bets, your device reads its text and sends only that text here to fill
+            in the bet for you to check; the image stays on your device and the text isn't kept. The reader's code and English language data
+            load from <b>jsDelivr</b> the first time. If the site is set up to have <b>Anthropic</b>'s Claude read slips instead, the image is
+            sent to Anthropic's API and isn't kept by this site; under Anthropic's API terms it isn't used to train models (see
+            {" "}<a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noopener noreferrer">Anthropic's privacy policy</a>).</li>
           <li><b>Google Fonts</b> serves the site's typeface, and <b>ESPN</b> serves team logos and player photos. Your browser loads these from
             their servers, which see your IP address the way any website does.</li>
           <li><b>Sportsbooks:</b> buttons like "Place bet" open the sportsbook's own site. What happens there is up to that sportsbook and its

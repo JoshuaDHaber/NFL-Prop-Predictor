@@ -1,0 +1,229 @@
+"""Reading a bet slip screenshot (My bets → Add a bet → Upload a screenshot): Claude reads the image into a fixed JSON
+shape, then each leg is matched to a player with a game still to start and to one of the site's markets. The result only
+fills in the Add a bet sheet: the bettor checks it and saves, so a misread never reaches their record unseen. The image is
+read in memory and never stored.
+"""
+import base64
+import json
+import re
+import time
+from datetime import datetime
+from typing import Optional
+
+import anthropic
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from . import auth, config, slip_text
+from .bets import NBA_KINDS, require_member, upcoming_players
+from .db import User
+from .engine import odds
+from .schemas import BetPlayer
+
+router = APIRouter(prefix="/api/me", tags=["bets"])
+
+MODEL = "claude-opus-5-5"
+MAX_IMAGE_BYTES = 5 * 1024 * 1024      # the API's per-image limit
+MEDIA = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+DAILY_READS = 30                        # per account: each read costs a few cents
+_reads: dict[int, list[float]] = {}
+
+# What a leg's market means, in the site's terms: the model maps the book's wording onto these (or "other")
+KINDS = {
+    "rush": "NFL rushing yards", "rec": "NFL receiving yards", "pass": "NFL passing yards", "rr": "NFL rushing + receiving yards",
+    "recs": "NFL receptions", "ptd": "NFL passing touchdowns", "lng": "NFL longest reception (yards)", "rlng": "NFL longest rush (yards)",
+    "td": "NFL anytime touchdown scorer", "ftd": "NFL first touchdown scorer",
+    "pts": "NBA points", "reb": "NBA rebounds", "ast": "NBA assists", "threes": "NBA 3-pointers made", "pra": "NBA points + rebounds + assists",
+    "pr": "NBA points + rebounds", "pa": "NBA points + assists", "stl": "NBA steals", "blk": "NBA blocks", "dd": "NBA double-double",
+    "tpl": "NBA triple-double",
+}
+
+SYSTEM = (
+    "You read screenshots of sports bets placed at a sportsbook and return what the bet was, exactly as shown. Read only what "
+    "is visible; use null for anything not shown, and never guess a number.\n\n"
+    "For each leg, set `kind` to the market it is, from this list, or \"other\" when it is none of them (a team bet, a spread, "
+    "a total, a combined market not listed such as passing + rushing yards, or anything else):\n"
+    + "\n".join(f"- {k}: {v}" for k, v in KINDS.items())
+    + "\n\nLines: \"90+ Receiving Yards\", \"90 or more\" and \"To record 90+\" are Over 89.5. \"Over 89.5\" is Over 89.5; "
+    "\"Under 45.5\" is Under 45.5. Anytime and first touchdown scorer, double-double and triple-double legs are yes/no: side "
+    "Over (Under for \"No\"), line 0.5. `text` is the leg as written on the slip, including the player's name.\n\n"
+    "`odds` is the whole bet's American price (+1300). `stake` is the total wager; if part of it is bonus bets or a free bet, "
+    "put that part in `bonus_stake` too. `to_return` is the payout shown, whatever the book calls it."
+)
+
+_num = {"type": ["number", "null"]}
+_str = {"type": ["string", "null"]}
+SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "required": ["sportsbook", "bet_type", "odds", "stake", "bonus_stake", "to_return", "event", "legs"],
+    "properties": {
+        "sportsbook": _str,
+        "bet_type": {"type": "string", "enum": ["single", "parlay"]},
+        "odds": {"type": ["integer", "null"]},
+        "stake": _num, "bonus_stake": _num, "to_return": _num,
+        "event": {"type": "object", "additionalProperties": False, "required": ["teams", "starts"],
+                  "properties": {"teams": {"type": "array", "items": {"type": "string"}}, "starts": _str}},
+        "legs": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False,
+            "required": ["player", "kind", "side", "line", "odds", "text"],
+            "properties": {
+                "player": _str,
+                "kind": {"type": "string", "enum": [*KINDS, "other"]},
+                "side": {"type": "string", "enum": ["Over", "Under"]},
+                "line": _num,
+                "odds": {"type": ["integer", "null"]},
+                "text": {"type": "string"},
+            }}},
+    },
+}
+
+
+class ScreenLeg(BaseModel):
+    """A leg of the draft: matched to a player and market the site grades, or kept as words for the bettor to mark."""
+    graded: bool
+    player: Optional[BetPlayer] = None
+    kind: str
+    side: str
+    line: float
+    odds: Optional[int] = None
+    text: str
+
+
+class ScreenDraft(BaseModel):
+    book: Optional[str] = None
+    league: Optional[str] = None
+    kind: str                         # single | parlay
+    odds: Optional[int] = None
+    stake: Optional[float] = None
+    bonus_stake: Optional[float] = None
+    to_return: Optional[float] = None
+    legs: list[ScreenLeg]
+    notes: list[str]                  # what the bettor should check before saving
+
+
+class ScreenIn(BaseModel):
+    image: str                        # a data URL: data:image/png;base64,...
+
+
+class SlipTextIn(BaseModel):
+    text: str = Field(max_length=20000)   # what OCR read off the screenshot, on the bettor's device
+
+
+def available() -> bool:
+    """Reading screenshots needs an Anthropic API key on the server (ANTHROPIC_API_KEY)."""
+    return bool(config.ANTHROPIC_API_KEY())
+
+
+_client: Optional[anthropic.Anthropic] = None
+
+
+def read_slip(media_type: str, data_b64: str) -> dict:
+    """Claude's reading of the slip, in SCHEMA's shape. Raises HTTPException with a message for the bettor."""
+    global _client
+    _client = _client or anthropic.Anthropic()
+    try:
+        resp = _client.beta.messages.create(
+            model=MODEL, max_tokens=8000, system=SYSTEM,
+            # a rare safety decline is re-run on Anthropic's recommended fallback model instead of failing the read
+            betas=["server-side-fallback-2026-07-01"], fallbacks="default",
+            output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data_b64}},
+                {"type": "text", "text": "Read this bet slip."},
+            ]}],
+        )
+    except anthropic.RateLimitError:
+        raise HTTPException(503, "Too many screenshots are being read right now. Try again in a minute.")
+    except (anthropic.APIStatusError, anthropic.APIConnectionError) as e:
+        print(f"[bet_screens] Claude API error: {type(e).__name__}: {e}")
+        raise HTTPException(502, "Couldn't read the screenshot right now. Try again, or add the bet by hand.")
+    if resp.stop_reason == "refusal":
+        raise HTTPException(422, "Couldn't read that screenshot. Add the bet by hand.")
+    if resp.stop_reason == "max_tokens":
+        raise HTTPException(422, "That slip has too many legs to read. Add the bet by hand.")
+    text = next((b.text for b in resp.content if b.type == "text"), "")
+    try:
+        return json.loads(text)
+    except ValueError:
+        raise HTTPException(502, "Couldn't read the screenshot right now. Try again, or add the bet by hand.")
+
+
+def _norm(name: str) -> str:
+    return odds.norm(re.sub(r"\s+(jr|sr|ii|iii|iv)\.?$", "", name.strip(), flags=re.I))
+
+
+def to_draft(slip: dict, db: Session, now: datetime) -> ScreenDraft:
+    """Match each leg to a player with a game still to start (preferring the game whose teams the slip shows) and a market
+    he's projected in. Anything else stays a leg in words, which the bettor marks when it settles."""
+    legs, notes, league_votes = [], [], []
+    pools = {}
+    teams = {t.lower() for t in slip.get("event", {}).get("teams") or []}
+    for raw in slip.get("legs") or []:
+        kind, name = raw.get("kind"), raw.get("player")
+        league = None if kind == "other" else "nba" if kind in NBA_KINDS else "nfl"
+        match = None
+        if league and name:
+            pool = pools.setdefault(league, upcoming_players(db, league, now))
+            found = [p for p in pool if _norm(p["name"]) == _norm(name) and kind in p["kinds"]]
+            # a player with two games ahead: the one whose teams the slip names, else the next one
+            found.sort(key=lambda p: (not any(t in team for team in teams for t in (p["team"].lower(), p["opp"].lower())), p["kickoff"]))
+            match = found[0] if found else None
+        line = raw.get("line")
+        if match and line is not None:
+            league_votes.append(league)
+            legs.append(ScreenLeg(graded=True, player=BetPlayer(**match), kind=kind, side=raw.get("side") or "Over", line=float(line),
+                                  odds=raw.get("odds"), text=raw.get("text") or ""))
+        else:
+            legs.append(ScreenLeg(graded=False, kind="custom", side="", line=0.0, odds=raw.get("odds"), text=raw.get("text") or name or "Leg"))
+    by_hand = [leg for leg in legs if not leg.graded]
+    if by_hand:
+        n = len(by_hand)
+        notes.append(f"{n} {'leg is' if n == 1 else 'legs are'} marked \"You mark it\": the site doesn't grade {'that market or player' if n == 1 else 'those'}, "
+                     "so you'll settle the bet yourself once the rest are graded.")
+    if not legs:
+        notes.append("No legs could be read from that screenshot.")
+    if slip.get("bonus_stake"):
+        notes.append(f"Includes ${slip['bonus_stake']:.2f} in bonus bets: the stake below is the whole wager, so the payout here is "
+                     f"${slip['bonus_stake']:.2f} more than the slip's (a bonus bet's stake isn't paid back).")
+    if slip.get("odds") is None:
+        notes.append("The slip didn't show the bet's odds: enter them before saving.")
+    if slip.get("stake") is None:
+        notes.append("The slip didn't show the stake: enter it before saving.")
+    return ScreenDraft(book=slip.get("sportsbook"), league=max(set(league_votes), key=league_votes.count) if league_votes else None,
+                       kind="parlay" if len(legs) > 1 else "single", odds=slip.get("odds"), stake=slip.get("stake"),
+                       bonus_stake=slip.get("bonus_stake"), to_return=slip.get("to_return"), legs=legs, notes=notes)
+
+
+@router.post("/bets/read-screenshot", response_model=ScreenDraft, dependencies=[Depends(auth.same_origin)])
+def read_screenshot(body: ScreenIn, user: User = Depends(require_member), db: Session = Depends(auth.get_db)):
+    """A draft bet from a screenshot of a slip, for the bettor to check in the Add a bet sheet. Nothing is saved here."""
+    if not available():
+        raise HTTPException(404, "Reading screenshots isn't set up on this server")
+    m = re.match(r"^data:(image/[a-z]+);base64,(.+)$", body.image, re.S)
+    if not m or m.group(1) not in MEDIA:
+        raise HTTPException(422, "Upload a PNG, JPEG, WebP or GIF screenshot")
+    media_type, data = m.group(1), re.sub(r"\s", "", m.group(2))
+    try:
+        size = len(base64.b64decode(data, validate=True))
+    except ValueError:
+        raise HTTPException(422, "That file isn't a readable image")
+    if size > MAX_IMAGE_BYTES:
+        raise HTTPException(422, "That screenshot is over 5 MB. Crop it or take a smaller one.")
+    now = time.time()
+    recent = [t for t in _reads.get(user.id, []) if now - t < 86400]
+    if len(recent) >= DAILY_READS:
+        raise HTTPException(429, f"You've read {DAILY_READS} screenshots today. Add the bet by hand, or try again tomorrow.")
+    _reads[user.id] = recent + [now]
+    return to_draft(read_slip(media_type, data), db, datetime.utcnow())
+
+
+@router.post("/bets/read-slip-text", response_model=ScreenDraft, dependencies=[Depends(auth.same_origin)])
+def read_slip_text(body: SlipTextIn, user: User = Depends(require_member), db: Session = Depends(auth.get_db)):
+    """A draft bet from the text of a slip screenshot, read by OCR in the browser (free; used when Claude isn't set up).
+    Nothing is saved here."""
+    draft = to_draft(slip_text.parse(body.text), db, datetime.utcnow())
+    if not draft.legs:
+        draft.notes = ["Couldn't find the bet's legs in that screenshot. Reading works with bet365 and FanDuel slips; for "
+                       "others, add the bet by hand."]
+    return draft

@@ -57,5 +57,7 @@ GOOGLE_CLIENT_SECRET = lambda: os.environ.get("GOOGLE_CLIENT_SECRET")
 RESEND_API_KEY = lambda: os.environ.get("RESEND_API_KEY")
 EMAIL_FROM = lambda: os.environ.get("EMAIL_FROM", "The Haber Process <signin@jdhaber.com>")
 # signed-in, 21+ accounts with these emails get the admin page (the only way in from outside the host)
+# reading bet slip screenshots on My bets (app/bet_screens.py); unset, the upload button doesn't show
+ANTHROPIC_API_KEY = lambda: os.environ.get("ANTHROPIC_API_KEY")
 ADMIN_EMAILS = lambda: {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
 FRONTEND_DIST =os.path.join(os.path.dirname(BASE_DIR), "frontend", "dist")

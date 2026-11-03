@@ -1,9 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconX } from "@tabler/icons-react";
-import { useState, type FormEvent } from "react";
+import { IconPhoto, IconX } from "@tabler/icons-react";
+import { useRef, useState, type FormEvent } from "react";
 import type { Kind } from "../api";
 import { useAuth } from "../auth";
-import { addCustomBet, addPropBet, COMMON_BOOKS, findBetPlayers, money, myBets, parseOdds, type BetPlayer, type ManualLeg } from "../bets";
+import { addCustomBet, addPropBet, COMMON_BOOKS, findBetPlayers, money, myBets, parseOdds, readScreenshot, readSlipOnDevice, screenshotDataUrl,
+  type BetPlayer, type ManualLeg, type ScreenDraft } from "../bets";
 import { isYesNo, KIND_LABEL, americanOdds, playLabel } from "../format";
 import { toAmerican, toDecimal, toWin } from "../slip";
 import { useDebounced } from "../useDebounced";
@@ -18,6 +19,9 @@ function nextHour() {
   const d = new Date(Date.now() + 3600_000);
   return { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, time: `${pad(d.getHours())}:00` };
 }
+/** The parlay price its legs make together, when every leg's own price is known (most slips show only the parlay's). */
+const legsPrice = (legs: ManualLeg[]) =>
+  legs.every((l) => l.odds != null) ? toAmerican(legs.reduce((d, l) => d * toDecimal(l.odds!), 1)) : null;
 const when = (iso: string) => new Date(iso + "Z").toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 /** My bets → "Add a bet": record a bet placed outside the app, before its game starts (the rule every tracked bet follows).
@@ -35,6 +39,10 @@ export default function AddBetSheet({ onClose, defaultLeague }: { onClose: () =>
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
   const [done, setDone] = useState(false);
+  // a slip screenshot read into the form (backend bet_screens): the bettor checks it, then saves as usual
+  const file = useRef<HTMLInputElement>(null);
+  const [reading, setReading] = useState(false);
+  const [notes, setNotes] = useState<string[]>([]);
 
   // a player prop: search, then market, side, line and the price taken; legs collect into a single or a parlay
   const [q, setQ] = useState("");
@@ -62,18 +70,20 @@ export default function AddBetSheet({ onClose, defaultLeague }: { onClose: () =>
   const lineN = yesNo ? 0.5 : Number(line);
   const legOddsN = parseOdds(legOdds);
   const legReady = !!player && !!kind && Number.isFinite(lineN) && line.trim() !== "" || (yesNo && !!player);
-  const canAddLeg = legReady && !!legOddsN;
+  // a leg's own price is optional in a parlay (books usually show only the parlay's); a single needs one
+  const canAddLeg = legReady && (!!legOddsN || legOdds.trim() === "");
   const pickPlayer = (p: BetPlayer) => { setPlayer(p); setKind(p.kinds[0] ?? ""); setQ(""); setSide("Over"); setLine(""); setLegOdds(""); };
   const addLeg = () => {
-    if (!player || !kind || !legOddsN) return;
-    const next = [...legs, { player, kind, side, line: lineN, odds: legOddsN }];
+    if (!player || !kind) return;
+    const next: ManualLeg[] = [...legs, { player, kind, side, line: lineN, odds: legOddsN }];
     setLegs(next);
     setPlayer(null); setKind(""); setLine(""); setLegOdds("");
-    if (next.length > 1) setParlayOdds(americanOdds(toAmerican(next.reduce((d, l) => d * toDecimal(l.odds), 1))));
+    const price = next.length > 1 ? legsPrice(next) : null;
+    if (price != null && !parlayOdds) setParlayOdds(americanOdds(price));
   };
   // the leg being filled in counts too, so a single never needs an extra "add" tap
-  const allLegs = canAddLeg ? [...legs, { player: player!, kind: kind as Kind, side, line: lineN, odds: legOddsN! }] : legs;
-  const parlayN = allLegs.length > 1 ? (parseOdds(parlayOdds) ?? toAmerican(allLegs.reduce((d, l) => d * toDecimal(l.odds), 1))) : null;
+  const allLegs: ManualLeg[] = canAddLeg ? [...legs, { player: player!, kind: kind as Kind, side, line: lineN, odds: legOddsN }] : legs;
+  const parlayN = allLegs.length > 1 ? (parseOdds(parlayOdds) ?? legsPrice(allLegs)) : null;
   const propOdds = allLegs.length === 1 ? allLegs[0].odds : parlayN;
   const otherOdds = parseOdds(odds);
   const startsAt = new Date(`${date}T${time || "00:00"}`);
@@ -94,13 +104,45 @@ export default function AddBetSheet({ onClose, defaultLeague }: { onClose: () =>
   };
 
   const books = [...new Set([...(known.data?.books ?? []), ...COMMON_BOOKS])];
+  // Claude reads any slip when the server has a key; otherwise OCR on this device, for the books whose layouts are known
+  const claude = !!known.data?.can_read_screenshots;
+  const apply = (d: ScreenDraft) => {
+    const legsIn: ManualLeg[] = d.legs.map((l) => (l.graded && l.player
+      ? { player: l.player, kind: l.kind as Kind, side: (l.side || "Over") as "Over" | "Under", line: l.line, odds: l.odds }
+      : { custom: true as const, text: l.text.slice(0, 80), odds: l.odds }));
+    const graded = legsIn.filter((l) => !l.custom);
+    if (d.book) setBook(d.book);
+    setStake(d.stake ? String(d.stake) : "");   // the slip's, or blank: never the last upload's
+    setPlayer(null); setQ(""); setProblem("");
+    if (!graded.length) {
+      // nothing the site grades: an other bet, in the slip's words
+      setMode("other"); setLeague(d.league ?? "nfl");
+      setDescription(d.legs.map((l) => l.text).join("; ").slice(0, 200));
+      if (d.odds) setOdds(americanOdds(d.odds));
+      setNotes(d.notes);
+      return;
+    }
+    setMode("prop"); if (d.league) setLeague(d.league);
+    // a single whose own price wasn't read: the bet's price is the leg's
+    setLegs(legsIn.length === 1 && legsIn[0].odds == null ? [{ ...legsIn[0], odds: d.odds }] : legsIn);
+    setParlayOdds(d.odds ? americanOdds(d.odds) : "");
+    setNotes(d.notes);
+  };
+  const upload = async (f: File | undefined) => {
+    if (!f) return;
+    setReading(true); setProblem(""); setNotes([]);
+    try { apply(claude ? await readScreenshot(await screenshotDataUrl(f)) : await readSlipOnDevice(f)); }
+    catch (err) { setProblem((err as Error).message); }
+    finally { setReading(false); if (file.current) file.current.value = ""; }
+  };
   if (done) return (
     <Sheet label="Add a bet" overlayClass="track-overlay" onClose={onClose}>
       <h2>Added</h2>
-      <p className="sub auth-lede">{mode === "prop" ? "It's on My bets and is graded automatically once the stats are in." :
+      <p className="sub auth-lede">{mode === "prop" && legs.some((l) => l.custom) ? "It's on My bets. Its player legs are graded from the stats; once they're in, mark the result from the bet's menu." :
+        mode === "prop" ? "It's on My bets and is graded automatically once the stats are in." :
         "It's on My bets. When it settles, mark the result from the bet's menu."}</p>
       <div className="auth-form"><button className="primary" onClick={onClose}>Done</button></div>
-      <p className="auth-links"><button className="link" onClick={() => { setDone(false); setLegs([]); setDescription(""); setOdds(""); setParlayOdds(""); }}>Add another</button></p>
+      <p className="auth-links"><button className="link" onClick={() => { setDone(false); setLegs([]); setDescription(""); setOdds(""); setParlayOdds(""); setNotes([]); }}>Add another</button></p>
     </Sheet>
   );
 
@@ -108,6 +150,19 @@ export default function AddBetSheet({ onClose, defaultLeague }: { onClose: () =>
     <Sheet label="Add a bet" overlayClass="track-overlay" onClose={onClose}>
       <h2>Add a bet</h2>
       <p className="sub auth-lede">Record a bet you placed somewhere else, before its game starts, so everything's in one place.</p>
+      {known.data && (
+        <div className="add-upload">
+          <button type="button" className="primary outline" disabled={reading} onClick={() => file.current?.click()}>
+            <IconPhoto size={16} stroke={1.75} aria-hidden />{reading ? "Reading the slip…" : "Upload a screenshot"}
+          </button>
+          <span className="mut">{claude ? "Fills in the bet from your slip for you to check. The image isn't kept."
+            : "Fills in the bet from a bet365 or FanDuel slip for you to check. The image stays on your device."}</span>
+          <input ref={file} type="file" accept="image/*" hidden onChange={(e) => upload(e.target.files?.[0])} />
+        </div>
+      )}
+      {notes.length > 0 && (
+        <div className="banner add-notes" role="status"><b>Check before saving</b><ul>{notes.map((n) => <li key={n}>{n}</li>)}</ul></div>
+      )}
       <div className="seg small" role="group" aria-label="Kind of bet">
         <button type="button" className={mode === "prop" ? "on" : ""} aria-pressed={mode === "prop"} onClick={() => { setMode("prop"); if (league === "oth") setLeague(defaultLeague); }}>Player prop</button>
         <button type="button" className={mode === "other" ? "on" : ""} aria-pressed={mode === "other"} onClick={() => setMode("other")}>Other bet</button>
@@ -126,10 +181,12 @@ export default function AddBetSheet({ onClose, defaultLeague }: { onClose: () =>
           {legs.length > 0 && (
             <ul className="track-legs">
               {legs.map((l, i) => (
-                <li key={`${l.player.player_id}-${l.kind}-${i}`}>
-                  <span><b>{l.player.name}</b> <SidePill kind={l.kind} side={l.side} line={l.line} />{!isYesNo(l.kind) && <span className="mut"> {KIND_LABEL[l.kind]}</span>}</span>
-                  <span className="add-leg-end"><span className="mut">{americanOdds(l.odds)}</span>
-                    <button type="button" className="icon-btn add-leg-x" aria-label={`Remove ${l.player.name}`} onClick={() => setLegs(legs.filter((_, j) => j !== i))}>
+                <li key={l.custom ? `custom-${i}` : `${l.player.player_id}-${l.kind}-${i}`}>
+                  {l.custom
+                    ? <span><b>{l.text}</b> <span className="st">You mark it</span></span>
+                    : <span><b>{l.player.name}</b> <SidePill kind={l.kind} side={l.side} line={l.line} />{!isYesNo(l.kind) && <span className="mut"> {KIND_LABEL[l.kind]}</span>}</span>}
+                  <span className="add-leg-end">{l.odds != null && <span className="mut">{americanOdds(l.odds)}</span>}
+                    <button type="button" className="icon-btn add-leg-x" aria-label={`Remove ${l.custom ? l.text : l.player.name}`} onClick={() => setLegs(legs.filter((_, j) => j !== i))}>
                       <IconX size={14} stroke={2} aria-hidden /></button></span>
                 </li>
               ))}
@@ -169,9 +226,9 @@ export default function AddBetSheet({ onClose, defaultLeague }: { onClose: () =>
                 </div>
               </div>
               {!yesNo && <label className="auth-label">Line<input className="auth-input" inputMode="decimal" value={line} placeholder="e.g. 64.5" onChange={(e) => setLine(e.target.value)} /></label>}
-              <label className="auth-label">Odds<input className="auth-input" value={legOdds} placeholder="e.g. -110" onChange={(e) => setLegOdds(e.target.value)} aria-invalid={legOdds !== "" && !legOddsN} /></label>
+              <label className="auth-label">Odds<input className="auth-input" value={legOdds} placeholder={legs.length ? "If shown" : "e.g. -110"} onChange={(e) => setLegOdds(e.target.value)} aria-invalid={legOdds !== "" && !legOddsN} /></label>
             </div>
-            {canAddLeg && <p className="mut">{player.name} {playLabel(kind as Kind, side, lineN)} {!yesNo && KIND_LABEL[kind as Kind].toLowerCase()} at {americanOdds(legOddsN!)}
+            {canAddLeg && <p className="mut">{player.name} {playLabel(kind as Kind, side, lineN)} {!yesNo && KIND_LABEL[kind as Kind].toLowerCase()}{legOddsN ? ` at ${americanOdds(legOddsN)}` : ""}
               {" · "}<button type="button" className="link" onClick={addLeg}>Add another leg (parlay)</button></p>}
           </>}
           {allLegs.length > 1 && (

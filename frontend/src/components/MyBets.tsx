@@ -27,7 +27,9 @@ const VIEW_KEY = "my-bets-view";
 const storedView = (): BetFilters => { try { return JSON.parse(localStorage.getItem(VIEW_KEY) ?? "{}"); } catch { return {}; } };
 
 function Status({ bet }: { bet: TrackedBet }) {
-  if (bet.status === "open") return <span className="st">{!bet.started ? "Open" : bet.kind === "custom" ? "Awaiting your result" : "Awaiting stats"}</span>;
+  // a parlay with legs the bettor marks: once the site's legs are graded, the rest is up to them
+  const yours = bet.kind === "custom" || bet.legs.some((l) => l.kind === "custom" && !l.result) && bet.legs.every((l) => l.kind === "custom" || l.result);
+  if (bet.status === "open") return <span className="st">{!bet.started ? "Open" : yours ? "Awaiting your result" : "Awaiting stats"}</span>;
   const cls = bet.status === "won" ? "st st-ok" : bet.status === "lost" ? "st st-error" : "st";
   return <span className={cls}>{STATUS_TEXT[bet.status]}{bet.profit ? ` ${signedMoney(bet.profit)}` : ""}</span>;
 }
@@ -41,7 +43,7 @@ function LegRow({ leg, bet }: { leg: TrackedLeg; bet: TrackedBet }) {
       <span className="bet-leg-main"><b>{bet.description ?? leg.name}</b>
         <span className="mut bet-leg-sub">{new Date(leg.kickoff + "Z").toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
           {bet.status === "open" && " · you mark the result"}</span></span>
-      <span className="mut">{americanOdds(leg.odds)}</span>
+      <span className="mut">{leg.odds ? americanOdds(leg.odds) : ""}</span>
     </li>
   );
   return (
@@ -54,7 +56,7 @@ function LegRow({ leg, bet }: { leg: TrackedLeg; bet: TrackedBet }) {
         <span className="mut bet-leg-sub">{leg.team} {leg.opp ? `vs ${leg.opp}` : ""} · {new Date(leg.kickoff + "Z").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
           {leg.result === "void" ? " · didn't play" : leg.actual != null ? ` · ${leg.actual}` : ""}</span>
       </span>
-      <span className="mut">{americanOdds(leg.odds)}</span>
+      <span className="mut">{leg.odds ? americanOdds(leg.odds) : ""}</span>
     </li>
   );
 }

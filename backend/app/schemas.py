@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -599,12 +599,14 @@ class EmailVerify(BaseModel):
 
 # ---------- tracked bets (app/bets.py) ----------
 class BetLegIn(BaseModel):
-    game_id: str
-    player_id: str
-    kind: Kind
-    side: Literal["Over", "Under"]
-    line: float
-    odds: int
+    game_id: str = ""
+    player_id: str = ""
+    # "custom": a leg the site can't grade (a team total, a market it doesn't project), described in words and marked by hand
+    kind: Union[Kind, Literal["custom"]]
+    side: Literal["Over", "Under"] = "Over"
+    line: float = 0.0
+    odds: Optional[int] = None      # a parlay leg's own price, when the book showed one (a single's is required)
+    description: Optional[str] = None
     alt: bool = False
     prob: Optional[float] = None
     ev: Optional[float] = None
@@ -710,6 +712,7 @@ class BetsOut(BaseModel):
     books: list[str]                 # every book this person has tracked at, for the filter
     tags: list[str]                  # every tag they've used, for the filter and suggestions
     leagues: list[str] = []          # the leagues they have bets in (nfl, nba, oth), for the filter
+    can_read_screenshots: bool = False   # Add a bet can read a slip screenshot (app/bet_screens.py)
 
 
 # ---------- the betslip, synced between a signed-in visitor's devices (app/slip_sync.py) ----------
