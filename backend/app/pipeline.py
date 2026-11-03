@@ -14,6 +14,7 @@ from .db import AltLine, EmptyMarket, OddsHistory, OddsLine, Projection, Run, Se
 from .engine import data, model, odds
 from .odds_keys import KeyRing
 from .engine import correlation as cm
+from .engine import injuries as injm
 from .engine import moneyline as mlm
 from .engine import redistribute as rd
 from .engine import td as tdm
@@ -72,6 +73,50 @@ def week_status(cur_inj: pd.DataFrame) -> dict:
     return dict(zip(cur_inj.gsis_id, cur_inj.report_status.where(~dnp, "DNP")))
 
 
+def last_kickoffs(played: pd.DataFrame) -> dict:
+    """team -> UTC kickoff of its most recent played game."""
+    kick = pd.to_datetime(played.gameday.astype(str) + " " + played.gametime.fillna("13:00").astype(str), errors="coerce")
+    kick = kick.dt.tz_localize(ET, ambiguous="NaT", nonexistent="NaT").dt.tz_convert("UTC")
+    both = pd.concat([pd.DataFrame(dict(team=played.home_team, kick=kick)), pd.DataFrame(dict(team=played.away_team, kick=kick))])
+    return both.dropna().groupby("team").kick.max().to_dict()
+
+
+def early_outs(cur_inj: pd.DataFrame, reserve: pd.DataFrame, espn: pd.DataFrame, espn_ids: dict,
+               last_kick: dict, game_day: dict, names: dict) -> dict:
+    """gsis_id -> "IR"/"PUP"/"NFI"/"Reserve", "Out" or "Suspension" for players ruled out before the week's report says so.
+
+    The report only starts on Wednesday, so early in the week a player lost for the season still looks healthy to
+    week_status (Lamar Jackson, 2026 week 9). This adds the roster file's reserve lists (unless this week's report
+    gives him a game status) and ESPN's Out, Suspension and IR, the same sources the injury panel shows. ESPN only counts
+    for a team playing this week (game_day: team -> this week's gameday) whose final report isn't out yet, and its Out
+    only when posted after the team's last kickoff (an Out from before then was about that game) and not expected back
+    by this game: ESPN's Tuesday refresh marks players "Out" with a return date that can be a bye week away.
+    names maps (normalized name, team) -> gsis_id for ESPN rows without an id."""
+    reported = cur_inj.report_status.notna() if not cur_inj.empty else pd.Series(dtype=bool)
+    on_report = set(cur_inj.gsis_id[reported]) if len(reported) else set()
+    final = set(cur_inj.team[reported]) if len(reported) else set()
+    out = {}
+    for r in reserve.itertuples():
+        if r.gsis_id not in on_report:
+            abbr = r.status_description_abbr
+            out[r.gsis_id] = injm.RESERVE.get("" if pd.isna(abbr) else str(abbr), "Reserve")
+    for e in espn.itertuples():
+        status = injm.ESPN_STATUS.get(e.status)
+        if status not in ("Out", "Suspension", "IR") or e.team in final or e.team not in game_day:
+            continue
+        pid = (espn_ids.get(str(e.espn_id)) if e.espn_id else None) or names.get((odds.norm(e.name), e.team))
+        if not pid or pid in out:
+            continue
+        if status != "IR":
+            posted, kick = pd.to_datetime(e.updated, utc=True, errors="coerce"), last_kick.get(e.team)
+            if pd.isna(posted) or (kick is not None and posted < kick):
+                continue
+            if isinstance(e.return_date, str) and e.return_date[:10] <= str(game_day[e.team])[:10]:
+                continue
+        out[pid] = status
+    return out
+
+
 def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log = print, full: bool = False) -> int:
     """Compute projections for the next unplayed week and store them. Returns the run id.
 
@@ -93,12 +138,22 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
         grading.grade_logged(s, stats, sched, log)
     priors = model.league_priors(stats, catches, rushes)
     td_pri = tdm.td_priors(stats)
-    # who is out this week (injury report + your --exclude list): their volume goes to teammates, and they are dropped below
+    # who is out this week (injury report, reserve lists, ESPN before the report is out, your --exclude list): their volume
+    # goes to teammates, and they are dropped below
     inj = data.load_injuries(season)
-    status = {}
-    if not inj.empty:
-        status = week_status(inj[inj.week == week])
-    drop = {"Out", "Doubtful"} | (set() if keep_dnp else {"DNP"})
+    cur_inj = inj[inj.week == week] if not inj.empty else pd.DataFrame(columns=["gsis_id", "team", "report_status"])
+    status = week_status(cur_inj) if not cur_inj.empty else {}
+    espn, _ = data.load_espn_injuries()
+    latest = stats.sort_values("t").drop_duplicates("player_id", keep="last")
+    games = sched[(sched.season == season) & (sched.week == week)]
+    game_day = {**dict(zip(games.home_team, games.gameday)), **dict(zip(games.away_team, games.gameday))}
+    early = early_outs(cur_inj, data.load_reserve(season), espn, data.load_espn_ids(season) if len(espn) else {},
+                       last_kickoffs(played), game_day,
+                       dict(zip(zip(latest.player_display_name.map(odds.norm), latest.team), latest.player_id)))
+    status.update(early)
+    if early:
+        log(f"Ruled out before this week's report: {len(early)} players (reserve lists, ESPN)")
+    drop = {"Out", "Doubtful", "Suspension"} | injm.RESERVED | (set() if keep_dnp else {"DNP"})
     # past weeks' Out/Doubtful: a start made while the starter was out is a fill-in (model.upcoming_projections)
     # and Questionable then didn't play
     ruled_out, sat_out, played_ids = set(), set(), set(zip(stats.t, stats.player_id))

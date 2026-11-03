@@ -91,3 +91,36 @@ def test_a_practice_dnp_drops_a_player_only_until_his_teams_final_report_is_out(
     assert s["o1"] == "Out"
     assert s["b1"] == "DNP"
     assert pd.isna(s["m1"]) and pd.isna(s["b2"]) and pd.isna(s["v1"])
+
+
+def test_reserve_lists_and_espn_rule_players_out_before_the_weeks_report():
+    from app.pipeline import early_outs
+    kick = pd.Timestamp("2026-11-01T18:00Z")
+    cur = inj([
+        (9, "AAA", "o1", "Out Corner", "CB", "Out", "Hamstring", "Hamstring", DNP),   # AAA's final report is out
+        (9, "BBB", "b1", "Sore Back", "RB", None, None, "Back", DNP),                 # BBB: practice reports only
+    ])
+    espn = pd.DataFrame([
+        ("11", "Hurt Thumb", "BBB", "QB", "Out", "", "", None, "2026-11-01T21:50Z"),    # after BBB's last game: counts
+        ("12", "Old News", "BBB", "WR", "Out", "", "", None, "2026-10-31T15:00Z"),      # about last week's game
+        (None, "By Name", "BBB", "TE", "Injured Reserve", "", "", None, "2026-10-01T00:00Z"),  # IR: any date, matched by name
+        ("13", "Was Doubtful", "BBB", "WR", "Doubtful", "", "", None, "2026-11-02T00:00Z"),
+        ("14", "Final Team", "AAA", "WR", "Out", "", "", None, "2026-11-02T00:00Z"),    # AAA's report is final: ignored
+        ("15", "Back Sunday", "BBB", "RB", "Out", "", "", "2026-11-08", "2026-11-03T13:00Z"),  # expected back for this game
+        ("16", "Back Later", "BBB", "RB", "Out", "", "", "2026-11-15", "2026-11-03T13:00Z"),
+        ("17", "On Bye", "CCC", "WR", "Out", "", "", None, "2026-11-03T13:00Z"),          # CCC doesn't play this week
+    ], columns=["espn_id", "name", "team", "pos", "status", "injury", "comment", "return_date", "updated"])
+    out = early_outs(cur, RESERVE, espn, {"11": "qb1", "12": "wr1", "13": "wr2", "14": "wr3", "15": "rb1", "16": "rb2", "17": "wr4"},
+                     {"AAA": kick, "BBB": kick, "CCC": kick}, {"AAA": "2026-11-08", "BBB": "2026-11-08"},
+                     {("by name", "BBB"): "te1"})
+    # o1 is on the reserve list but this week's report gives him a status: the report decides
+    assert out == {"ir1": "IR", "pup": "PUP", "qb1": "Out", "te1": "IR", "rb2": "Out"}
+
+
+def test_last_kickoffs_are_utc_and_per_team():
+    from app.pipeline import last_kickoffs
+    played = pd.DataFrame(dict(gameday=["2026-10-25", "2026-11-01"], gametime=["20:20", "13:00"],
+                               home_team=["AAA", "BBB"], away_team=["BBB", "CCC"]))
+    k = last_kickoffs(played)
+    assert k["AAA"] == pd.Timestamp("2026-10-26T00:20Z")
+    assert k["BBB"] == k["CCC"] == pd.Timestamp("2026-11-01T18:00Z")
