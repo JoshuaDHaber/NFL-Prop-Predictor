@@ -17,7 +17,7 @@ export default defineRailway(() => {
   });
 
   const web = service("Haber Process", {
-    source: github("JoshuaDHaber/NFL-Prop-Predictor", { branch: "main", checkSuites: false }),
+    source: github("JoshuaDHaber/the-haber-process", { branch: "main", checkSuites: false }),
     build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "Dockerfile" },
     healthcheck: "/healthz",
     healthcheckTimeout: 120,

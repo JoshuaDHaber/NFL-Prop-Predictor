@@ -29,7 +29,7 @@ OUTDOOR = {"outdoors", "open"}
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 FORECAST_DAYS = 16     # Open-Meteo's horizon
 NWS_URL = "https://api.weather.gov"
-NWS_HEADERS = {"User-Agent": "nfl-prop-predictor (github.com/JoshuaDHaber/NFL-Prop-Predictor)", "Accept": "application/geo+json"}
+NWS_HEADERS = {"User-Agent": "the-haber-process (github.com/JoshuaDHaber/the-haber-process)", "Accept": "application/geo+json"}
 MET_URL = "https://api.met.no/weatherapi/locationforecast/2.0/complete"
 MET_HEADERS = {"User-Agent": NWS_HEADERS["User-Agent"]}  # MET Norway requires an identifying User-Agent
 

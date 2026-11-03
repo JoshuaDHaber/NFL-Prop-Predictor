@@ -1,11 +1,13 @@
-# NFL Prop Predictor
+# The Haber Process
 
-A full-stack web app that projects NFL player yardage, prices the projections against live sportsbook prop lines, and ranks the best bets of the week.
+Live at [process.jdhaber.com](https://process.jdhaber.com).
+
+A full-stack web app that projects NFL and NBA player stats, prices the projections against live sportsbook prop lines, and ranks the best bets of the week.
 
 **Markets:** rushing yards, receiving yards, passing yards, rush + receiving yards, receptions, passing touchdowns, longest reception, longest rush, anytime touchdown, first touchdown scorer, and team moneyline (each team's chance to win).
 
 - **Front end:** React + TypeScript (Vite, TanStack Query, Recharts).
-- **Back end:** FastAPI + SQLAlchemy (SQLite locally, Postgres-ready).
+- **Back end:** FastAPI + SQLAlchemy (SQLite locally, Postgres in production).
 - **Model:** pandas / SciPy projection engine with a walk-forward backtest.
 - **Data:** [nflverse](https://github.com/nflverse/nflverse-data) for stats, schedules (with game-time weather), rosters and injuries; ESPN's public injury feed for news lines and estimated returns; [The Odds API](https://the-odds-api.com) for prop lines; [Open-Meteo](https://open-meteo.com) (free, no key) for kickoff forecasts at outdoor stadiums.
 
@@ -228,7 +230,7 @@ Requires Python 3.9+ and Node 20+. Everything goes through one script:
 
 **Tests and CI:** `./run.sh test` runs the backend suite (pytest: model math, pricing logic, API behavior) and the frontend typecheck and tests. GitHub Actions runs the same on every push, and runs the backend suite a second time on Postgres. To do that locally, point `TEST_DATABASE_URL` at an empty Postgres database (the suite wipes it first): `TEST_DATABASE_URL=postgresql://postgres@localhost/props_test .venv/bin/python -m pytest -q`.
 
-**Docker** (untested so far): `docker build -t nfl-props . && docker run -p 8000:8000 -v nfl-data:/srv/backend/data nfl-props`. Leave `DATABASE_URL` unset for a SQLite file on the volume, or set it to a Postgres URL.
+**Docker** (untested so far): `docker build -t haber-process . && docker run -p 8000:8000 -v haber-process-data:/srv/backend/data haber-process`. Leave `DATABASE_URL` unset for a SQLite file on the volume, or set it to a Postgres URL.
 
 ## Hosting: Railway (one service, no sleep)
 
