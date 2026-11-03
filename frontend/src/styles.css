@@ -1040,3 +1040,6 @@ header .sub a { color: var(--mut); font-weight: 500; text-decoration: none; } he
 .add-leg-end { display: inline-flex; align-items: center; gap: 6px; } .add-leg-x { width: 28px; height: 28px; }
 .track-fields .seg { margin: 0; padding-bottom: 0; } .track-fields select { height: 40px; width: 100%; }
 @media (max-width: 700px) { .bets-add { margin-left: 0; } }
+.add-upload { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 14px; }
+.add-upload .primary { display: inline-flex; align-items: center; gap: 6px; } .add-upload .mut { font-size: 12px; }
+.add-notes { margin: 0 0 14px; } .add-notes ul { margin: 6px 0 0; padding-left: 18px; } .add-notes li { margin: 2px 0; }

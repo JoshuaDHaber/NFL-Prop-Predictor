@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from . import auth, grading
+from . import auth, config, grading
 from .db import Bet, BetLeg, NbaProjection, NbaRun, Projection, Run, User
 from .market_fit import kickoff_utc
 from .schemas import BetIn, BetLegOut, BetOut, BetPatch, BetPlayer, BetsOut, BetSummary
@@ -23,6 +23,9 @@ NBA_KINDS = {"pts", "reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk", "dd
 MAX_LEGS = 12
 MAX_STAKE = 100_000
 MAX_TAGS, TAG_LEN = 6, 24
+# a parlay leg whose own price the book didn't show (most only show the parlay's): bet_legs.odds can't be NULL in
+# databases created before this, and no American price is 0, so 0 means "not known"
+NO_ODDS = 0
 
 
 CUSTOM = "custom"   # a custom bet's one leg: the site can't grade it, so the bettor settles it
@@ -85,10 +88,14 @@ def settle(bet: Bet, now: Optional[datetime] = None) -> None:
     elif "win" not in results:
         bet.status, bet.payout = ("push" if "push" in results else "void"), bet.stake
     else:
+        dropped = [leg for leg in bet.legs if leg.result in ("push", "void")] if len(bet.legs) > 1 else []
+        if any(leg.odds == NO_ODDS for leg in dropped):
+            # a leg dropped out and its own price isn't known, so the reduced payout can't be worked out: the bettor marks it
+            bet.status, bet.payout, bet.settled_by, bet.settled_at = "open", None, None, None
+            return
         dec = to_decimal(bet.odds)
-        for leg in bet.legs:
-            if leg.result in ("push", "void") and len(bet.legs) > 1:
-                dec /= to_decimal(leg.odds)
+        for leg in dropped:
+            dec /= to_decimal(leg.odds)
         bet.status, bet.payout = "won", round(bet.stake * max(dec, 1.0), 2)
     bet.settled_by, bet.settled_at = "grading", now or datetime.utcnow()
 
@@ -188,7 +195,7 @@ def _game(db: Session, league: str, game_id: str, player_id: str) -> Optional[di
 
 
 def leg_ev_close(leg: BetLeg) -> Optional[float]:
-    return None if leg.close_p is None else round(leg.close_p * to_decimal(leg.odds) - 1, 4)
+    return None if leg.close_p is None or leg.odds == NO_ODDS else round(leg.close_p * to_decimal(leg.odds) - 1, 4)
 
 
 def bet_ev_close(bet: Bet) -> Optional[float]:
@@ -250,7 +257,8 @@ def my_bets(league: Optional[str] = Query(None, pattern="^(nfl|nba|oth)$"), book
     every, bets = _view(db, user, league, book, tag, months, now)
     tags = sorted({t.lower(): t for b in every for t in b.tags or []}.values(), key=str.lower)
     return BetsOut(bets=[_out(b, now) for b in bets], summary=summarize(bets), books=sorted({b.book for b in every}), tags=tags,
-                   leagues=[lg for lg in ("nfl", "nba", "oth") if any(b.league == lg for b in every)])
+                   leagues=[lg for lg in ("nfl", "nba", "oth") if any(b.league == lg for b in every)],
+                   can_read_screenshots=bool(config.ANTHROPIC_API_KEY()))
 
 
 def _view(db: Session, user: User, league, book, tag, months, now: datetime) -> tuple:
@@ -285,7 +293,7 @@ def export_csv(league: Optional[str] = Query(None, pattern="^(nfl|nba|oth)$"), b
                 b.settled_at.isoformat(timespec="seconds") if b.settled_at else "", "; ".join(b.tags or []),
                 "" if (e := bet_ev_close(b)) is None else e]
         for leg in b.legs:
-            w.writerow([*head, leg.name, leg.team, leg.opp, leg.gameday, leg.kind, leg.side, leg.line, leg.odds, "yes" if leg.alt else "",
+            w.writerow([*head, leg.name, leg.team, leg.opp, leg.gameday, leg.kind, leg.side, leg.line, leg.odds or "", "yes" if leg.alt else "",
                         leg.result or "", "" if leg.actual is None else leg.actual, "" if leg.close_p is None else round(leg.close_p, 4)])
     name = f"my-bets-{now.date().isoformat()}.csv"
     return Response(buf.getvalue(), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{name}"'})
@@ -299,7 +307,12 @@ def bet_players(league: str = Query(..., pattern="^(nfl|nba)$"), q: str = Query(
     from .engine.search import rank_hits
     if not q.strip():
         return []
-    now = datetime.utcnow()
+    hits = rank_hits([dict(p, projected=True) for p in upcoming_players(db, league, datetime.utcnow())], q, 12)
+    return [BetPlayer(**{k: v for k, v in h.items() if k != "projected"}) for h in hits]
+
+
+def upcoming_players(db: Session, league: str, now: datetime) -> list:
+    """Every player on the latest board whose game hasn't started: one entry per player and game, with its markets."""
     run_t, proj_t = (Run, Projection) if league == "nfl" else (NbaRun, NbaProjection)
     run = db.scalar(select(run_t).order_by(run_t.id.desc()).limit(1))
     if not run:
@@ -312,10 +325,10 @@ def bet_players(league: str = Query(..., pattern="^(nfl|nba)$"), q: str = Query(
         if not ko or ko <= now:
             continue
         p = players.setdefault((r.player_id, r.game_id), dict(player_id=r.player_id, name=r.name, pos=r.pos, team=r.team, opp=r.opp,
-                                                              game_id=r.game_id, kickoff=ko.isoformat(), kinds=[], projected=True))
+                                                              game_id=r.game_id, kickoff=ko.isoformat(), kinds=[]))
         if r.kind not in p["kinds"]:
             p["kinds"].append(r.kind)
-    return [BetPlayer(**{k: v for k, v in h.items() if k != "projected"}) for h in rank_hits(list(players.values()), q, 12)]
+    return list(players.values())
 
 
 def _track_custom(body: BetIn, user: User, db: Session, now: datetime) -> BetOut:
@@ -358,26 +371,42 @@ def track(body: BetIn, user: User = Depends(require_member), db: Session = Depen
         raise HTTPException(422, "A single has one leg")
     if body.kind == "parlay" and len(body.legs) < 2:
         raise HTTPException(422, "A parlay has two or more legs")
-    leagues = {league_of(leg.kind) for leg in body.legs}
+    graded = [leg for leg in body.legs if leg.kind != CUSTOM]
+    by_hand = [leg for leg in body.legs if leg.kind == CUSTOM]
+    if not graded:
+        raise HTTPException(422, "A bet needs at least one player prop; for anything else, add it as an other bet")
+    if by_hand and body.kind != "parlay":
+        raise HTTPException(422, "Only a parlay can mix in legs you mark by hand")
+    leagues = {league_of(leg.kind) for leg in graded}
     if len(leagues) > 1:
         raise HTTPException(422, "A parlay's legs are all NFL or all NBA")
     league = leagues.pop()
-    if len({(leg.game_id, leg.player_id, leg.kind) for leg in body.legs}) < len(body.legs):
+    if len({(leg.game_id, leg.player_id, leg.kind) for leg in graded}) < len(graded):
         raise HTTPException(422, "The same prop is on this bet twice")
     odds = body.legs[0].odds if body.kind == "single" else body.odds
-    if odds is None or not valid_odds(odds) or not all(valid_odds(leg.odds) for leg in body.legs):
+    if odds is None or not valid_odds(odds) or not all(leg.odds is None or valid_odds(leg.odds) for leg in body.legs):
         raise HTTPException(422, "Odds look wrong: use American odds like -110 or +250")
+    if any(not 3 <= len(" ".join((leg.description or "").split())) <= 80 for leg in by_hand):
+        raise HTTPException(422, "Describe each leg you'll mark by hand in a few words")
     bet = Bet(user_id=user.id, league=league, book=body.book.strip()[:40], kind=body.kind, stake=round(body.stake, 2), odds=odds,
               status="open", notes=(body.notes or "").strip()[:500] or None, tags=clean_tags(body.tags), placed_at=now)
-    for leg in body.legs:
+    games = {}
+    for leg in graded:
         g = _game(db, league, leg.game_id, leg.player_id)
         if not g or not g["kickoff"]:
             raise HTTPException(422, "One of these props isn't on the board any more")
         if g["kickoff"] <= now:
             raise HTTPException(422, f"{g['name']}'s game has started, so this bet can't be tracked now")
+        games[leg.game_id] = g
         bet.legs.append(BetLeg(game_id=leg.game_id, gameday=g["gameday"], kickoff=g["kickoff"], player_id=leg.player_id, name=g["name"],
-                               team=g["team"], opp=g["opp"], kind=leg.kind, side=leg.side, line=leg.line, odds=leg.odds, alt=leg.alt,
-                               prob=leg.prob, ev=leg.ev))
+                               team=g["team"], opp=g["opp"], kind=leg.kind, side=leg.side, line=leg.line,
+                               odds=NO_ODDS if leg.odds is None else leg.odds, alt=leg.alt, prob=leg.prob, ev=leg.ev))
+    # hand-marked legs ride on the parlay's first game (they're almost always the same game: a same-game parlay)
+    first = min(games.values(), key=lambda g: g["kickoff"])
+    for leg in by_hand:
+        text = " ".join(leg.description.split())
+        bet.legs.append(BetLeg(game_id=CUSTOM, gameday=first["gameday"], kickoff=first["kickoff"], player_id="", name=text[:80], team="",
+                               opp="", kind=CUSTOM, side="", line=0.0, odds=NO_ODDS if leg.odds is None else leg.odds))
     db.add(bet)
     db.commit()
     return _out(bet, now)

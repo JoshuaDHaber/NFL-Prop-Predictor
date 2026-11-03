@@ -10,3 +10,4 @@ pytest
 httpx
 psycopg[binary]
 tzdata
+anthropic>=0.125
