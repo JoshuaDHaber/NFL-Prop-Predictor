@@ -97,6 +97,21 @@ def test_settle_parlays():
     assert by_hand.status == "won"                          # settled by hand: grading leaves it alone
 
 
+def test_settle_bonus_bets():
+    """A bonus bet's stake never comes back: a win pays only the profit, anything else returns nothing."""
+    for r, status, payout in (("win", "won", 15.0), ("loss", "lost", 0.0), ("push", "push", 0.0), ("void", "void", 0.0)):
+        b = make(odds=+150, results=(r,))
+        b.bonus = True
+        bets.settle(b)
+        assert (b.status, b.payout) == (status, payout)
+    won = make(odds=+150, results=("win",))
+    won.bonus = True
+    bets.settle(won)
+    won.settled_at = datetime.utcnow()
+    s = bets.summarize([won])
+    assert bets.cost(won) == 0 and (s.staked, s.bonus_staked, s.profit, s.roi) == (0, 10, 15.0, None)
+
+
 # ---------- the API ----------
 def test_track_and_list(sent):
     with member(sent, "tracker@example.com", "198.51.100.1") as c:
@@ -125,6 +140,25 @@ def test_track_refuses_bad_bets(sent):
         assert post(legs=[leg(odds=50)]).status_code == 422                                # not American odds
         assert c.post("/api/me/bets", headers={"Origin": "https://evil.example"},
                       json={"book": "FanDuel", "kind": "single", "stake": 10, "legs": [leg()]}).status_code == 403
+
+
+def test_bonus_bets_count_profit_but_not_stake(sent):
+    with member(sent, "bonus@example.com", "198.51.100.40") as c:
+        cash = c.post("/api/me/bets", json={"book": "FanDuel", "kind": "single", "stake": 10, "legs": [leg(odds=100)]}).json()
+        free = c.post("/api/me/bets", json={"book": "FanDuel", "kind": "single", "stake": 25, "bonus": True, "legs": [leg(odds=200)]}).json()
+        assert free["bonus"] and free["to_pay"] == 50.0 and not cash["bonus"] and cash["to_pay"] == 20.0
+        assert c.get("/api/me/bets").json()["summary"]["open_stake"] == 10   # only the bettor's own money is at stake
+        c.patch(f"/api/me/bets/{cash['id']}", json={"status": "lost"})
+        r = c.patch(f"/api/me/bets/{free['id']}", json={"status": "won"}).json()
+        assert (r["payout"], r["profit"]) == (50.0, 50.0)
+        s = c.get("/api/me/bets").json()["summary"]
+        assert (s["staked"], s["bonus_staked"], s["profit"], s["roi"]) == (10, 25, 40.0, 4.0)
+        # unticking it later makes it a cash bet again, settled the same way
+        r = c.patch(f"/api/me/bets/{free['id']}", json={"bonus": False}).json()
+        assert (r["bonus"], r["payout"], r["profit"]) == (False, 75.0, 50.0)
+        lost = c.patch(f"/api/me/bets/{free['id']}", json={"bonus": True, "status": "lost"}).json()
+        assert (lost["payout"], lost["profit"]) == (0.0, 0.0)
+        assert "bonus_bet" in c.get("/api/me/bets.csv").text.splitlines()[0]
 
 
 def test_bets_need_a_confirmed_account(sent):

@@ -5,7 +5,7 @@ import os
 import weakref
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, create_engine, event
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, create_engine, event, false
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 from . import config
@@ -283,6 +283,8 @@ class Bet(Base):
     notes: Mapped[str] = mapped_column(String(500), nullable=True)
     tags: Mapped[list] = mapped_column(JSON, default=list)           # the bettor's own labels ("SGP", "Sunday"), for filtering
     description: Mapped[str] = mapped_column(String(200), nullable=True)   # a custom bet: what it was, as the bettor wrote it
+    # placed with a sportsbook's bonus bet (free bet): the stake isn't the bettor's money, and a win pays only the profit
+    bonus: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     placed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     settled_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     legs: Mapped[list["BetLeg"]] = relationship(back_populates="bet", cascade="all, delete-orphan", order_by="BetLeg.id")
@@ -515,6 +517,7 @@ def ensure_columns(eng) -> bool:
                                  ("nba_projections", "parts", "JSON"), ("users", "favorites", "JSON"),
                                  # bets.tags: a database whose bets table predates tags (an early local one)
                                  ("bets", "tags", "JSON"), ("bets", "description", "VARCHAR(200)"),
+                                 ("bets", "bonus", "BOOLEAN NOT NULL DEFAULT FALSE"),
                                  ("bet_legs", "close_p", "FLOAT"), ("bet_legs", "close_at", "TIMESTAMP"), ("bet_legs", "close_books", "INTEGER"),
                                  *((t, c, typ) for t in ("projections", "nba_projections")
                                    for c, typ in (("dvp", "FLOAT"), ("dvp_rank", "INTEGER"), ("dvp_n", "INTEGER"))),

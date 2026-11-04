@@ -17,12 +17,16 @@ export interface TrackedBet {
   payout: number | null; profit: number | null; to_pay: number; settled_by: "grading" | "user" | null; notes: string | null; tags: string[];
   /** A custom bet (anything the site can't grade), as the bettor described it; they mark its result. */
   description: string | null;
+  /** Placed with a sportsbook's bonus bet: its stake wasn't the bettor's money, so a win pays (and profits) only the winnings. */
+  bonus: boolean;
   placed_at: string; settled_at: string | null; started: boolean; legs: TrackedLeg[];
   /** The bet's price measured at the close (a parlay's legs multiplied); null until every leg has closed. */
   ev_close: number | null;
 }
 export interface BetSummary {
   wins: number; losses: number; pushes: number; open: number; open_stake: number; staked: number; profit: number;
+  /** Bonus bets' stakes on settled bets: not in `staked` (they weren't the bettor's money), though their winnings are profit. */
+  bonus_staked: number;
   roi: number | null; curve: [string, number][];
   /** Bets with a closing price, the share priced better than the close, and their average EV at the close. */
   clv_n: number; beat_close: number | null; ev_close: number | null;
@@ -55,14 +59,14 @@ export const myBets = (f: BetFilters) => {
 const legBody = (l: Leg) => ({ game_id: l.gameId, player_id: l.playerId, kind: l.kind, side: l.side, line: l.line, odds: l.odds, alt: l.alt, prob: l.prob, ev: l.ev });
 
 /** Track a slip group as one parlay (with the price recorded at the book), or each leg as a single at `stake`. */
-export async function trackBets(book: string, legs: Leg[], asParlay: boolean, stake: number, parlayOdds: number, tags: string[] = []) {
-  if (asParlay) return [await call<TrackedBet>("bets", { method: "POST", body: JSON.stringify({ book, kind: "parlay", stake, odds: parlayOdds, tags, legs: legs.map(legBody) }) })];
+export async function trackBets(book: string, legs: Leg[], asParlay: boolean, stake: number, parlayOdds: number, tags: string[] = [], bonus = false) {
+  if (asParlay) return [await call<TrackedBet>("bets", { method: "POST", body: JSON.stringify({ book, kind: "parlay", stake, odds: parlayOdds, tags, bonus, legs: legs.map(legBody) }) })];
   const out: TrackedBet[] = [];
-  for (const l of legs) out.push(await call<TrackedBet>("bets", { method: "POST", body: JSON.stringify({ book, kind: "single", stake, tags, legs: [legBody(l)] }) }));
+  for (const l of legs) out.push(await call<TrackedBet>("bets", { method: "POST", body: JSON.stringify({ book, kind: "single", stake, tags, bonus, legs: [legBody(l)] }) }));
   return out;
 }
 
-export const editBet = (id: number, patch: { stake?: number; odds?: number; notes?: string; status?: BetStatus; tags?: string[] }) =>
+export const editBet = (id: number, patch: { stake?: number; odds?: number; notes?: string; status?: BetStatus; tags?: string[]; bonus?: boolean }) =>
   call<TrackedBet>(`bets/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
 export const deleteBet = (id: number) => call<void>(`bets/${id}`, { method: "DELETE" });
 
@@ -75,6 +79,11 @@ export function parseOdds(text: string): number | null {
   const n = Number(text.trim().replace(/^\+/, ""));
   return Number.isInteger(n) && Math.abs(n) >= 100 && Math.abs(n) <= 100_000 ? n : null;
 }
+
+/** If it wins, what the book pays back: the stake and winnings, or for a bonus bet only the winnings (its stake isn't returned). */
+export const winReturn = (stake: number, winnings: number, bonus: boolean) => (bonus ? winnings : stake + winnings);
+/** What a bet cost the bettor: nothing for a bonus bet. */
+export const costOf = (b: Pick<TrackedBet, "stake" | "bonus">) => (b.bonus ? 0 : b.stake);
 
 export const money = (n: number) => `${n < 0 ? "−" : ""}$${Math.abs(n).toFixed(2)}`;
 export const signedMoney = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}$${Math.abs(n).toFixed(2)}`;
@@ -99,9 +108,9 @@ export type ManualLeg =
   | { custom: true; text: string; odds: number | null };
 /** A prop bet placed elsewhere: one leg is a single, more a parlay at `parlayOdds`. Graded like any tracked bet (a parlay's
  *  hand-marked legs wait for the bettor). */
-export const addPropBet = (book: string, legs: ManualLeg[], stake: number, parlayOdds: number, tags: string[]) =>
+export const addPropBet = (book: string, legs: ManualLeg[], stake: number, parlayOdds: number, tags: string[], bonus = false) =>
   call<TrackedBet>("bets", { method: "POST", body: JSON.stringify({
-    book, stake, tags, kind: legs.length > 1 ? "parlay" : "single", odds: legs.length > 1 ? parlayOdds : undefined,
+    book, stake, tags, bonus, kind: legs.length > 1 ? "parlay" : "single", odds: legs.length > 1 ? parlayOdds : undefined,
     legs: legs.map((l) => (l.custom ? { kind: "custom", description: l.text, odds: l.odds }
       : { game_id: l.player.game_id, player_id: l.player.player_id, kind: l.kind, side: l.side, line: l.line, odds: l.odds })),
   }) });
@@ -137,9 +146,9 @@ export async function screenshotDataUrl(file: File): Promise<string> {
   return canvas.toDataURL("image/jpeg", 0.85);
 }
 /** Anything the site can't grade (a spread, a total, another sport, a boost), before its event starts; marked by hand. */
-export const addCustomBet = (b: { book: string; description: string; startsAt: string; league: "nfl" | "nba" | "oth"; odds: number; stake: number; tags: string[] }) =>
+export const addCustomBet = (b: { book: string; description: string; startsAt: string; league: "nfl" | "nba" | "oth"; odds: number; stake: number; tags: string[]; bonus?: boolean }) =>
   call<TrackedBet>("bets", { method: "POST", body: JSON.stringify({ kind: "custom", book: b.book, description: b.description, starts_at: b.startsAt,
-    league: b.league, odds: b.odds, stake: b.stake, tags: b.tags }) });
+    league: b.league, odds: b.odds, stake: b.stake, tags: b.tags, bonus: !!b.bonus }) });
 
 /** Sportsbooks to suggest when typing one in; the bettor can type any other. */
 export const COMMON_BOOKS = ["DraftKings", "FanDuel", "BetMGM", "Caesars", "Fanatics", "ESPN BET", "BetRivers", "Hard Rock", "bet365", "PrizePicks", "Underdog"];

@@ -624,6 +624,7 @@ class BetIn(BaseModel):
     description: Optional[str] = None
     starts_at: Optional[str] = None  # when its event starts (ISO, UTC): it can only be tracked before then
     league: Optional[Literal["nfl", "nba", "oth"]] = None
+    bonus: bool = False              # placed with a bonus bet: not the bettor's money, and a win pays only the profit
 
 
 class BetPlayer(BaseModel):
@@ -643,6 +644,7 @@ class BetPatch(BaseModel):
     odds: Optional[int] = None
     notes: Optional[str] = None
     tags: Optional[list[str]] = None
+    bonus: Optional[bool] = None
     # settle by hand (the book settled differently), or "open" to hand it back to grading
     status: Optional[Literal["open", "won", "lost", "push", "void"]] = None
 
@@ -684,6 +686,7 @@ class BetOut(BaseModel):
     notes: Optional[str] = None
     tags: list[str] = []
     description: Optional[str] = None
+    bonus: bool = False              # a bonus bet: profit = payout, and it adds nothing to what was staked
     placed_at: str
     settled_at: Optional[str] = None
     started: bool                    # its first game has kicked off
@@ -697,7 +700,8 @@ class BetSummary(BaseModel):
     pushes: int                      # pushes and voids: stake back
     open: int
     open_stake: float
-    staked: float                    # on bets that won or lost
+    staked: float                    # the bettor's own money on bets that won or lost (bonus bets left out)
+    bonus_staked: float = 0.0        # bonus bets' stakes on bets that won or lost
     profit: float
     roi: Optional[float] = None
     curve: list[tuple[str, float]]   # (settled_at, running profit), oldest first

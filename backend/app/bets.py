@@ -64,6 +64,20 @@ def months_ago(now: datetime, n: int) -> datetime:
     return now.replace(year=y, month=m, day=min(now.day, days))
 
 
+def cost(bet: Bet) -> float:
+    """What the bet cost the bettor: its stake, or nothing for a bonus bet (the book's money, not theirs)."""
+    return 0.0 if bet.bonus else bet.stake
+
+
+def returned(bet: Bet, status: str, dec: Optional[float] = None) -> float:
+    """What the book pays back at this status, stake included where the book returns it. A bonus bet's stake never comes
+    back: a win pays only the profit, and a loss, push or void returns nothing (a push hands back the bonus, not cash)."""
+    if status == "won":
+        dec = to_decimal(bet.odds) if dec is None else dec
+        return round(bet.stake * (dec - 1 if bet.bonus else dec), 2)
+    return 0.0 if status == "lost" or bet.bonus else bet.stake
+
+
 def require_member(user: User = Depends(auth.require_user)) -> User:
     """Signed in and 21+ confirmed: the account's age check comes before anything is saved to it."""
     if not user.age_confirmed_at:
@@ -86,7 +100,8 @@ def settle(bet: Bet, now: Optional[datetime] = None) -> None:
         bet.status, bet.payout, bet.settled_by, bet.settled_at = "open", None, None, None
         return
     elif "win" not in results:
-        bet.status, bet.payout = ("push" if "push" in results else "void"), bet.stake
+        bet.status = "push" if "push" in results else "void"
+        bet.payout = returned(bet, bet.status)
     else:
         dropped = [leg for leg in bet.legs if leg.result in ("push", "void")] if len(bet.legs) > 1 else []
         if any(leg.odds == NO_ODDS for leg in dropped):
@@ -96,7 +111,7 @@ def settle(bet: Bet, now: Optional[datetime] = None) -> None:
         dec = to_decimal(bet.odds)
         for leg in dropped:
             dec /= to_decimal(leg.odds)
-        bet.status, bet.payout = "won", round(bet.stake * max(dec, 1.0), 2)
+        bet.status, bet.payout = "won", returned(bet, "won", max(dec, 1.0))
     bet.settled_by, bet.settled_at = "grading", now or datetime.utcnow()
 
 
@@ -213,9 +228,9 @@ def _out(bet: Bet, now: datetime) -> BetOut:
     settled = bet.status != "open"
     return BetOut(
         id=bet.id, league=bet.league, book=bet.book, kind=bet.kind, stake=bet.stake, odds=bet.odds, status=bet.status,
-        payout=bet.payout, profit=round(bet.payout - bet.stake, 2) if settled and bet.payout is not None else None,
-        to_pay=round(bet.stake * to_decimal(bet.odds), 2), settled_by=bet.settled_by, notes=bet.notes, tags=bet.tags or [],
-        description=bet.description,
+        payout=bet.payout, profit=round(bet.payout - cost(bet), 2) if settled and bet.payout is not None else None,
+        to_pay=returned(bet, "won"), settled_by=bet.settled_by, notes=bet.notes, tags=bet.tags or [],
+        description=bet.description, bonus=bool(bet.bonus),
         placed_at=bet.placed_at.isoformat(), settled_at=bet.settled_at.isoformat() if bet.settled_at else None,
         started=min(leg.kickoff for leg in bet.legs) <= now, ev_close=bet_ev_close(bet),
         legs=[BetLegOut(id=leg.id, game_id=leg.game_id, gameday=leg.gameday, kickoff=leg.kickoff.isoformat(), player_id=leg.player_id,
@@ -226,18 +241,20 @@ def _out(bet: Bet, now: datetime) -> BetOut:
 
 def summarize(bets: list) -> BetSummary:
     won_lost = [b for b in bets if b.status in ("won", "lost")]
-    staked = sum(b.stake for b in won_lost)
-    profit = sum(b.payout - b.stake for b in won_lost)
+    # bonus bets add their winnings to the profit but nothing to what was staked: the bettor didn't put that money in
+    staked = sum(cost(b) for b in won_lost)
+    profit = sum(b.payout - cost(b) for b in won_lost)
     running, curve = 0.0, []
     for b in sorted((b for b in bets if b.status != "open" and b.settled_at), key=lambda b: b.settled_at):
-        running += (b.payout or 0) - b.stake if b.status in ("won", "lost") else 0
+        running += (b.payout or 0) - cost(b) if b.status in ("won", "lost") else 0
         curve.append((b.settled_at.isoformat(), round(running, 2)))
     open_ = [b for b in bets if b.status == "open"]
     clv = [e for b in bets if b.status != "void" and (e := bet_ev_close(b)) is not None]
     return BetSummary(clv_n=len(clv), beat_close=round(sum(e > 0 for e in clv) / len(clv), 4) if clv else None,
                       ev_close=round(sum(clv) / len(clv), 4) if clv else None,wins=sum(b.status == "won" for b in bets), losses=sum(b.status == "lost" for b in bets),
                       pushes=sum(b.status in ("push", "void") for b in bets), open=len(open_),
-                      open_stake=round(sum(b.stake for b in open_), 2), staked=round(staked, 2), profit=round(profit, 2),
+                      open_stake=round(sum(cost(b) for b in open_), 2), staked=round(staked, 2), profit=round(profit, 2),
+                      bonus_staked=round(sum(b.stake for b in won_lost if b.bonus), 2),
                       roi=round(profit / staked, 4) if staked else None, curve=curve)
 
 
@@ -271,7 +288,7 @@ def _view(db: Session, user: User, league, book, tag, months, now: datetime) -> 
 
 
 CSV_COLUMNS = ["bet_id", "placed_at", "league", "sportsbook", "type", "stake", "odds", "status", "payout", "profit", "settled_at",
-               "tags", "ev_at_close", "leg_player", "leg_team", "leg_opponent", "leg_game_date", "leg_market", "leg_side", "leg_line",
+               "tags", "ev_at_close", "bonus_bet", "leg_player", "leg_team", "leg_opponent", "leg_game_date", "leg_market", "leg_side", "leg_line",
                "leg_odds", "leg_alt_line", "leg_result", "leg_actual", "leg_close_chance"]
 
 
@@ -289,9 +306,9 @@ def export_csv(league: Optional[str] = Query(None, pattern="^(nfl|nba|oth)$"), b
     for b in reversed(bets):   # oldest first, as a ledger reads
         settled = b.status != "open" and b.payout is not None
         head = [b.id, b.placed_at.isoformat(timespec="seconds"), b.league.upper(), b.book, b.kind, b.stake, b.odds, b.status,
-                b.payout if settled else "", round(b.payout - b.stake, 2) if settled else "",
+                b.payout if settled else "", round(b.payout - cost(b), 2) if settled else "",
                 b.settled_at.isoformat(timespec="seconds") if b.settled_at else "", "; ".join(b.tags or []),
-                "" if (e := bet_ev_close(b)) is None else e]
+                "" if (e := bet_ev_close(b)) is None else e, "yes" if b.bonus else ""]
         for leg in b.legs:
             w.writerow([*head, leg.name, leg.team, leg.opp, leg.gameday, leg.kind, leg.side, leg.line, leg.odds or "", "yes" if leg.alt else "",
                         leg.result or "", "" if leg.actual is None else leg.actual, "" if leg.close_p is None else round(leg.close_p, 4)])
@@ -350,7 +367,7 @@ def _track_custom(body: BetIn, user: User, db: Session, now: datetime) -> BetOut
         raise HTTPException(422, "Odds look wrong: use American odds like -110 or +250")
     bet = Bet(user_id=user.id, league=body.league or "oth", book=body.book.strip()[:40] or "Other", kind=CUSTOM, stake=round(body.stake, 2),
               odds=body.odds, status="open", notes=(body.notes or "").strip()[:500] or None, tags=clean_tags(body.tags),
-              description=text, placed_at=now)
+              description=text, bonus=body.bonus, placed_at=now)
     bet.legs.append(BetLeg(game_id=CUSTOM, gameday=starts.date().isoformat(), kickoff=starts, player_id="", name=text[:80], team="",
                            opp="", kind=CUSTOM, side="", line=0.0, odds=body.odds))
     db.add(bet)
@@ -389,7 +406,7 @@ def track(body: BetIn, user: User = Depends(require_member), db: Session = Depen
     if any(not 3 <= len(" ".join((leg.description or "").split())) <= 80 for leg in by_hand):
         raise HTTPException(422, "Describe each leg you'll mark by hand in a few words")
     bet = Bet(user_id=user.id, league=league, book=body.book.strip()[:40], kind=body.kind, stake=round(body.stake, 2), odds=odds,
-              status="open", notes=(body.notes or "").strip()[:500] or None, tags=clean_tags(body.tags), placed_at=now)
+              status="open", notes=(body.notes or "").strip()[:500] or None, tags=clean_tags(body.tags), bonus=body.bonus, placed_at=now)
     games = {}
     for leg in graded:
         g = _game(db, league, leg.game_id, leg.player_id)
@@ -414,7 +431,7 @@ def track(body: BetIn, user: User = Depends(require_member), db: Session = Depen
 
 @router.patch("/bets/{bet_id}", response_model=BetOut, dependencies=[Depends(auth.same_origin)])
 def edit(bet_id: int, body: BetPatch, user: User = Depends(require_member), db: Session = Depends(auth.get_db)):
-    """Fix the stake, odds or notes, or settle it by hand (status "open" hands it back to grading)."""
+    """Fix the stake, odds, notes or bonus-bet flag, or settle it by hand (status "open" hands it back to grading)."""
     bet = _mine(db, user, bet_id)
     now = datetime.utcnow()
     if body.stake is not None:
@@ -431,13 +448,14 @@ def edit(bet_id: int, body: BetPatch, user: User = Depends(require_member), db: 
         bet.notes = body.notes.strip()[:500] or None
     if body.tags is not None:
         bet.tags = clean_tags(body.tags)
+    if body.bonus is not None:
+        bet.bonus = body.bonus
     if body.status == "open":
         bet.settled_by = None
     elif body.status is not None:
-        payout = {"won": bet.stake * to_decimal(bet.odds), "lost": 0.0}.get(body.status, bet.stake)
-        bet.status, bet.payout, bet.settled_by, bet.settled_at = body.status, round(payout, 2), "user", now
-    if bet.settled_by == "user" and body.status is None and (body.stake is not None or body.odds is not None):
-        bet.payout = round({"won": bet.stake * to_decimal(bet.odds), "lost": 0.0}.get(bet.status, bet.stake), 2)
+        bet.status, bet.payout, bet.settled_by, bet.settled_at = body.status, returned(bet, body.status), "user", now
+    if bet.settled_by == "user" and body.status is None and (body.stake is not None or body.odds is not None or body.bonus is not None):
+        bet.payout = returned(bet, bet.status)
     if bet.settled_by != "user":
         settle(bet, now)   # stake or odds changed (or handed back): what grading says now
     db.commit()

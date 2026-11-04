@@ -183,7 +183,9 @@ def to_draft(slip: dict, db: Session, now: datetime) -> ScreenDraft:
                      "so you'll settle the bet yourself once the rest are graded.")
     if not legs:
         notes.append("No legs could be read from that screenshot.")
-    if slip.get("bonus_stake"):
+    if slip.get("bonus_stake") and slip.get("stake") and slip["bonus_stake"] >= slip["stake"]:
+        notes.append("Placed with a bonus bet, so Bonus bet is ticked: its stake isn't your money and isn't paid back.")
+    elif slip.get("bonus_stake"):
         notes.append(f"Includes ${slip['bonus_stake']:.2f} in bonus bets: the stake below is the whole wager, so the payout here is "
                      f"${slip['bonus_stake']:.2f} more than the slip's (a bonus bet's stake isn't paid back).")
     if slip.get("odds") is None:
