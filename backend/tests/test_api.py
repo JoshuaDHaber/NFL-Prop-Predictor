@@ -484,3 +484,13 @@ def test_a_failed_schedule_fetch_leaves_the_server_running(monkeypatch):
         raise OSError("offline")
     monkeypatch.setattr(main.data, "load_schedule", boom)
     main._fetch_schedule()   # logs and returns; the next sync fetches it
+
+
+def test_a_teams_moneyline_ladder_and_hot_teams(client, monkeypatch):
+    monkeypatch.setitem(main.mlm.odds.TEAM_NAMES, "AAA", "Arizona Cardinals")
+    lad = client.get("/api/moneylines/2026_04_BBB_AAA/AAA/lines").json()
+    assert lad["kind"] == "ml" and lad["mu"] == 4.0 and len(lad["quotes"]) == 1
+    q = lad["quotes"][0]
+    assert (q["book"], q["line"], q["over"]["odds"], q["under"]["odds"]) == ("X", 0.0, -150, 130)
+    assert client.get("/api/moneylines/2026_04_BBB_AAA/CCC/lines").status_code == 404
+    assert client.get("/api/hot-teams").json() == []   # this run's game kicked off long ago

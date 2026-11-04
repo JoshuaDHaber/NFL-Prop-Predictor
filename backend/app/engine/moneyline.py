@@ -176,3 +176,81 @@ def price(games: dict, lines: pd.DataFrame, market_weight: float = 0.35, only_bo
                         margin=g["margin"], spread=g.get("spread"), total=g.get("total"), sides=sides,
                         blowout=g.get("blowout")))
     return out
+
+
+# ---------- a team's recent results (Who's hot) and one side's price at every book (the betslip) ----------
+FORM_GAMES = 15          # results kept per team on each run, most recent last
+MIN_STREAK = 3           # wins in a row to count as a team on a winning streak
+
+
+def form(played: pd.DataFrame, teams, n: int = FORM_GAMES) -> dict:
+    """team -> its last n results this season, oldest first: {date, opp, home, pf, pa}. played: one row per finished game
+    with date, home_team, away_team, home_score and away_score."""
+    out = {t: [] for t in teams}
+    if played.empty:
+        return out
+    for g in played.sort_values("date").itertuples():
+        for team, opp, home, pf, pa in ((g.home_team, g.away_team, True, g.home_score, g.away_score),
+                                        (g.away_team, g.home_team, False, g.away_score, g.home_score)):
+            if team in out:
+                out[team].append(dict(date=str(g.date)[:10], opp=opp, home=home, pf=float(pf), pa=float(pa)))
+    return {t: r[-n:] for t, r in out.items()}
+
+
+def win_streak(margins) -> int:
+    """Wins in a row, most recent back (a tie ends it)."""
+    n = 0
+    for m in reversed(list(margins)):
+        if m <= 0:
+            break
+        n += 1
+    return n
+
+
+def hot_teams(priced: list[dict], games: dict, window: int, min_streak: int = MIN_STREAK) -> list[dict]:
+    """Teams on a winning streak, each with its moneyline (priced: engine/moneyline.price's games). games: the run's
+    game_id -> team view, whose "form" holds each team's recent results. Longest streak first, then the likeliest winner.
+    A streak isn't an edge on its own: the price already knows the team has been winning, so the EV beside it says
+    whether the run is in the number."""
+    out = []
+    for g in priced:
+        form_ = (games.get(g["game_id"]) or {}).get("form") or {}
+        for i, s in enumerate(g["sides"]):
+            margins = [r["pf"] - r["pa"] for r in form_.get(s["team"]) or []]
+            streak = win_streak(margins)
+            if streak < min_streak:
+                continue
+            recent = margins[-window:]
+            out.append(dict(s, game_id=g["game_id"], label=g["label"], gameday=g["gameday"], gametime=g["gametime"],
+                            opp=g["sides"][1 - i]["team"], streak=streak, window=len(recent), wins=sum(m > 0 for m in recent),
+                            recent=recent, avg_margin=float(np.mean(recent))))
+    return sorted(out, key=lambda r: (-r["streak"], -r["prob"], r["team"]))
+
+
+def side_ladder(games: dict, lines: pd.DataFrame, game_id: str, team: str, market_weight: float = 0.35, only_book: str = None,
+                names: dict = None, min_market_weight: float = ML_MIN_MARKET_WEIGHT, book_weights: dict = None):
+    """One team's moneyline at every book, in the shape of a player's line ladder (line 0: over = this team wins, under =
+    its opponent does), so the betslip can shop it between books and see its price move. None if the team isn't in that game."""
+    g = games.get(game_id)
+    if not g or team not in (g["home"], g["away"]):
+        return None
+    names = names or odds.TEAM_NAMES
+    side = next(s for s in price({game_id: g}, lines, market_weight, only_book, names, min_market_weight, book_weights)[0]["sides"]
+                if s["team"] == team)
+    prob = side["prob"]
+    abbr = {v: k for k, v in names.items()}
+    q = lines[(lines.market == "ml") & (lines.game_id == game_id)] if not lines.empty else lines
+    q = q[q.player.map(abbr) == team] if not q.empty else q
+    if only_book and not q.empty:
+        q = q[q.book.isin(book_set(only_book))]
+
+    def quote(price_, p, link):
+        if pd.isna(price_):
+            return None
+        dec = float(odds.american_to_dec(price_))
+        return dict(odds=int(price_), prob=p, ev=p * dec - 1, link=_none(link), p_model=None)
+    rows = [dict(line=ML_LINE, book=r.book, alt=False, event_link=_none(r.event_link),
+                 over=quote(r.over_odds, prob, r.over_link), under=quote(r.under_odds, 1 - prob, r.under_link))
+            for r in q.itertuples()]
+    return dict(kind="ml", mu=g["margin"] if team == g["home"] else -g["margin"], sd=0.0, game_id=game_id, alt_fetched_at=None,
+                quotes=rows, w=max(market_weight, min_market_weight))

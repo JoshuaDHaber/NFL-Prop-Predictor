@@ -15,7 +15,7 @@ const KEYS = ["player", "kind", "side", "line", "book"];
 export function selectedFromHash(hash = window.location.hash): Selected | null {
   const h = new URLSearchParams(hash.slice(1));
   const id = h.get("player"), kind = h.get("kind");
-  if (!id || !kind || !(kind in KIND_LABEL)) return null;
+  if (!id || !kind || kind === "ml" || !(kind in KIND_LABEL)) return null;
   const side = h.get("side"), line = h.get("line"), book = h.get("book");
   const pick = (side === "Over" || side === "Under") && line && Number.isFinite(Number(line)) && book ? { side, line: Number(line), book } as DrawerPick : undefined;
   return { id, kind: kind as Kind, pick };

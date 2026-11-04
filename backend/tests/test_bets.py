@@ -12,21 +12,23 @@ from app.db import Bet, BetLeg, NbaProjection, NbaRun, Projection, Run, SessionL
 SOON = (datetime.utcnow() + timedelta(days=3)).date().isoformat()
 PAST = (datetime.utcnow() - timedelta(days=3)).date().isoformat()
 NFL_GAME, NFL_OLD = f"2099_05_HOU_JAX", f"2099_04_HOU_DAL"
-NBA_GAME = "2099_10_BOS_NYK"
+NBA_GAME = "2099_20991010_BOS_NYK"   # NBA ids carry the date, as espn.slate makes them
 
 
 @pytest.fixture(scope="module", autouse=True)
 def board():
     """A latest NFL run with one future game and one already played, and a latest NBA run with a future game."""
     with SessionLocal() as s:
-        run = Run(season=2099, week=5, backtest={}, variance={})
+        run = Run(season=2099, week=5, backtest={}, variance={},
+                  teams={NFL_GAME: dict(home="JAX", away="HOU", gameday=SOON, gametime="13:00", margin=1.5, p_home=0.55)})
         s.add(run)
         s.flush()
         for gid, day, pid, name in ((NFL_GAME, SOON, "00-R1", "Rusher One"), (NFL_GAME, SOON, "00-W1", "Wideout One"),
                                     (NFL_OLD, PAST, "00-R1", "Rusher One")):
             s.add(Projection(run_id=run.id, player_id=pid, name=name, pos="RB", team="HOU", opp="JAX", home=False, kind="rush",
                              mu=70, sd=25, vol=15, eff=4.5, spread=0, game_id=gid, gameday=day, gametime="13:00", last5=[]))
-        nrun = NbaRun(season=2100, slate=[SOON], backtest={}, variance={}, games=[{"game_id": NBA_GAME, "start": f"{SOON}T23:30:00Z"}])
+        nrun = NbaRun(season=2100, slate=[SOON], backtest={}, variance={}, games=[{"game_id": NBA_GAME, "start": f"{SOON}T23:30:00Z"}],
+                      teams={NBA_GAME: dict(home="NYK", away="BOS", gameday=SOON, gametime="19:30", margin=-2.0, p_home=0.43)})
         s.add(nrun)
         s.flush()
         s.add(NbaProjection(run_id=nrun.id, player_id="9001", name="Guard One", pos="G", team="BOS", opp="NYK", home=False, kind="pts",
@@ -208,7 +210,7 @@ def tracked(legs, kind="parlay", odds=300, stake=10.0):
         owner = s.query(User).filter(User.email == "grader@example.com").first() or User(email="grader@example.com")
         s.add(owner)
         s.flush()
-        b = Bet(user_id=owner.id, league=bets.league_of(legs[0]["kind"]), book="FanDuel", kind=kind, stake=stake, odds=odds, status="open")
+        b = Bet(user_id=owner.id, league=bets.league_of(legs[0]["kind"], legs[0]["game_id"]), book="FanDuel", kind=kind, stake=stake, odds=odds, status="open")
         for lg in legs:
             b.legs.append(BetLeg(name="x", team="HOU", opp="JAX", kickoff=datetime(2000, 1, 1), alt=False, **lg))
         s.add(b)
@@ -242,6 +244,41 @@ def test_grade_nba_from_game_logs():
         assert bets.grade_nba(s, logs, date.today(), fetch=lambda *a, **k: pd.DataFrame()) == 1
         b = s.get(Bet, bid)
         assert (b.legs[0].actual, b.status) == (34.0, "won") and b.payout == pytest.approx(10 * (1 + 100 / 120), abs=0.01)
+
+
+def test_moneylines_are_tracked_with_props_and_graded_from_the_final_score(sent):
+    with member(sent, "mlfan@example.com", "198.51.100.30") as c:
+        ml = lambda team, game=NFL_GAME, **kw: dict(game_id=game, player_id=team, kind="ml", side="Over", line=0, odds=-130, **kw)
+        r = c.post("/api/me/bets", json={"book": "DraftKings", "kind": "parlay", "stake": 10, "odds": 300, "legs": [ml("HOU", prob=0.6), leg()]})
+        assert r.status_code == 200, r.text
+        b = r.json()
+        assert b["league"] == "nfl" and [(x["name"], x["team"], x["opp"], x["kind"]) for x in b["legs"]][0] == ("Houston Texans", "HOU", "JAX", "ml")
+        nba = c.post("/api/me/bets", json={"book": "FanDuel", "kind": "single", "stake": 5, "legs": [ml("NYK", NBA_GAME)]}).json()
+        assert nba["league"] == "nba" and nba["legs"][0]["opp"] == "BOS"
+        both = c.post("/api/me/bets", json={"book": "DraftKings", "kind": "parlay", "stake": 10, "odds": 300, "legs": [ml("HOU"), ml("JAX")]})
+        assert both.status_code == 422 and "Both teams" in both.json()["detail"]
+        assert c.post("/api/me/bets", json={"book": "DraftKings", "kind": "single", "stake": 10, "legs": [ml("DAL")]}).status_code == 422
+        mixed = c.post("/api/me/bets", json={"book": "DraftKings", "kind": "parlay", "stake": 10, "odds": 300, "legs": [ml("NYK", NBA_GAME), leg()]})
+        assert mixed.status_code == 422   # an NBA moneyline and an NFL prop
+
+    g = "2098_04_HOU_JAX"
+    won = tracked([dict(game_id=g, gameday="2098-09-27", player_id="HOU", kind="ml", side="Over", line=0.0, odds=+120)], kind="single", odds=120)
+    lost = tracked([dict(game_id=g, gameday="2098-09-27", player_id="JAX", kind="ml", side="Over", line=0.0, odds=-140)], kind="single", odds=-140)
+    stats = pd.DataFrame([dict(player_id="00-Z", season=2098, week=1, team="KC", rushing_yards=1, receiving_yards=0)])
+    sched = pd.DataFrame([dict(game_id=g, home_score=17, away_score=24)])
+    with SessionLocal() as s:
+        assert bets.grade_nfl(s, stats, sched) == 2   # no box score needed: the final score settles it
+        assert (s.get(Bet, won).status, s.get(Bet, won).legs[0].actual) == ("won", 7.0)
+        assert (s.get(Bet, lost).status, s.get(Bet, lost).legs[0].actual) == ("lost", -7.0)
+
+    day = (date.today() - timedelta(days=1)).isoformat()
+    nba = tracked([dict(game_id="2098_20981101_BOS_NYK", gameday=day, player_id="NYK", kind="ml", side="Over", line=0.0, odds=-110)],
+                  kind="single", odds=-110)
+    logs = pd.DataFrame([dict(player_id="77", event_id="e1", season=2099, date=day, team="BOS", opp="NYK", home=False, home_score=101,
+                              away_score=99, min=34, pts=20, reb=8, ast=6)])
+    with SessionLocal() as s:
+        assert bets.grade_nba(s, logs, date.today(), fetch=lambda *a, **k: pytest.fail("a team isn't a player to fetch")) >= 1
+        assert (s.get(Bet, nba).status, s.get(Bet, nba).legs[0].actual) == ("won", 2.0)
 
 
 def test_tags_and_filters(sent):

@@ -151,8 +151,13 @@ def attach_bet_closing(session, sport: str, now: Optional[datetime] = None) -> i
     from .bets import league_of
     now = now or datetime.utcnow()
     legs = [leg for leg in session.scalars(select(BetLeg).where(BetLeg.close_at.is_(None), BetLeg.kickoff <= now))
-            if league_of(leg.kind) == sport]
+            if league_of(leg.kind, leg.game_id) == sport]
+    # a moneyline has no logged pick to read a close from (the board logs player props): looked at once, then left alone
+    for leg in [leg for leg in legs if leg.kind == "ml"]:
+        leg.close_at, leg.close_books = leg.kickoff, 0
+    legs = [leg for leg in legs if leg.kind != "ml"]
     if not legs:
+        session.commit()
         return 0
     table, run_table = TABLES[sport]
     logged = {}

@@ -74,6 +74,10 @@ def run_projections(log: Log = print, now: Optional[datetime] = None) -> Optiona
     sigma = mlm.fit_sigma(ml_bt)
     backtest["ml"] = mlm.summary(ml_bt, sigma)
     teams = model.ml_project(games, slate, sigma, today)
+    # each team's results this season, for Who's hot (teams on a winning streak)
+    form = mlm.form(games[games.season == season], {t for g in teams.values() for t in (g["home"], g["away"])})
+    for g in teams.values():
+        g["form"] = {t: form[t] for t in (g["home"], g["away"])}
     log(f"  team ratings: win-probability curve sd {sigma:.2f} pts, Brier {backtest['ml']['mae_model']:.3f}"
         f" (always the home team's usual rate: {backtest['ml']['mae_naive']:.3f})")
     blow_fit = None

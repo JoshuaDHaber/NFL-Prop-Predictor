@@ -11,7 +11,7 @@ import Sheet from "./Sheet";
 import TrackBetSheet from "./TrackBetSheet";
 import { openSignIn } from "./SignIn";
 import SidePill from "./SidePill";
-import { isYesNo, KIND_SHORT, americanOdds, pct, playLabel, signedPct, timeAgo } from "../format";
+import { namesItself, KIND_SHORT, americanOdds, pct, playLabel, signedPct, timeAgo } from "../format";
 import { alternativesAtBook, bookCoverage, clusterConflicts, conflicts, bookOptions, groupByBook, combinedLink, legLink, slipLinksText, linkStatus, openProgress, parlay, parseStake, priceDrift, rebook, sameGame, slipHitChance, toAmerican, toWin, withLinks, type BookOption, type Leg } from "../slip";
 
 // once per page load: the stored state covers later opens, and "Try again" re-runs it
@@ -127,7 +127,7 @@ export default function BetSlip() {
     const stake = stakeFor(book);
     const key = trackKey(ls), isBonus = !!bonus[book];
     if (!ls.length || !stake || !auth?.user?.age_confirmed || (tracked[book]?.key === key && !("error" in tracked[book]))) return;
-    const asParlay = ls.length > 1 && new Set(ls.map((l) => legLeague(l.kind))).size === 1;
+    const asParlay = ls.length > 1 && new Set(ls.map((l) => legLeague(l))).size === 1;
     const odds = asParlay ? parlay(ls, 1).american : ls[0].odds;
     setTracked((t) => ({ ...t, [book]: { key, ids: [], asParlay, odds, stake, bonus: isBonus } }));   // claimed at once, so a second click can't double it
     try {
@@ -191,8 +191,9 @@ export default function BetSlip() {
     return <button key={book} className="primary" onClick={() => openNext(book)}>{label}{step} ↗</button>;
   };
 
-  // legs with no betslip link at all (links only come with a game's alternate-lines fetch); one fetch per game covers them
-  const missing = legs.filter((l) => linkStatus(l, state) === "missing");
+  // legs with no betslip link at all (links only come with a game's alternate-lines fetch); one fetch per game covers them.
+  // A player's alternate-lines fetch brings no moneyline links, so moneylines aren't counted
+  const missing = legs.filter((l) => l.kind !== "ml" && linkStatus(l, state) === "missing");
   const missingGames = [...new Map(missing.map((l) => [l.gameId, l])).values()];
   const getLinks = async () => {
     const credits = missingGames.length * 2;
@@ -225,7 +226,7 @@ export default function BetSlip() {
       <div className="slip-leg" key={l.id}>
         <div>
           <b>{l.name}</b> <span className="mut">{l.team} {l.home ? "vs" : "@"} {l.opp}</span><br />
-          <SidePill kind={l.kind} side={l.side} line={l.line} /> {!isYesNo(l.kind) && KIND_SHORT[l.kind]}
+          <SidePill kind={l.kind} side={l.side} line={l.line} /> {!namesItself(l.kind) && KIND_SHORT[l.kind]}
           {l.alt && <span className="alt">alt</span>}<br />
           <label className="bookpick">
             <BookBadge book={l.book} size={20} />
@@ -379,7 +380,7 @@ export default function BetSlip() {
                           {t.asParlay && <span className="mut"> If the price at {book} is different, fix it on My bets.</span>}</span>
                         <span className="slip-tracked-actions">
                           <button className="link" disabled={!t.ids.length} onClick={() => untrack(book)}>Didn't place it? Undo</button>
-                          <button className="link" onClick={() => { close(); goToPath(leaguePath(legLeague(ls[0].kind), "bets")); }}>See My bets</button>
+                          <button className="link" onClick={() => { close(); goToPath(leaguePath(legLeague(ls[0]), "bets")); }}>See My bets</button>
                         </span>
                       </div>
                     );
@@ -429,7 +430,7 @@ export default function BetSlip() {
                   const alts = alternativesAtBook(ladderFor(l), l, target);
                   return (
                     <div className="suggest-leg" key={l.id}>
-                      <div><b>{l.name}</b> <SidePill kind={l.kind} side={l.side} line={l.line} /> {!isYesNo(l.kind) && <span className="mut">{KIND_SHORT[l.kind]}</span>}</div>
+                      <div><b>{l.name}</b> <SidePill kind={l.kind} side={l.side} line={l.line} /> {!namesItself(l.kind) && <span className="mut">{KIND_SHORT[l.kind]}</span>}</div>
                       {alts.length ? (
                         <div className="chips">
                           {alts.map((o) => (

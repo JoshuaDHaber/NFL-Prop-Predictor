@@ -1,5 +1,6 @@
 import type { Kind } from "./api";
 import type { Leg } from "./slip";
+import { mlLeague } from "./moneyline";
 
 // Tracked bets (backend app/bets.py): the bets a signed-in visitor placed at a book, settled from the box scores. Private
 // to their owner; the session cookie identifies them, so these calls carry no admin password.
@@ -56,7 +57,9 @@ export const myBets = (f: BetFilters) => {
   return call<{ bets: TrackedBet[]; summary: BetSummary; books: string[]; tags: string[]; leagues: string[]; can_read_screenshots: boolean }>(`bets${query(f)}`);
 };
 
-const legBody = (l: Leg) => ({ game_id: l.gameId, player_id: l.playerId, kind: l.kind, side: l.side, line: l.line, odds: l.odds, alt: l.alt, prob: l.prob, ev: l.ev });
+// a moneyline's "player" is its team (the slip's id also carries the game: moneyline.ts)
+const legBody = (l: Leg) => ({ game_id: l.gameId, player_id: l.kind === "ml" ? l.team : l.playerId, kind: l.kind, side: l.side, line: l.line, odds: l.odds,
+  alt: l.alt, prob: l.prob, ev: l.ev });
 
 /** Track a slip group as one parlay (with the price recorded at the book), or each leg as a single at `stake`. */
 export async function trackBets(book: string, legs: Leg[], asParlay: boolean, stake: number, parlayOdds: number, tags: string[] = [], bonus = false) {
@@ -70,9 +73,10 @@ export const editBet = (id: number, patch: { stake?: number; odds?: number; note
   call<TrackedBet>(`bets/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
 export const deleteBet = (id: number) => call<void>(`bets/${id}`, { method: "DELETE" });
 
-/** The leagues' markets don't overlap, so a leg's market says which league it's from (as the server works it out). */
+/** The leagues' player markets don't overlap, so a leg's market says which league it's from; a moneyline is in both, so its
+ *  game says (as the server works it out). */
 const NBA_KINDS = new Set<string>(["pts", "reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk", "dd", "tpl"]);
-export const legLeague = (kind: Kind) => (NBA_KINDS.has(kind) ? "nba" : "nfl");
+export const legLeague = (l: { kind: Kind; gameId?: string }) => (l.kind === "ml" ? mlLeague(l.gameId ?? "") : NBA_KINDS.has(l.kind) ? "nba" : "nfl");
 
 /** American odds typed by hand: "+250", "250" or "-110"; null if it isn't a real price. */
 export function parseOdds(text: string): number | null {

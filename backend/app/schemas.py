@@ -326,7 +326,7 @@ class LadderRow(BaseModel):
 
 
 class LadderOut(BaseModel):
-    kind: Kind
+    kind: Union[Kind, Literal["ml"]]   # ml: one team's moneyline at every book (engine/moneyline.side_ladder)
     mu: float
     sd: float
     game_id: str
@@ -427,6 +427,20 @@ class BlowoutChance(BaseModel):
 class Blowout(BaseModel):
     games: int                     # games the model was fitted on
     chances: list[BlowoutChance]   # 15+, 20+, 25+, 30+
+
+
+class HotTeamOut(MoneylineSide):
+    """A team on a winning streak (Who's hot), with its moneyline (engine/moneyline.hot_teams)."""
+    game_id: str
+    label: str
+    gameday: str
+    gametime: str
+    opp: str
+    streak: int                    # wins in a row, most recent back
+    window: int                    # how many recent results `recent` holds
+    wins: int                      # of those, how many it won
+    recent: list[float]            # their point margins, oldest first
+    avg_margin: float
 
 
 class MoneylineGame(BaseModel):
@@ -602,7 +616,8 @@ class BetLegIn(BaseModel):
     game_id: str = ""
     player_id: str = ""
     # "custom": a leg the site can't grade (a team total, a market it doesn't project), described in words and marked by hand
-    kind: Union[Kind, Literal["custom"]]
+    # "ml": a team's moneyline (player_id is the team), graded from the final score
+    kind: Union[Kind, Literal["custom", "ml"]]
     side: Literal["Over", "Under"] = "Over"
     line: float = 0.0
     odds: Optional[int] = None      # a parlay leg's own price, when the book showed one (a single's is required)

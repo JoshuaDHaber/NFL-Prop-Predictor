@@ -2,7 +2,8 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api, type Filters } from "./api";
 import { getLeague } from "./league";
-import { buildBalancedLadders, buildLadderParlays, buildTdParlays, buildThreesLadders, defaultBook, filterGames, ladderProps, ladderTargets, LADDER_PLAYERS_PER_TEAM, parlaysByBook, THREES_PLAYERS } from "./parlays";
+import { moneylinePicks } from "./moneyline";
+import { buildBalancedLadders, buildLadderParlays, buildTdParlays, buildThreesLadders, defaultBook, filterGames, ladderProps, ladderTargets, LADDER_PLAYERS_PER_TEAM, moneylineRungs, parlaysByBook, THREES_PLAYERS, type ParlayLeg } from "./parlays";
 import { usePref } from "./prefs";
 
 // Parlays rank by win probability, not EV, so they price every play (any EV) at the default market weight
@@ -18,6 +19,10 @@ export function useParlayBoard(books: string[], chosenGames: string[], enabled: 
   const parlayQueries = useQueries({
     queries: books.map((book) => ({ queryKey: ["parlay-picks", book], queryFn: () => api.picks({ ...PARLAY_FILTERS, book }, 1000), enabled })),
   });
+  // each book's moneylines, which join its props as legs (a likely winner is as good a leg as a likely over)
+  const mlQueries = useQueries({
+    queries: books.map((book) => ({ queryKey: ["parlay-ml", book], queryFn: () => api.moneylines(book, null), enabled })),
+  });
   // anytime-TD picks per book (the plain picks above leave TDs out); the NBA has no touchdown market
   const hasTd = getLeague() !== "nba";
   const tdQueries = useQueries({
@@ -29,8 +34,9 @@ export function useParlayBoard(books: string[], chosenGames: string[], enabled: 
   const corr = corrQuery.data?.pairs;
   const loading = parlayQueries.some((q) => q.isLoading);
   const [book, setBook] = useState<string | null>(null);
-  const parlayStamp = parlayQueries.map((q) => q.dataUpdatedAt).join();
-  const allPicksByBook = useMemo(() => Object.fromEntries(books.map((b, i) => [b, parlayQueries[i]?.data ?? []])),
+  const parlayStamp = parlayQueries.map((q) => q.dataUpdatedAt).join() + mlQueries.map((q) => q.dataUpdatedAt).join();
+  const allPicksByBook = useMemo(() => Object.fromEntries(books.map((b, i) => [b, [...parlayQueries[i]?.data ?? [],
+    ...moneylinePicks(mlQueries[i]?.data ?? []).filter((p) => p.book === b)] as ParlayLeg[]])),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [books.join(), parlayStamp]);
   const pool = chosenGames.length ? chosenGames : slateGames ?? [];
@@ -52,10 +58,11 @@ export function useParlayBoard(books: string[], chosenGames: string[], enabled: 
   const ladderEntries = useMemo(() => targets.map((base, i) => ({ base, ladder: ladderQueries[i]?.data })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [targets, ladderStamp]);
-  const ladderParlays = useMemo(() => activeBook ? buildLadderParlays(ladderEntries, activeBook, corr) : [], [activeBook, ladderEntries, corr]);
+  const mlRungs = useMemo(() => activeBook ? moneylineRungs(gamePicks[activeBook] ?? [], activeBook) : [], [activeBook, gamePicks]);
+  const ladderParlays = useMemo(() => activeBook ? buildLadderParlays(ladderEntries, activeBook, corr, mlRungs) : [], [activeBook, ladderEntries, corr, mlRungs]);
   // with games chosen, one more ladder per game that uses both teams
-  const balancedLadders = useMemo(() => activeBook ? buildBalancedLadders(ladderEntries, activeBook, chosenGames.slice(0, 4), ladderParlays, corr) : [],
-    [activeBook, ladderEntries, chosenGames, ladderParlays, corr]);
+  const balancedLadders = useMemo(() => activeBook ? buildBalancedLadders(ladderEntries, activeBook, chosenGames.slice(0, 4), ladderParlays, corr, mlRungs) : [],
+    [activeBook, ladderEntries, chosenGames, ladderParlays, corr, mlRungs]);
   // NBA: threes-only ladders from the likeliest threes overs (their ladders share the cache with the ones above)
   const threesTargets = useMemo(() => (!hasTd && activeBook ? ladderTargets(gamePicks[activeBook] ?? [], THREES_PLAYERS, LADDER_PLAYERS_PER_TEAM, ["threes"]) : []),
     [hasTd, activeBook, gamePicks]);

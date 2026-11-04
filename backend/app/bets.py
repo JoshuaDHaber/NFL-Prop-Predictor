@@ -4,6 +4,7 @@ box scores, the same way it grades the board (app/grading.py, app/nba/grading.py
 Phase 1 of docs/bet-tracker-plan.md: player props the site prices (main and alternate lines), singles and parlays, in
 dollars, tracked only before the first game starts.
 """
+import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Callable, Optional
 
@@ -29,11 +30,15 @@ NO_ODDS = 0
 
 
 CUSTOM = "custom"   # a custom bet's one leg: the site can't grade it, so the bettor settles it
+ML = "ml"           # a team's moneyline: player_id is the team, graded from the final score
+NBA_GAME_ID = re.compile(r"^\d{4}_\d{8}_")   # NBA game ids carry the date ("2026_20261104_BOS_NYK"), NFL ones the week
 
 
-def league_of(kind: str) -> Optional[str]:
-    """The two leagues' markets don't overlap, so a leg's market says which league it's from. A custom bet's leg has
-    none: nothing grades it or prices its close."""
+def league_of(kind: str, game_id: str = "") -> Optional[str]:
+    """The two leagues' player markets don't overlap, so a leg's market says which league it's from; a moneyline is in
+    both, so its game id says. A custom bet's leg has none: nothing grades it or prices its close."""
+    if kind == ML:
+        return "nba" if NBA_GAME_ID.match(game_id or "") else "nfl"
     return None if kind == CUSTOM else "nba" if kind in NBA_KINDS else "nfl"
 
 
@@ -124,10 +129,11 @@ def grade_nfl(session, stats: pd.DataFrame, sched: pd.DataFrame, now: Optional[d
     """Grade open NFL legs whose game is final and whose teams' stats are in (as grading.grade does the board): a player
     with no stats row didn't play, so the leg is void. Settles the bets they belong to. Returns how many legs were graded."""
     now = now or datetime.utcnow()
-    todo = [leg for leg in session.scalars(select(BetLeg).where(BetLeg.result.is_(None))) if league_of(leg.kind) == "nfl"]
+    todo = [leg for leg in session.scalars(select(BetLeg).where(BetLeg.result.is_(None))) if league_of(leg.kind, leg.game_id) == "nfl"]
     if not todo or stats.empty:
         return 0
     final = set(sched.loc[sched.home_score.notna(), "game_id"])
+    scores = {r.game_id: r for r in sched[sched.home_score.notna()].itertuples()} if "away_score" in sched else {}
     have = set(zip(stats.season, stats.week, stats.team))
     cols = [c for c in {*grading.STAT.values(), "rushing_tds", "receiving_tds"} if c in stats]
     by_player = {(r["player_id"], r["season"], r["week"]): r for r in stats[["player_id", "season", "week", *cols]].to_dict("records")}
@@ -137,6 +143,14 @@ def grade_nfl(session, stats: pd.DataFrame, sched: pd.DataFrame, now: Optional[d
             continue
         season, week, away, home = leg.game_id.split("_", 3)
         season, week = int(season), int(week)
+        if leg.kind == ML:   # the final score is all a moneyline needs (a tie pushes)
+            g = scores.get(leg.game_id)
+            if g is None:
+                continue
+            leg.actual = float(g.home_score - g.away_score) * (1 if leg.player_id == home else -1)
+            leg.result, leg.graded_at = grading.outcome(leg.side, leg.line, leg.actual), now
+            done.append(leg)
+            continue
         if not {(season, week, away), (season, week, home)} <= have:
             continue   # final, but nflverse hasn't published this game's stats yet
         st = by_player.get((leg.player_id, season, week))
@@ -157,10 +171,10 @@ def grade_nba(session, logs: pd.DataFrame, today: date, fetch: Optional[Callable
     fetch = fetch or espn.gamelogs
     now = now or datetime.utcnow()
     todo = [leg for leg in session.scalars(select(BetLeg).where(BetLeg.result.is_(None), BetLeg.gameday < today.isoformat()))
-            if league_of(leg.kind) == "nba"]
+            if league_of(leg.kind, leg.game_id) == "nba"]
     if not todo:
         return 0
-    missing = sorted({leg.player_id for leg in todo} - set(logs.player_id))
+    missing = sorted({leg.player_id for leg in todo if leg.kind != ML} - set(logs.player_id))
     if missing:
         seasons = sorted({int(leg.gameday[:4]) + (int(leg.gameday[5:7]) >= 9) for leg in todo})   # an NBA season ends in its spring
         extra = fetch(missing, seasons, max(seasons), log=lambda _: None)
@@ -168,10 +182,20 @@ def grade_nba(session, logs: pd.DataFrame, today: date, fetch: Optional[Callable
     have = set(zip(logs.date, logs.team))
     by_player = {(r.player_id, r.date): r for r in logs.itertuples()}
     last_game = logs.groupby("player_id").date.max().to_dict() if not logs.empty else {}
+    has_scores = any(leg.kind == ML for leg in todo) and {"event_id", "home_score", "away_score"} <= set(logs.columns)
+    scores = {(g.date, g.home_team, g.away_team): g for g in espn.team_games(logs).itertuples()} if has_scores else {}
     done = []
     for leg in todo:
         _, _, away, home = leg.game_id.split("_", 3)
         age = (today - date.fromisoformat(leg.gameday)).days
+        if leg.kind == ML:
+            g = scores.get((leg.gameday, home, away))
+            if g is None and age < VOID_AFTER_DAYS:
+                continue   # no final score yet; a game that never shows up (postponed) voids after a week
+            leg.actual = None if g is None else float(g.home_score - g.away_score) * (1 if leg.player_id == home else -1)
+            leg.result, leg.graded_at = grading.outcome(leg.side, leg.line, leg.actual), now
+            done.append(leg)
+            continue
         if not {(leg.gameday, away), (leg.gameday, home)} <= have:
             if age < STALE_AFTER_DAYS:
                 continue
@@ -190,8 +214,11 @@ def grade_nba(session, logs: pd.DataFrame, today: date, fetch: Optional[Callable
 
 
 # ---------- the API ----------
-def _game(db: Session, league: str, game_id: str, player_id: str) -> Optional[dict]:
-    """The player and game as the latest run has them: who he plays for, against whom, and when it starts (UTC)."""
+def _game(db: Session, league: str, game_id: str, player_id: str, kind: str = "") -> Optional[dict]:
+    """The player and game as the latest run has them: who he plays for, against whom, and when it starts (UTC). For a
+    moneyline, player_id is the team."""
+    if kind == ML:
+        return _team_game(db, league, game_id, player_id)
     if league == "nfl":
         run = db.scalar(select(Run).order_by(Run.id.desc()).limit(1))
         row = run and db.scalar(select(Projection).where(Projection.run_id == run.id, Projection.game_id == game_id,
@@ -207,6 +234,19 @@ def _game(db: Session, league: str, game_id: str, player_id: str) -> Optional[di
     start = next((g.get("start") for g in run.games or [] if g.get("game_id") == game_id), None)
     ko = datetime.fromisoformat(start.replace("Z", "+00:00")).replace(tzinfo=None) if start else kickoff_utc(row.gameday, row.gametime)
     return dict(name=row.name, team=row.team, opp=row.opp, gameday=row.gameday, kickoff=ko)
+
+
+def _team_game(db: Session, league: str, game_id: str, team: str) -> Optional[dict]:
+    from .engine import odds as nfl_odds
+    from .nba import odds as nba_odds
+    run = db.scalar(select(Run if league == "nfl" else NbaRun).order_by((Run if league == "nfl" else NbaRun).id.desc()).limit(1))
+    g = ((run.teams or {}) if run else {}).get(game_id)
+    if not g or team not in (g["home"], g["away"]):
+        return None
+    start = next((x.get("start") for x in getattr(run, "games", None) or [] if x.get("game_id") == game_id), None) if league == "nba" else None
+    ko = datetime.fromisoformat(start.replace("Z", "+00:00")).replace(tzinfo=None) if start else kickoff_utc(g["gameday"], g["gametime"])
+    names = nfl_odds.TEAM_NAMES if league == "nfl" else nba_odds.TEAM_NAMES
+    return dict(name=f"{names.get(team, team)}", team=team, opp=g["away"] if team == g["home"] else g["home"], gameday=g["gameday"], kickoff=ko)
 
 
 def leg_ev_close(leg: BetLeg) -> Optional[float]:
@@ -394,12 +434,15 @@ def track(body: BetIn, user: User = Depends(require_member), db: Session = Depen
         raise HTTPException(422, "A bet needs at least one player prop; for anything else, add it as an other bet")
     if by_hand and body.kind != "parlay":
         raise HTTPException(422, "Only a parlay can mix in legs you mark by hand")
-    leagues = {league_of(leg.kind) for leg in graded}
+    leagues = {league_of(leg.kind, leg.game_id) for leg in graded}
     if len(leagues) > 1:
         raise HTTPException(422, "A parlay's legs are all NFL or all NBA")
     league = leagues.pop()
     if len({(leg.game_id, leg.player_id, leg.kind) for leg in graded}) < len(graded):
         raise HTTPException(422, "The same prop is on this bet twice")
+    mls = [leg.game_id for leg in graded if leg.kind == ML]
+    if len(set(mls)) < len(mls):
+        raise HTTPException(422, "Both teams' moneylines in one game can't be on the same bet")
     odds = body.legs[0].odds if body.kind == "single" else body.odds
     if odds is None or not valid_odds(odds) or not all(leg.odds is None or valid_odds(leg.odds) for leg in body.legs):
         raise HTTPException(422, "Odds look wrong: use American odds like -110 or +250")
@@ -409,15 +452,16 @@ def track(body: BetIn, user: User = Depends(require_member), db: Session = Depen
               status="open", notes=(body.notes or "").strip()[:500] or None, tags=clean_tags(body.tags), bonus=body.bonus, placed_at=now)
     games = {}
     for leg in graded:
-        g = _game(db, league, leg.game_id, leg.player_id)
+        g = _game(db, league, leg.game_id, leg.player_id, leg.kind)
         if not g or not g["kickoff"]:
             raise HTTPException(422, "One of these props isn't on the board any more")
         if g["kickoff"] <= now:
             raise HTTPException(422, f"{g['name']}'s game has started, so this bet can't be tracked now")
         games[leg.game_id] = g
         bet.legs.append(BetLeg(game_id=leg.game_id, gameday=g["gameday"], kickoff=g["kickoff"], player_id=leg.player_id, name=g["name"],
-                               team=g["team"], opp=g["opp"], kind=leg.kind, side=leg.side, line=leg.line,
-                               odds=NO_ODDS if leg.odds is None else leg.odds, alt=leg.alt, prob=leg.prob, ev=leg.ev))
+                               team=g["team"], opp=g["opp"], kind=leg.kind, side="Over" if leg.kind == ML else leg.side,
+                               line=0.0 if leg.kind == ML else leg.line, odds=NO_ODDS if leg.odds is None else leg.odds,
+                               alt=leg.alt and leg.kind != ML, prob=leg.prob, ev=leg.ev))
     # hand-marked legs ride on the parlay's first game (they're almost always the same game: a same-game parlay)
     first = min(games.values(), key=lambda g: g["kickoff"])
     for leg in by_hand:
