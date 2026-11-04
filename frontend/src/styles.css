@@ -330,9 +330,9 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
 .ml-bar .home { background: color-mix(in srgb, var(--acc2) 80%, transparent); color: var(--on-acc); justify-content: flex-end; }
 .ml-table { width: 100%; border-collapse: collapse; }
 .ml-table td.ml-team, .ml-table th:first-child { text-align: left; }
-.ml-table th, .ml-table td { vertical-align: middle; padding: 8px 6px; }
+.ml-table th, .ml-table td { vertical-align: middle; padding: 8px 5px; }
 .ml-table th:first-child, .ml-table td:first-child { padding-left: 14px; } .ml-table th:last-child, .ml-table td:last-child { padding-right: 14px; }
-.ml-table .ev-pill { padding: 2px 7px; }
+.ml-table .ev-pill { padding: 2px 7px; } .ml-table td.ml-ev { white-space: nowrap; } .ml-table td.ml-ev .add { margin: 0 0 0 6px; vertical-align: middle; }
 .ml-foot { margin: 0; padding: 8px 14px 12px; }
 .ml-table .link { font-size: 13px; font-weight: 600; }
 @media (max-width: 560px) {
@@ -342,6 +342,8 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
   .ml-table th:first-child, .ml-table td:first-child { padding-left: 10px; } .ml-table th:last-child, .ml-table td:last-child { padding-right: 10px; }
   .ml-table td .mut { font-size: 10px; }
   .ml-table .ev-pill { padding: 1px 5px; }
+  /* the slip button drops under the EV, so the table still fits a phone */
+  .ml-table td.ml-ev { white-space: normal; text-align: right; } .ml-table td.ml-ev .add { display: block; margin: 4px 0 0 auto; }
 }
 
 /* ---------- admin page (/admin): schedule, run log, credits ---------- */
@@ -438,6 +440,7 @@ table.wx-games td.num, table.wx-games th.num { text-align: right; }
 .bo-half { flex: 1; display: flex; min-width: 0; } .bo-half.bo-left { justify-content: flex-end; box-shadow: inset -1px 0 0 var(--mut); }
 .bo-track .tbar { padding: 0; height: 100%; } .bo-track .tbar + .tbar { box-shadow: none; }
 .team-logo { flex: none; object-fit: contain; }
+.pick-logo { display: inline-flex; flex: none; align-items: center; justify-content: center; }
 .gt-team { flex-direction: row; align-items: center; gap: 8px; } .gt-team > span { display: flex; flex-direction: column; }
 .gt-team.home { justify-content: flex-end; align-items: center; } .gt-team.home > span { align-items: flex-end; }
 
@@ -1023,6 +1026,18 @@ header .sub a { color: var(--mut); font-weight: 500; text-decoration: none; } he
 .seg-label { font-size: 12px; align-self: center; }
 .c-run .spark { margin-bottom: 2px; }
 .run-full { color: var(--good); }
+/* teams on a win streak: W/L marks like the players' sparkline bars (green cleared, grey didn't) */
+.hot-teams { margin-bottom: 14px; } .hot-teams .sub-h { margin: 0 0 8px; }
+.wl { display: inline-flex; gap: 3px; margin-bottom: 2px; }
+.wl i { width: 18px; height: 18px; border-radius: 4px; display: inline-grid; place-items: center; font-size: 10px; font-weight: 700; font-style: normal;
+  background: var(--chip); color: var(--mut); }
+.wl i.w { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
+.t-hot-teams .c-ev { white-space: nowrap; } .t-hot-teams .c-ev .add { margin: 0 0 0 8px; vertical-align: middle; }
+@media (max-width: 700px) {
+  .t-hot-teams tr::after { content: none; }
+  .t-hot-teams tr:active { border-color: var(--line); }
+  .t-hot-teams .c-ev .add { margin: 0 0 0 6px; }
+}
 /* red and green on this site mean EV: a run the price has already caught up with reads red */
 .ev-pill.neg { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
 .v-track { margin: 10px 0 0; text-align: center; } .v-track .link { font-size: 13px; font-weight: 600; }

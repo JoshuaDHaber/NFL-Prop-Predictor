@@ -3,11 +3,11 @@ import type { GameWeather, Kind } from "./api";
 export const KIND_LABEL: Record<Kind, string> = {
   rush: "Rushing yds", rec: "Receiving yds", pass: "Passing yds", rr: "Rush+Rec yds", td: "Anytime TD", recs: "Receptions",
   ptd: "Passing TDs", lng: "Longest reception", rlng: "Longest rush", ftd: "First TD scorer", pts: "Points", reb: "Rebounds", ast: "Assists", threes: "3-pointers made",
-  pra: "Pts+Reb+Ast", pr: "Pts+Reb", pa: "Pts+Ast", stl: "Steals", blk: "Blocks", dd: "Double-double", tpl: "Triple-double",
+  pra: "Pts+Reb+Ast", pr: "Pts+Reb", pa: "Pts+Ast", stl: "Steals", blk: "Blocks", dd: "Double-double", tpl: "Triple-double", ml: "Moneyline",
 };
 export const KIND_SHORT: Record<Kind, string> = { rush: "Rushing", rec: "Receiving", pass: "Passing", rr: "Rush+Rec", td: "Anytime TD", recs: "Receptions",
   ptd: "Passing TDs", lng: "Longest rec", rlng: "Longest rush", ftd: "First TD", pts: "Points", reb: "Rebounds", ast: "Assists", threes: "Threes",
-  pra: "PRA", pr: "PR", pa: "PA", stl: "Steals", blk: "Blocks", dd: "Double-double", tpl: "Triple-double" };
+  pra: "PRA", pr: "PR", pa: "PA", stl: "Steals", blk: "Blocks", dd: "Double-double", tpl: "Triple-double", ml: "Moneyline" };
 /** The NBA's markets: projected minutes x a per-minute rate. */
 export const NBA_KINDS = ["pts", "reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk", "dd", "tpl"] as const;
 export const isNba = (kind: Kind) => (NBA_KINDS as readonly Kind[]).includes(kind);
@@ -16,6 +16,8 @@ export const isYesNo = (kind?: Kind | "all") => kind === "td" || kind === "ftd" 
 /** NBA double- and triple-doubles: yes/no, and how many stats must reach double figures. */
 export const DOUBLE_NEED: Partial<Record<Kind, number>> = { dd: 2, tpl: 3 };
 export const isDouble = (kind?: Kind | "all") => kind === "dd" || kind === "tpl";
+/** Plays whose label says it all ("Anytime TD", "Moneyline"), so no market name follows it. */
+export const namesItself = (kind?: Kind | "all") => isYesNo(kind) || kind === "ml";
 
 /** Grouped markets: one sub tab each, with a pill per market inside. */
 /** icon: the market whose icon stands for the group (components/icons.tsx). */
@@ -71,7 +73,7 @@ export const fmtSd = (kind: Kind, sd: number) => `±${sd.toFixed(decimals(kind))
 
 /** What a play is called. Yardage is "Over 54.5"; anytime TD is stored as an over 0.5, shown as "Anytime TD" / "No TD" (double-doubles alike). */
 export const playLabel = (kind: Kind, side: "Over" | "Under", line: number) =>
-  kind === "td" ? (side === "Over" ? "Anytime TD" : "No TD") : kind === "ftd" ? (side === "Over" ? "First TD" : "Not first TD")
+  kind === "ml" ? "Moneyline" : kind === "td" ? (side === "Over" ? "Anytime TD" : "No TD") : kind === "ftd" ? (side === "Over" ? "First TD" : "Not first TD")
   : isDouble(kind) ? (side === "Over" ? KIND_LABEL[kind] : `No ${KIND_LABEL[kind].toLowerCase()}`) : `${side} ${line}`;
 
 /** Edge between the projection and the line: yards (catches for receptions), percentage points for anytime TD. */

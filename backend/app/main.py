@@ -33,7 +33,7 @@ from .engine.market import weight_for
 from .engine.picks import best_picks, build_picks
 from .engine.search import rank_hits
 from .nba import routes as nba_routes
-from .schemas import (AdminState, Correlations, GradeReport, AltFetchResult, AutoSync, CreditStatus, KeyBalance, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, HistoryPoint, InjuryReport, LadderOut, ByeTeam, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, HotOut, PickOut, PlayerDetail, PlayerHit, ProjectionOut,
+from .schemas import (AdminState, Correlations, GradeReport, AltFetchResult, AutoSync, CreditStatus, KeyBalance, SlotOut, SyncRunDetail, SyncRunOut, SyncPlan, GameLogEntry, HistoryPoint, HotTeamOut, InjuryReport, LadderOut, ByeTeam, Game, JobStatus, Kind, Meta, MoneylineGame, OddsInfo, HotOut, PickOut, PlayerDetail, PlayerHit, ProjectionOut,
                       RefreshRequest, RunInfo, SiteSettings)
 
 @asynccontextmanager
@@ -415,6 +415,30 @@ def build_moneylines(db: Session, run: Optional[Run], market_weight: Optional[fl
     w = weight_for(market_fit.market_weights(db, "nfl"), "ml", None) if market_weight is None else market_weight
     return mlm.price(run.teams, lines, w, books.pricing_books(book, lines.get("book", []), books.hide_offshore(db)),
                      book_weights=market_fit.book_weights(db, "nfl"))
+
+
+@app.get("/api/moneylines/{game_id}/{team}/lines", response_model=LadderOut)
+def moneyline_lines(game_id: str, team: str, market_weight: Optional[float] = Query(None, ge=0, le=1), db: Session = Depends(get_db)):
+    """One team's moneyline at every book, shaped like a player's line ladder, for shopping a betslip leg between books."""
+    run = latest_run(db)
+    lines = current_lines(db)
+    w = weight_for(market_fit.market_weights(db, "nfl"), "ml", None) if market_weight is None else market_weight
+    out = run and run.teams and mlm.side_ladder(run.teams, lines, game_id, team, w, books.pricing_books(None, lines.get("book", []), books.hide_offshore(db)),
+                                                book_weights=market_fit.book_weights(db, "nfl"))
+    if not out:
+        raise HTTPException(404, "That team isn't playing that game this week")
+    return out
+
+
+@app.get("/api/hot-teams", response_model=list[HotTeamOut])
+def hot_teams(book: Optional[str] = None, game_id: Optional[str] = None, window: int = Query(5, ge=3, le=20), db: Session = Depends(get_db)):
+    """Who's hot, teams: those on a winning streak, with their moneyline (at `book`, default the best price) and its EV.
+    Games that have kicked off are left out."""
+    run = latest_run(db)
+    now = datetime.utcnow()
+    priced = [g for g in build_moneylines(db, run, None, book) if (not game_id or g["game_id"] == game_id)
+              and (market_fit.kickoff_utc(g["gameday"], g["gametime"]) or now) > now]
+    return mlm.hot_teams(priced, run.teams, window) if priced else []
 
 
 @app.get("/api/injuries", response_model=InjuryReport)

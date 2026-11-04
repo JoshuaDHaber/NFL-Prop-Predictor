@@ -1,6 +1,6 @@
 import type { Kind, Ladder } from "./api";
 import { parlayProb, type CorrTable } from "./copula";
-import { isYesNo, KIND_LABEL, americanOdds, playLabel } from "./format";
+import { namesItself, KIND_LABEL, americanOdds, playLabel } from "./format";
 
 export interface Leg {
   id: string;
@@ -67,26 +67,31 @@ export function groupByBook(legs: Leg[]): [string, Leg[]][] {
 }
 
 export const legText = (l: Leg) =>
-  `${l.name} ${playLabel(l.kind, l.side, l.line)}${isYesNo(l.kind) ? "" : ` ${KIND_LABEL[l.kind]}`} (${l.home ? "vs" : "@"} ${l.opp}) ${americanOdds(l.odds)} @ ${l.book}`;
+  `${l.name} ${playLabel(l.kind, l.side, l.line)}${namesItself(l.kind) ? "" : ` ${KIND_LABEL[l.kind]}`} (${l.home ? "vs" : "@"} ${l.opp}) ${americanOdds(l.odds)} @ ${l.book}`;
 
 export function slipText(legs: Leg[]) {
   return groupByBook(legs).map(([book, ls]) => `${book}\n${ls.map((l) => `  - ${legText(l)}`).join("\n")}`).join("\n\n");
 }
 
+/** What a clash is counted by: a player's market, or a game's moneyline (both teams' moneylines are one market). */
+const marketOf = (l: Pick<Leg, "book" | "playerId" | "kind" | "gameId">) =>
+  l.kind === "ml" ? `${l.book}|${l.gameId}|ml` : `${l.book}|${l.playerId}|${l.kind}`;
+
 /** Legs a book won't parlay together: one player's same market more than once at the same book (both sides of a line, or
- *  two lines of it). Each group is one such clash; different markets for one player are an ordinary same-game parlay. */
+ *  two lines of it), or both teams' moneylines in one game. Each group is one such clash; different markets for one player
+ *  are an ordinary same-game parlay. */
 export function conflicts(legs: Leg[]): Leg[][] {
   const m = new Map<string, Leg[]>();
   for (const l of legs) {
-    const k = `${l.book}|${l.playerId}|${l.kind}`;
+    const k = marketOf(l);
     m.set(k, [...(m.get(k) ?? []), l]);
   }
   return [...m.values()].filter((g) => g.length > 1);
 }
 
 /** Whether adding `leg` would clash with a different leg already on the slip (see `conflicts`). */
-export const clashesWith = (legs: Leg[], leg: Pick<Leg, "id" | "book" | "playerId" | "kind">) =>
-  legs.some((l) => l.id !== leg.id && l.book === leg.book && l.playerId === leg.playerId && l.kind === leg.kind);
+export const clashesWith = (legs: Leg[], leg: Pick<Leg, "id" | "book" | "playerId" | "kind" | "gameId">) =>
+  legs.some((l) => l.id !== leg.id && marketOf(l) === marketOf(leg));
 
 /** The legs in slip order as rows to show: a leg on its own, or a clash's legs together where its first leg was. */
 export function clusterConflicts(legs: Leg[]): Leg[][] {
@@ -260,7 +265,7 @@ export function decodeSlip(text: string): { legs: Leg[]; state: string } | null 
   try {
     const d = JSON.parse(b64.dec(text));
     if (d?.v !== 1 || !Array.isArray(d.l) || d.l.length > 50) return null;
-    const kinds = ["rush", "rec", "pass", "rr", "td", "recs", "ptd", "lng", "rlng", "ftd"];
+    const kinds = ["rush", "rec", "pass", "rr", "td", "recs", "ptd", "lng", "rlng", "ftd", "ml"];
     const legs: Leg[] = [];
     for (const r of d.l) {
       if (!Array.isArray(r) || r.length !== 16) return null;

@@ -4,7 +4,7 @@ import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Too
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth";
 import { costOf, csvUrl, deleteBet, editBet, money, myBets, parseOdds, signedMoney, takeSharedSlip, type BetFilters, type BetStatus, type BetSummary, type TrackedBet, type TrackedLeg } from "../bets";
-import { isYesNo, KIND_SHORT, americanOdds, pct, signedPct } from "../format";
+import { namesItself, KIND_SHORT, americanOdds, pct, signedPct } from "../format";
 import { useLeague } from "../LeagueContext";
 import { leaguePath, goToPath } from "../route";
 import AddBetSheet from "./AddBetSheet";
@@ -51,10 +51,11 @@ function LegRow({ leg, bet }: { leg: TrackedLeg; bet: TrackedBet }) {
       <span className="bet-leg-mark" role="img" aria-label={word || "not graded yet"}>{Mark && <Mark size={15} stroke={2.25} aria-hidden />}</span>
       <span className="bet-leg-main">
         <b>{leg.name}</b> <SidePill kind={leg.kind} side={leg.side} line={leg.line} />
-        {!isYesNo(leg.kind) && <span className="mut"> {KIND_SHORT[leg.kind]}</span>}
+        {!namesItself(leg.kind) && <span className="mut"> {KIND_SHORT[leg.kind]}</span>}
         {leg.alt && <span className="alt">alt</span>}
         <span className="mut bet-leg-sub">{leg.team} {leg.opp ? `vs ${leg.opp}` : ""} · {new Date(leg.kickoff + "Z").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
-          {leg.result === "void" ? " · didn't play" : leg.actual != null ? ` · ${leg.actual}` : ""}</span>
+          {leg.kind === "ml" ? (leg.result === "void" ? " · no result" : leg.actual == null ? "" : leg.actual === 0 ? " · tied" : ` · ${leg.actual > 0 ? "won" : "lost"} by ${Math.abs(leg.actual)}`)
+            : leg.result === "void" ? " · didn't play" : leg.actual != null ? ` · ${leg.actual}` : ""}</span>
       </span>
       <span className="mut">{leg.odds ? americanOdds(leg.odds) : ""}</span>
     </li>

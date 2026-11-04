@@ -1,7 +1,9 @@
 import { getLeague } from "./league";
+import { mlLeague, parseMlId } from "./moneyline";
 
-/** NFL markets, then the NBA's points, rebounds, assists and 3-pointers made. */
-export type Kind = "rush" | "rec" | "pass" | "rr" | "td" | "recs" | "ptd" | "lng" | "rlng" | "ftd" | "pts" | "reb" | "ast" | "threes" | "pra" | "pr" | "pa" | "stl" | "blk" | "dd" | "tpl";
+/** NFL markets, then the NBA's points, rebounds, assists and 3-pointers made; "ml" is a team's moneyline (both leagues), which
+ *  rides on the betslip and in parlays beside the props but has no board, projection or drawer of its own. */
+export type Kind = "rush" | "rec" | "pass" | "rr" | "td" | "recs" | "ptd" | "lng" | "rlng" | "ftd" | "pts" | "reb" | "ast" | "threes" | "pra" | "pr" | "pa" | "stl" | "blk" | "dd" | "tpl" | "ml";
 export type NbaKind = "pts" | "reb" | "ast" | "threes" | "pra" | "pr" | "pa" | "stl" | "blk" | "dd" | "tpl";
 const NBA_KIND_SET = new Set<Kind>(["pts", "reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk", "dd", "tpl"]);
 
@@ -153,6 +155,11 @@ export interface MoneylineSide {
   p_model: number; p_mkt: number | null; prob: number; books: number;
   odds: number | null; book: string | null; ev: number | null; kelly: number | null; link: string | null; event_link: string | null;
 }
+/** A team on a winning streak (Who's hot), with its moneyline: `recent` holds its last `window` point margins, oldest first. */
+export interface HotTeam extends MoneylineSide {
+  game_id: string; label: string; gameday: string; gametime: string; opp: string;
+  streak: number; window: number; wins: number; recent: number[]; avg_margin: number;
+}
 /** NBA: the chance a game is decided by `margin`+ points, either way and by each team. */
 export interface BlowoutChance { margin: number; p: number; p_home: number; p_away: number }
 export interface MoneylineGame {
@@ -192,6 +199,14 @@ export interface AltFetchResult { kinds: string[]; alt_quotes: number; linked: n
 /** fetch against the API (same origin). Who's asking is the session cookie (the owner's account opens admin endpoints). */
 export async function request(path: string, init: RequestInit = {}): Promise<Response> {
   return fetch(path, init);
+}
+
+/** A team's moneyline at every book, as a ladder (its leg's "player" id is the team and its game: moneyline.ts). */
+function moneylineLadder(id: string, marketWeight: number | null): Promise<Ladder> {
+  const ml = parseMlId(id);
+  if (!ml) return Promise.reject(new Error("Not a moneyline"));
+  return get<Ladder>(`${mlLeague(ml.gameId) === "nba" ? "nba/" : ""}moneylines/${encodeURIComponent(ml.gameId)}/${encodeURIComponent(ml.team)}/lines`,
+    { market_weight: marketWeight ?? undefined });
 }
 
 /** League data lives under /api/nba/... for the NBA; admin and sync endpoints are shared. */
@@ -271,6 +286,8 @@ export const api = {
   searchPlayers: (q: string) => get<PlayerHit[]>(lg("player-search"), { q }),
   player: (id: string, marketWeight: number | null) => get<PlayerDetail>(lg(`players/${id}`), { market_weight: marketWeight ?? undefined }),
   moneylines: (book: string, marketWeight: number | null) => get<MoneylineGame[]>(lg("moneylines"), { book: bookParam(book), market_weight: marketWeight ?? undefined }),
+  /** Teams on a winning streak of the league on screen, with their moneyline at `book` (best price anywhere for "all"). */
+  hotTeams: (f: Filters, window: number) => get<HotTeam[]>(lg("hot-teams"), { book: bookParam(f.book), game_id: f.game, gameday: f.date, window }),
   /** How a player's market moved through the week (one point per odds fetch). */
   history: (id: string, kind: Kind) => get<HistoryPoint[]>(`${NBA_KIND_SET.has(kind) ? "nba/" : ""}players/${id}/history`, { kind }),
   injuries: () => get<InjuryReport>(lg("injuries")),
@@ -281,7 +298,7 @@ export const api = {
   /** oddsRange hides prices outside -N..+N (American); 0 shows everything. */
   // by the market, not the league on screen: a betslip can hold legs from both
   lines: (id: string, kind: Kind, oddsRange = 300, marketWeight: number | null = null) =>
-    get<Ladder>(`${NBA_KIND_SET.has(kind) ? "nba/" : ""}players/${id}/lines`, { kind, odds_range: oddsRange, market_weight: marketWeight ?? undefined })
+    (kind === "ml" ? moneylineLadder(id, marketWeight) : get<Ladder>(`${NBA_KIND_SET.has(kind) ? "nba/" : ""}players/${id}/lines`, { kind, odds_range: oddsRange, market_weight: marketWeight ?? undefined }))
     .then((l) => ({ ...l, quotes: l.quotes.filter((q) => !allowed || allowed.includes(q.book)) })),
   fetchAlt: async (id: string): Promise<AltFetchResult> => {
     const res = await request(`/api/players/${id}/alt-lines`, { method: "POST" });

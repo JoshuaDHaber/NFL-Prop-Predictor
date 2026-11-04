@@ -13,7 +13,7 @@ const MARKET: Record<Kind | "all", Icon> = {
   all: IconChartBar, rush: IconRun, rlng: IconWind, rec: IconHandGrab, recs: IconHandStop, lng: IconRocket, pass: IconTarget, ptd: IconTarget,
   rr: IconBolt, td: IconBallAmericanFootball, ftd: IconMedal,
   pts: IconBallBasketball, reb: IconRepeat, ast: IconUsers, threes: IconTarget, pra: IconPlus, pr: IconPlus, pa: IconPlus,
-  stl: IconShield, blk: IconWall, dd: IconTrophy, tpl: IconTrophy,
+  stl: IconShield, blk: IconWall, dd: IconTrophy, tpl: IconTrophy, ml: IconTrophy,
 };
 const WX: Record<WxIcon, Icon> = { wind: IconWind, snow: IconSnowflake, rain: IconCloudRain, cold: IconTemperatureMinus };
 const SKY: Record<SkyIcon, Icon> = { storm: IconCloudStorm, snow: IconCloudSnow, rain: IconCloudRain, fog: IconCloudFog, cloud: IconCloud,
