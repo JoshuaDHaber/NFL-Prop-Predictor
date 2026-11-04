@@ -111,7 +111,7 @@ def _fanduel(lines: list[str]) -> list[dict]:
         if not i or not _caps(ln) or _caps(lines[i - 1]):
             continue
         title = lines[i - 1]
-        m = re.match(r"^\W*([A-Z][A-Z'.\- ]+?)\s+-\s+(.+)$", ln)
+        m = re.match(r"^\W*([A-Z][A-Z'.\-|1 ]+?)\s+-\s+(.+)$", ln)   # "|" and "1": a misread roman suffix (I||)
         if m:
             name, market = _name(m.group(1)), m.group(2)
         elif _kind(ln) != "other":
@@ -158,6 +158,12 @@ def parse(text: str) -> dict:
                 if len(amounts) > 1 and re.search(r"(?i)return|payout|to win|paid", ln):
                     to_return = float(amounts[1].replace(",", ""))
             break
+    # the payout on its own line, its amount beside it or on the next line (Apple's reader splits "Net Return" / "$110.82")
+    for i, ln in enumerate(lines):
+        if to_return is None and re.fullmatch(r"(?i)\W*(net return|to return|returns?|payout|potential payout|to win|to pay)\W*(\$.*)?", ln):
+            amounts = MONEY.findall(ln) or (MONEY.findall(lines[i + 1]) if i + 1 < len(lines) else [])
+            if amounts:
+                to_return = float(amounts[0].replace(",", ""))
     m = re.search(r"\$\s?(\d[\d,]*\.\d{2})\s*(bonus|free) bet", text, re.I)
     if m:
         bonus = float(m.group(1).replace(",", ""))

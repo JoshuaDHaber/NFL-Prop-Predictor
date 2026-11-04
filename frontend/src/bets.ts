@@ -129,8 +129,10 @@ export interface ScreenDraft {
 export const readScreenshot = (image: string) => call<ScreenDraft>("bets/read-screenshot", { method: "POST", body: JSON.stringify({ image }) });
 /** A screenshot shared to the installed app from another app's share menu (Android), held by the service worker
  * (pwa/sw.js): taken once, so it opens a single time; one older than an hour is dropped rather than opened out of the blue.
- * `keep` only looks (signed out: it waits for them to sign in). */
-export async function takeSharedSlip(keep = false): Promise<File | null> {
+ * `keep` only looks (signed out: it waits for them to sign in). From an iPhone it's the slip's text instead (holdSharedText). */
+export async function takeSharedSlip(keep = false): Promise<File | string | null> {
+  const text = takeSharedText(keep);
+  if (text) return text;
   if (typeof caches === "undefined") return null;
   try {
     const c = await caches.open("shared-slip");
@@ -142,6 +144,31 @@ export async function takeSharedSlip(keep = false): Promise<File | null> {
     return new File([await res.blob()], decodeURIComponent(res.headers.get("x-name") ?? "slip"), { type: res.headers.get("content-type") ?? "image/png" });
   } catch { return null; }
 }
+/** An iPhone can't share to a web app, so a Shortcut in its share menu reads the screenshot on the phone (Apple's "Extract
+ * Text from Image") and opens /bets#slip=<the text>. Called before the app renders: the text is held in this browser until My
+ * bets takes it (it's after the #, so it never reaches the server in the address), and the address is tidied. */
+const SLIP_TEXT = "shared-slip-text";
+export function holdSharedText() {
+  const m = window.location.hash.match(/^#slip=([\s\S]*)$/);
+  if (!m) return;
+  window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  try {
+    const text = decodeURIComponent(m[1].replace(/\+/g, " ")).slice(0, 20000);
+    if (text.trim()) localStorage.setItem(SLIP_TEXT, JSON.stringify({ text, at: Date.now() }));
+  } catch { /* a garbled link, or storage off: nothing to open */ }
+}
+function takeSharedText(keep: boolean): string | null {
+  try {
+    const held = JSON.parse(localStorage.getItem(SLIP_TEXT) ?? "null") as { text: string; at: number } | null;
+    if (!held) return null;
+    const fresh = Date.now() - held.at <= 3600_000;
+    if (!keep || !fresh) localStorage.removeItem(SLIP_TEXT);
+    return fresh ? held.text : null;
+  } catch { return null; }
+}
+/** A slip's text, from either reader, read against the sportsbooks' layouts (backend slip_text) and matched to the board. */
+export const readSlipText = (text: string) =>
+  call<ScreenDraft>("bets/read-slip-text", { method: "POST", body: JSON.stringify({ text: text.slice(0, 20000) }) });
 /** The free way, when Claude isn't set up: OCR reads the screenshot on this device (Tesseract.js, loaded only when needed),
  * and only its text goes to the server, which knows bet365's and FanDuel's layouts (backend slip_text). */
 export async function readSlipOnDevice(file: File): Promise<ScreenDraft> {
@@ -149,7 +176,7 @@ export async function readSlipOnDevice(file: File): Promise<ScreenDraft> {
   const worker = await createWorker("eng");
   let text: string;
   try { text = (await worker.recognize(file)).data.text; } finally { await worker.terminate(); }
-  return call<ScreenDraft>("bets/read-slip-text", { method: "POST", body: JSON.stringify({ text: text.slice(0, 20000) }) });
+  return readSlipText(text);
 }
 
 /** A screenshot as a data URL the server accepts: under 5 MB, re-encoded as JPEG (scaled down if need be) when it's bigger. */

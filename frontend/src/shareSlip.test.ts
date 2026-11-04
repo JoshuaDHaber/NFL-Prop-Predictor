@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
-import { takeSharedSlip } from "./bets";
+import { holdSharedText, takeSharedSlip } from "./bets";
 
 // The share menu's hand-off: manifest share_target → service worker (pwa/sw.js) → Cache Storage → My bets
 function fakeCaches() {
@@ -18,7 +18,7 @@ describe("a screenshot shared to the app", () => {
 
   it("is taken once, with its name and type", async () => {
     await fakeCaches().put("slip", slip(Date.now()));
-    const f = await takeSharedSlip();
+    const f = await takeSharedSlip() as File;
     expect(f?.name).toBe("bet slip.png");
     expect(f?.type).toBe("image/png");
     expect(await takeSharedSlip()).toBeNull();
@@ -69,6 +69,37 @@ describe("signed out", () => {
     await fakeCaches().put("slip", slip(Date.now()));
     expect(await takeSharedSlip(true)).not.toBeNull();
     expect(await takeSharedSlip()).not.toBeNull();
+    expect(await takeSharedSlip()).toBeNull();
+  });
+});
+
+describe("a slip's text from the iPhone Shortcut", () => {
+  const g = globalThis as { window?: unknown; localStorage?: unknown };
+  let replaced = "";
+  function browser(hash: string) {
+    const store = new Map<string, string>();
+    g.localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => { store.set(k, v); },
+      removeItem: (k: string) => { store.delete(k); } };
+    g.window = { location: { hash, pathname: "/bets", search: "" }, history: { replaceState: (_: unknown, __: string, url: string) => { replaced = url; } } };
+  }
+  afterEach(() => { delete g.window; delete g.localStorage; replaced = ""; });
+
+  it("is held from /bets#slip=..., the address tidied, and taken once", async () => {
+    const text = "Same Game Parlay +2638\nAJ Barner 3+ Receptions\nAJ BARNER - ALT RECEPTIONS";
+    browser("#slip=" + encodeURIComponent(text));
+    holdSharedText();
+    expect(replaced).toBe("/bets");
+    expect(await takeSharedSlip(true)).toBe(text);
+    expect(await takeSharedSlip()).toBe(text);
+    expect(await takeSharedSlip()).toBeNull();
+  });
+
+  it("ignores other links and garbled text", async () => {
+    browser("#game=2026_09_CHI_SEA");
+    holdSharedText();
+    expect(replaced).toBe("");
+    browser("#slip=%E0%A4%A");
+    holdSharedText();
     expect(await takeSharedSlip()).toBeNull();
   });
 });

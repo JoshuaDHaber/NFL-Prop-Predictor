@@ -1,9 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconPhoto, IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { BASE } from "../env";
 import type { Kind } from "../api";
 import { useAuth } from "../auth";
-import { addCustomBet, addPropBet, COMMON_BOOKS, findBetPlayers, money, myBets, parseOdds, readScreenshot, readSlipOnDevice, screenshotDataUrl,
+import { addCustomBet, addPropBet, COMMON_BOOKS, findBetPlayers, money, myBets, parseOdds, readScreenshot, readSlipOnDevice, readSlipText, screenshotDataUrl,
   winReturn, type BetPlayer, type ManualLeg, type ScreenDraft } from "../bets";
 import { isYesNo, KIND_LABEL, americanOdds, playLabel } from "../format";
 import { toAmerican, toDecimal, toWin } from "../slip";
@@ -19,6 +20,8 @@ function nextHour() {
   const d = new Date(Date.now() + 3600_000);
   return { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, time: `${pad(d.getHours())}:00` };
 }
+// an iPhone or iPad (iPadOS reports itself as a Mac with touch): it can't share to a web app, but the Shortcut can
+const IOS = typeof navigator !== "undefined" && (/iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
 /** The parlay price its legs make together, when every leg's own price is known (most slips show only the parlay's). */
 const legsPrice = (legs: ManualLeg[]) =>
   legs.every((l) => l.odds != null) ? toAmerican(legs.reduce((d, l) => d * toDecimal(l.odds!), 1)) : null;
@@ -27,7 +30,7 @@ const when = (iso: string) => new Date(iso + "Z").toLocaleString(undefined, { we
 /** My bets → "Add a bet": record a bet placed outside the app, before its game starts (the rule every tracked bet follows).
  *  A player prop picked from a search is graded from the box scores like a tracked one; anything else (a spread, a total,
  *  another sport, a boost) is described in words and marked by hand. */
-export default function AddBetSheet({ onClose, defaultLeague, sharedSlip }: { onClose: () => void; defaultLeague: "nfl" | "nba"; sharedSlip?: File }) {
+export default function AddBetSheet({ onClose, defaultLeague, sharedSlip }: { onClose: () => void; defaultLeague: "nfl" | "nba"; sharedSlip?: File | string }) {
   const auth = useAuth();
   const qc = useQueryClient();
   const known = useQuery({ queryKey: ["my-bets", auth?.user?.email, {}], queryFn: () => myBets({}), staleTime: 60_000, enabled: !!auth?.user?.age_confirmed });
@@ -131,10 +134,10 @@ export default function AddBetSheet({ onClose, defaultLeague, sharedSlip }: { on
     setParlayOdds(d.odds ? americanOdds(d.odds) : "");
     setNotes(d.notes);
   };
-  const upload = async (f: File | undefined) => {
+  const upload = async (f: File | string | undefined) => {
     if (!f) return;
     setReading(true); setProblem(""); setNotes([]);
-    try { apply(claude ? await readScreenshot(await screenshotDataUrl(f)) : await readSlipOnDevice(f)); }
+    try { apply(typeof f === "string" ? await readSlipText(f) : claude ? await readScreenshot(await screenshotDataUrl(f)) : await readSlipOnDevice(f)); }
     catch (err) { setProblem((err as Error).message); }
     finally { setReading(false); if (file.current) file.current.value = ""; }
   };
@@ -168,6 +171,8 @@ export default function AddBetSheet({ onClose, defaultLeague, sharedSlip }: { on
           <span className="mut">{claude ? "Fills in the bet from your slip for you to check. The image isn't kept."
             : "Fills in the bet from a bet365 or FanDuel slip for you to check. The image stays on your device."}</span>
           <input ref={file} type="file" accept="image/*" hidden onChange={(e) => upload(e.target.files?.[0])} />
+          {IOS && <span className="mut add-shortcut">On iPhone, <a href={`${BASE}add-slip.shortcut`}>add the Shortcut</a> to share a slip here
+            straight from your sportsbook app.</span>}
         </div>
       )}
       {notes.length > 0 && (

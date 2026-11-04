@@ -192,7 +192,7 @@ export default function MyBets() {
   const { league: siteLeague } = useLeague();
   const [filters, setFiltersState] = useState<BetFilters>(storedView);
   const [adding, setAdding] = useState(false);
-  const [shared, setShared] = useState<File>();
+  const [shared, setShared] = useState<File | string>();
   const [sharedWaiting, setSharedWaiting] = useState(false);
   const setFilters = (f: BetFilters) => {
     const clean = Object.fromEntries(Object.entries(f).filter(([, v]) => v != null)) as BetFilters;

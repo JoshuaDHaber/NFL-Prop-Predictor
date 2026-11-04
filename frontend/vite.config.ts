@@ -16,7 +16,8 @@ function pwa(): Plugin {
       server.middlewares.use((req, res, next) => {
         const name = req.url?.split("?")[0].slice(base.length);
         if (!name || !files.includes(name)) return next();
-        res.setHeader("Content-Type", name.endsWith(".js") ? "text/javascript" : name.endsWith(".png") ? "image/png" : "application/manifest+json");
+        res.setHeader("Content-Type", name.endsWith(".js") ? "text/javascript" : name.endsWith(".png") ? "image/png"
+          : name.endsWith(".shortcut") ? "application/octet-stream" : "application/manifest+json");
         res.end(fs.readFileSync(path.join(dir, name)));
       });
     },
