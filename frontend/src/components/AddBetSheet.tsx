@@ -4,7 +4,7 @@ import { useRef, useState, type FormEvent } from "react";
 import type { Kind } from "../api";
 import { useAuth } from "../auth";
 import { addCustomBet, addPropBet, COMMON_BOOKS, findBetPlayers, money, myBets, parseOdds, readScreenshot, readSlipOnDevice, screenshotDataUrl,
-  type BetPlayer, type ManualLeg, type ScreenDraft } from "../bets";
+  winReturn, type BetPlayer, type ManualLeg, type ScreenDraft } from "../bets";
 import { isYesNo, KIND_LABEL, americanOdds, playLabel } from "../format";
 import { toAmerican, toDecimal, toWin } from "../slip";
 import { useDebounced } from "../useDebounced";
@@ -35,6 +35,7 @@ export default function AddBetSheet({ onClose, defaultLeague }: { onClose: () =>
   const [league, setLeague] = useState<"nfl" | "nba" | "oth">(defaultLeague);
   const [book, setBook] = useState("");
   const [stake, setStake] = useState("");
+  const [bonus, setBonus] = useState(false);
   const [tags, setTags] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
@@ -88,7 +89,8 @@ export default function AddBetSheet({ onClose, defaultLeague }: { onClose: () =>
   const otherOdds = parseOdds(odds);
   const startsAt = new Date(`${date}T${time || "00:00"}`);
   const ready = stakeOk && book.trim() !== "" && (mode === "prop" ? allLegs.length > 0 && !!propOdds : description.trim().length >= 3 && !!otherOdds && startsAt.getTime() > Date.now());
-  const pays = !stakeOk ? null : mode === "prop" ? (propOdds ? stakeN + toWin(propOdds, stakeN) : null) : otherOdds ? stakeN + toWin(otherOdds, stakeN) : null;
+  const payOdds = mode === "prop" ? propOdds : otherOdds;
+  const pays = stakeOk && payOdds ? winReturn(stakeN, toWin(payOdds, stakeN), bonus) : null;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -96,8 +98,8 @@ export default function AddBetSheet({ onClose, defaultLeague }: { onClose: () =>
     setBusy(true); setProblem("");
     try {
       const s = Math.round(stakeN * 100) / 100;
-      if (mode === "prop") await addPropBet(book.trim(), allLegs, s, parlayN ?? 0, tags);
-      else await addCustomBet({ book: book.trim(), description: description.trim(), startsAt: startsAt.toISOString(), league, odds: otherOdds!, stake: s, tags });
+      if (mode === "prop") await addPropBet(book.trim(), allLegs, s, parlayN ?? 0, tags, bonus);
+      else await addCustomBet({ book: book.trim(), description: description.trim(), startsAt: startsAt.toISOString(), league, odds: otherOdds!, stake: s, tags, bonus });
       qc.invalidateQueries({ queryKey: ["my-bets"] });
       setDone(true);
     } catch (err) { setProblem((err as Error).message); } finally { setBusy(false); }
@@ -113,6 +115,7 @@ export default function AddBetSheet({ onClose, defaultLeague }: { onClose: () =>
     const graded = legsIn.filter((l) => !l.custom);
     if (d.book) setBook(d.book);
     setStake(d.stake ? String(d.stake) : "");   // the slip's, or blank: never the last upload's
+    setBonus(!!d.stake && !!d.bonus_stake && d.bonus_stake >= d.stake);   // all of it a bonus bet (part of one is only noted)
     setPlayer(null); setQ(""); setProblem("");
     if (!graded.length) {
       // nothing the site grades: an other bet, in the slip's words
@@ -254,6 +257,10 @@ export default function AddBetSheet({ onClose, defaultLeague }: { onClose: () =>
           </label>
           <label className="auth-label">Stake<input className="auth-input" inputMode="decimal" value={stake} placeholder="$0" onChange={(e) => setStake(e.target.value)} /></label>
         </div>
+        <label className="check track-bonus">
+          <input type="checkbox" checked={bonus} onChange={(e) => setBonus(e.target.checked)} />
+          <span>Bonus bet <span className="mut">(a free bet from the book: not counted as money you staked, and a win pays only the winnings)</span></span>
+        </label>
         <label className="auth-label" htmlFor="add-tags">Tags <span className="mut">(optional)</span></label>
         <TagInput id="add-tags" tags={tags} onChange={setTags} suggestions={known.data?.tags} />
         <p className="mut track-pays">{pays != null ? <>Pays <b>{money(pays)}</b> if it wins</> : "Fill in the bet, sportsbook, odds and stake"}</p>

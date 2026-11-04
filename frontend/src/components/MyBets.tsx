@@ -3,7 +3,7 @@ import { IconCheck, IconDots, IconDownload, IconMinus, IconPlus, IconX } from "@
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth";
-import { csvUrl, deleteBet, editBet, money, myBets, parseOdds, signedMoney, type BetFilters, type BetStatus, type BetSummary, type TrackedBet, type TrackedLeg } from "../bets";
+import { costOf, csvUrl, deleteBet, editBet, money, myBets, parseOdds, signedMoney, type BetFilters, type BetStatus, type BetSummary, type TrackedBet, type TrackedLeg } from "../bets";
 import { isYesNo, KIND_SHORT, americanOdds, pct, signedPct } from "../format";
 import { useLeague } from "../LeagueContext";
 import { leaguePath, goToPath } from "../route";
@@ -67,6 +67,7 @@ function BetCard({ bet, knownTags, onTag }: { bet: TrackedBet; knownTags: string
   const [stake, setStake] = useState(String(bet.stake));
   const [odds, setOdds] = useState(americanOdds(bet.odds));
   const [tags, setTags] = useState(bet.tags);
+  const [bonus, setBonus] = useState(bet.bonus);
   const [problem, setProblem] = useState("");
   const done = () => qc.invalidateQueries({ queryKey: ["my-bets"] });
   const save = useMutation({ mutationFn: (p: Parameters<typeof editBet>[1]) => editBet(bet.id, p), onSuccess: () => { setEditing(false); setProblem(""); done(); },
@@ -74,17 +75,19 @@ function BetCard({ bet, knownTags, onTag }: { bet: TrackedBet; knownTags: string
   const remove = useMutation({ mutationFn: () => deleteBet(bet.id), onSuccess: done, onError: (e: Error) => setProblem(e.message) });
   const oddsN = parseOdds(odds), stakeN = Number(stake.replace(/[$,\s]/g, ""));
   const title = bet.kind === "parlay" ? `${bet.legs.length}-leg parlay` : bet.kind === "custom" ? "Other bet" : "Single";
-  const startEdit = () => { setStake(String(bet.stake)); setOdds(americanOdds(bet.odds)); setTags(bet.tags); setEditing(true); };
+  const startEdit = () => { setStake(String(bet.stake)); setOdds(americanOdds(bet.odds)); setTags(bet.tags); setBonus(bet.bonus); setEditing(true); };
 
   return (
     <article className="card bet-card">
       <header className="bet-head">
-        <span className="bet-book"><BookBadge book={bet.book} size={22} /><b>{bet.book}</b><span className="mut">{title} · {bet.league === "oth" ? "Other" : bet.league.toUpperCase()}</span></span>
+        <span className="bet-book"><BookBadge book={bet.book} size={22} /><b>{bet.book}</b><span className="mut">{title} · {bet.league === "oth" ? "Other" : bet.league.toUpperCase()}</span>
+          {bet.bonus && <span className="bet-bonus" title="Placed with a bonus bet: not counted as money you staked">Bonus bet</span>}</span>
         <span className="bet-head-aside">
           <Status bet={bet} />
           <Menu label={<IconDots size={16} stroke={1.75} aria-hidden />} ariaLabel={`Actions for this ${title.toLowerCase()}`} caret={false} buttonClass="icon-btn">
             {(close) => <>
               <MenuItem onClick={() => { close(); startEdit(); }}>Edit stake, odds and tags</MenuItem>
+              <MenuItem onClick={() => { close(); save.mutate({ bonus: !bet.bonus }); }}>{bet.bonus ? "Not a bonus bet" : "Mark as bonus bet"}</MenuItem>
               {(["won", "lost", "push", "void"] as BetStatus[]).filter((s) => !(bet.settled_by === "user" && bet.status === s)).map((s) => (
                 <MenuItem key={s} onClick={() => { close(); save.mutate({ status: s }); }}>Mark {STATUS_TEXT[s].toLowerCase()}</MenuItem>
               ))}
@@ -99,11 +102,12 @@ function BetCard({ bet, knownTags, onTag }: { bet: TrackedBet; knownTags: string
       )}
       <ul className="bet-legs">{bet.legs.map((l) => <LegRow key={l.id} leg={l} bet={bet} />)}</ul>
       {editing ? (
-        <form className="bet-edit" onSubmit={(e) => { e.preventDefault(); if (stakeN > 0 && oddsN) save.mutate({ stake: stakeN, odds: oddsN, tags }); }}>
+        <form className="bet-edit" onSubmit={(e) => { e.preventDefault(); if (stakeN > 0 && oddsN) save.mutate({ stake: stakeN, odds: oddsN, tags, bonus }); }}>
           <div className="bet-edit-row">
             <label className="auth-label">Stake<input className="auth-input" inputMode="decimal" value={stake} onChange={(e) => setStake(e.target.value)} /></label>
             <label className="auth-label">Odds<input className="auth-input" value={odds} onChange={(e) => setOdds(e.target.value)} aria-invalid={!oddsN} /></label>
           </div>
+          <label className="check track-bonus"><input type="checkbox" checked={bonus} onChange={(e) => setBonus(e.target.checked)} /> Bonus bet</label>
           <label className="auth-label" htmlFor={`tags-${bet.id}`}>Tags</label>
           <TagInput id={`tags-${bet.id}`} tags={tags} onChange={setTags} suggestions={knownTags} />
           <div className="bet-edit-row">
@@ -113,7 +117,7 @@ function BetCard({ bet, knownTags, onTag }: { bet: TrackedBet; knownTags: string
         </form>
       ) : (
         <p className="bet-foot mut">
-          {money(bet.stake)} at <b>{americanOdds(bet.odds)}</b>
+          {money(bet.stake)}{bet.bonus && " bonus bet"} at <b>{americanOdds(bet.odds)}</b>
           {bet.status === "open" ? <> → pays <b>{money(bet.to_pay)}</b></> : bet.payout != null && <> → returned <b>{money(bet.payout)}</b></>}
           {" · "}placed {new Date(bet.placed_at + "Z").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
           {bet.ev_close != null && <> · <span className={bet.ev_close > 0 ? "good" : "bad"}
@@ -151,7 +155,7 @@ function ProfitChart({ summary }: { summary: BetSummary }) {
 /** Record, profit and ROI for one group of bets (a sportsbook, a tag), as the server's summary works them out. */
 function record(bets: TrackedBet[]) {
   const settled = bets.filter((b) => b.status === "won" || b.status === "lost");
-  const staked = settled.reduce((s, b) => s + b.stake, 0), profit = settled.reduce((s, b) => s + (b.profit ?? 0), 0);
+  const staked = settled.reduce((s, b) => s + costOf(b), 0), profit = settled.reduce((s, b) => s + (b.profit ?? 0), 0);
   return { n: bets.length, wins: bets.filter((b) => b.status === "won").length, losses: bets.filter((b) => b.status === "lost").length, profit, roi: staked ? profit / staked : null };
 }
 
@@ -269,7 +273,7 @@ export default function MyBets() {
         <div className="card admin-card"><span className="mut">Record</span><div className="big">{s.wins}-{s.losses}{s.pushes ? `-${s.pushes}` : ""}</div>
           <span className="mut">won-lost{s.pushes ? "-push" : ""}</span></div>
         <div className="card admin-card"><span className="mut">Profit</span><div className={`big${s.profit < 0 ? " under" : s.profit > 0 ? " over" : ""}`}>{signedMoney(s.profit)}</div>
-          <span className="mut">on {money(s.staked)} settled</span></div>
+          <span className="mut">on {money(s.staked)} settled{s.bonus_staked > 0 && <>, plus {money(s.bonus_staked)} in bonus bets</>}</span></div>
         <div className="card admin-card"><span className="mut">ROI</span><div className={`big${(s.roi ?? 0) < 0 ? " under" : (s.roi ?? 0) > 0 ? " over" : ""}`}>{s.roi == null ? "—" : `${s.roi > 0 ? "+" : ""}${pct(s.roi, 1)}`}</div>
           <span className="mut">profit ÷ staked</span></div>
         {s.clv_n > 0 && (
