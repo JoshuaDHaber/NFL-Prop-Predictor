@@ -3,7 +3,7 @@ import { IconCheck, IconDots, IconDownload, IconMinus, IconPlus, IconX } from "@
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth";
-import { costOf, csvUrl, deleteBet, editBet, money, myBets, parseOdds, signedMoney, type BetFilters, type BetStatus, type BetSummary, type TrackedBet, type TrackedLeg } from "../bets";
+import { costOf, csvUrl, deleteBet, editBet, money, myBets, parseOdds, signedMoney, takeSharedSlip, type BetFilters, type BetStatus, type BetSummary, type TrackedBet, type TrackedLeg } from "../bets";
 import { isYesNo, KIND_SHORT, americanOdds, pct, signedPct } from "../format";
 import { useLeague } from "../LeagueContext";
 import { leaguePath, goToPath } from "../route";
@@ -191,12 +191,20 @@ export default function MyBets() {
   const { league: siteLeague } = useLeague();
   const [filters, setFiltersState] = useState<BetFilters>(storedView);
   const [adding, setAdding] = useState(false);
+  const [shared, setShared] = useState<File>();
+  const [sharedWaiting, setSharedWaiting] = useState(false);
   const setFilters = (f: BetFilters) => {
     const clean = Object.fromEntries(Object.entries(f).filter(([, v]) => v != null)) as BetFilters;
     setFiltersState(clean);
     try { localStorage.setItem(VIEW_KEY, JSON.stringify(clean)); } catch { /* private mode: not remembered */ }
   };
   const user = auth?.user;
+  // a slip screenshot shared to the app from a sportsbook's share menu: opens in Add a bet once they're signed in
+  useEffect(() => {
+    if (!auth) return;
+    if (!user?.age_confirmed) { takeSharedSlip(true).then((f) => setSharedWaiting(!!f)); return; }
+    takeSharedSlip().then((f) => { if (f) { setShared(f); setAdding(true); } });
+  }, [auth, user?.age_confirmed]); // eslint-disable-line react-hooks/exhaustive-deps
   const q = useQuery({ queryKey: ["my-bets", user?.email, filters], queryFn: () => myBets(filters), enabled: !!user?.age_confirmed, placeholderData: (p) => p });
   // a remembered book or tag that's gone (its bets deleted) shouldn't leave an empty view with no way to pick it again
   const books = q.data?.books, tagList = q.data?.tags;
@@ -211,6 +219,7 @@ export default function MyBets() {
   if (!user) return (
     <div className="card prefs-card bets-intro">
       <h3 className="sub-h">Track the bets you place</h3>
+      {sharedWaiting && <p className="banner">Sign in and the screenshot you shared opens in Add a bet.</p>}
       <p className="mut">Sign in, then use <b>Track this bet</b> in the betslip after you place a bet at the book. Each one is graded from the box
         scores, and your record, profit and ROI build up here, by league, sportsbook and your own tags. Only you can see them.</p>
       <div className="prefs-actions"><button className="primary" onClick={() => openSignIn()}>Sign in</button></div>
@@ -311,7 +320,7 @@ export default function MyBets() {
         {settled.length > 0 && <><h3 className="sub-h bets-h">Settled <small className="mut">{settled.length}</small></h3>
           {settled.map((b) => <BetCard key={b.id} bet={b} knownTags={allTags} onTag={(tag) => setFilters({ ...filters, tag })} />)}</>}
       </>}
-      {adding && <AddBetSheet defaultLeague={siteLeague} onClose={() => setAdding(false)} />}
+      {adding && <AddBetSheet defaultLeague={siteLeague} sharedSlip={shared} onClose={() => { setAdding(false); setShared(undefined); }} />}
       <p className="mut bets-note">NFL bets settle when the week's official stats come out, usually the Tuesday after the games; NBA bets the next
         morning. A player who didn't play is void, as the books settle it. If your book settled a bet differently, mark it from the bet's menu.</p>
     </div>

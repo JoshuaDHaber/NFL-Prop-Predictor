@@ -123,6 +123,21 @@ export interface ScreenDraft {
 }
 /** A draft bet from a screenshot (a data URL), to check in the Add a bet sheet; nothing is saved. */
 export const readScreenshot = (image: string) => call<ScreenDraft>("bets/read-screenshot", { method: "POST", body: JSON.stringify({ image }) });
+/** A screenshot shared to the installed app from another app's share menu (Android), held by the service worker
+ * (pwa/sw.js): taken once, so it opens a single time; one older than an hour is dropped rather than opened out of the blue.
+ * `keep` only looks (signed out: it waits for them to sign in). */
+export async function takeSharedSlip(keep = false): Promise<File | null> {
+  if (typeof caches === "undefined") return null;
+  try {
+    const c = await caches.open("shared-slip");
+    const res = await c.match("slip");
+    if (!res) return null;
+    const fresh = Date.now() - Number(res.headers.get("x-at") ?? 0) <= 3600_000;
+    if (!keep || !fresh) await c.delete("slip");
+    if (!fresh) return null;
+    return new File([await res.blob()], decodeURIComponent(res.headers.get("x-name") ?? "slip"), { type: res.headers.get("content-type") ?? "image/png" });
+  } catch { return null; }
+}
 /** The free way, when Claude isn't set up: OCR reads the screenshot on this device (Tesseract.js, loaded only when needed),
  * and only its text goes to the server, which knows bet365's and FanDuel's layouts (backend slip_text). */
 export async function readSlipOnDevice(file: File): Promise<ScreenDraft> {

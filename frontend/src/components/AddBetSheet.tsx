@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconPhoto, IconX } from "@tabler/icons-react";
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Kind } from "../api";
 import { useAuth } from "../auth";
 import { addCustomBet, addPropBet, COMMON_BOOKS, findBetPlayers, money, myBets, parseOdds, readScreenshot, readSlipOnDevice, screenshotDataUrl,
@@ -27,7 +27,7 @@ const when = (iso: string) => new Date(iso + "Z").toLocaleString(undefined, { we
 /** My bets → "Add a bet": record a bet placed outside the app, before its game starts (the rule every tracked bet follows).
  *  A player prop picked from a search is graded from the box scores like a tracked one; anything else (a spread, a total,
  *  another sport, a boost) is described in words and marked by hand. */
-export default function AddBetSheet({ onClose, defaultLeague }: { onClose: () => void; defaultLeague: "nfl" | "nba" }) {
+export default function AddBetSheet({ onClose, defaultLeague, sharedSlip }: { onClose: () => void; defaultLeague: "nfl" | "nba"; sharedSlip?: File }) {
   const auth = useAuth();
   const qc = useQueryClient();
   const known = useQuery({ queryKey: ["my-bets", auth?.user?.email, {}], queryFn: () => myBets({}), staleTime: 60_000, enabled: !!auth?.user?.age_confirmed });
@@ -138,6 +138,13 @@ export default function AddBetSheet({ onClose, defaultLeague }: { onClose: () =>
     catch (err) { setProblem((err as Error).message); }
     finally { setReading(false); if (file.current) file.current.value = ""; }
   };
+  // a screenshot shared to the app (My bets → takeSharedSlip): read it as soon as the sheet knows which reader to use
+  const sharedRead = useRef(false);
+  useEffect(() => {
+    if (!sharedSlip || !known.data || sharedRead.current) return;
+    sharedRead.current = true;
+    upload(sharedSlip);
+  }, [sharedSlip, known.data]); // eslint-disable-line react-hooks/exhaustive-deps
   if (done) return (
     <Sheet label="Add a bet" overlayClass="track-overlay" onClose={onClose}>
       <h2>Added</h2>
