@@ -5,7 +5,10 @@ where Add a bet fills in from it (frontend bets.holdSharedText). iPhones can't s
 Rebuild (on a Mac signed in to iCloud) when the site's address changes:
     python3 scripts/build-shortcut.py https://process.jdhaber.com /tmp/unsigned.shortcut
     shortcuts sign --mode anyone --input /tmp/unsigned.shortcut --output pwa/add-slip.shortcut
-"anyone" signing carries an anonymous Apple certificate ID, not the signer's name or Apple ID."""
+"anyone" signing carries an anonymous Apple certificate ID, not the signer's name or Apple ID.
+
+Add a bet links to the Shortcut's iCloud link (AddBetSheet SHORTCUT), not the file: after a rebuild, add the new file in
+Shortcuts on a Mac (open it in the Shortcuts app), then Share → Copy iCloud Link, and put that link in SHORTCUT."""
 import plistlib, sys, uuid
 site = sys.argv[1]
 ocr, enc = str(uuid.uuid4()).upper(), str(uuid.uuid4()).upper()
