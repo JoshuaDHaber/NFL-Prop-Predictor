@@ -21,7 +21,7 @@ MARKETS = [
     (r"any ?time (td|touchdown)|to score|anytime scorer", "td"),
     (r"pass(ing)? (yds|yards)|\bpass(ing)?\b", "pass"), (r"rush(ing)? (yds|yards)|\brush(ing)?\b", "rush"),
     (r"receptions|\bcatches\b", "recs"), (r"rec(eiving)? (yds|yards)|\breceiv", "rec"),
-    (r"points ?\+ ?rebounds ?\+ ?assists|pts ?\+ ?reb ?\+ ?ast|\bpra\b", "pra"),
+    (r"points ?\+ ?rebounds ?\+ ?assists|pts ?\+ ?reb\w* ?\+ ?a|\bpra\b", "pra"),   # "PTS + REB + A..." cut short
     (r"points ?\+ ?rebounds|pts ?\+ ?reb", "pr"), (r"points ?\+ ?assists|pts ?\+ ?ast", "pa"),
     (r"double.double", "dd"), (r"triple.double", "tpl"),
     (r"three|3.pt|3.point", "threes"), (r"rebounds", "reb"), (r"assists", "ast"), (r"steals", "stl"), (r"blocks", "blk"),
@@ -110,7 +110,14 @@ def _fanduel(lines: list[str]) -> list[dict]:
     for i, ln in enumerate(lines):
         if not i or not _caps(ln) or _caps(lines[i - 1]):
             continue
-        title = lines[i - 1]
+        # the title line, the leg's own price beside it or on a line of its own between (Apple's reader)
+        j, leg_odds = i - 1, None
+        if ODDS.fullmatch(lines[j].strip()) and j > 0 and not _caps(lines[j - 1]):
+            leg_odds, j = int(lines[j].strip()), j - 1
+        title = lines[j]
+        priced = re.search(r"\s([+-]\d{3,5})\s*$", title)
+        if priced:
+            leg_odds, title = int(priced.group(1)), title[:priced.start()].rstrip()
         m = re.match(r"^\W*([A-Z][A-Z'.\-|1 ]+?)\s+-\s+(.+)$", ln)   # "|" and "1": a misread roman suffix (I||)
         if m:
             name, market = _name(m.group(1)), m.group(2)
@@ -120,12 +127,17 @@ def _fanduel(lines: list[str]) -> list[dict]:
             continue
         # the title line is the name and what the leg needs ("Rome Odunze 20+ Yards"), the bullet's marks before it
         at = title.lower().find(name.lower())
+        if at > 0 and re.search(r"[A-Za-z]{2}", title[:at]):
+            at = -1   # only the end of the name ("K TOWNS" → "Towns" in "Karl-Anthony Towns"): take the title's whole name
         if at >= 0:
             name, title = title[at:at + len(name)], title[at:]   # the name as the slip writes it ("AJ", not "Aj")
         else:
+            # the capitals shorten it ("K TOWNS"): the title has it whole ("Karl-Anthony Towns Over 31.5")
             title = _name(title)
+            name = re.split(r"(?i)\s+(?:over|under)\b|\s+\d", title)[0].strip() or name
         market = re.sub(r"^\W+|[.…]+$", "", market.split(" - ")[-1]).strip().title()
         leg = _leg(name, f"{market} {title}", title)
+        leg["odds"] = leg_odds
         if leg["kind"] in YES_NO and leg["line"] == 0.5:
             leg["text"] = f"{name} {market}"
         elif re.search(r"(?i)pass(ing)? \+ r", market):
