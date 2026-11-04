@@ -84,6 +84,8 @@ def synthetic(monkeypatch):
     monkeypatch.setattr(pipeline.data, "load_rushes", lambda seasons: rushes(stats))
     monkeypatch.setattr(pipeline.data, "load_first_tds", lambda seasons: first_tds(stats))
     monkeypatch.setattr(pipeline.data, "load_injuries", lambda season: pd.DataFrame())
+    monkeypatch.setattr(pipeline.data, "load_reserve", lambda season: pd.DataFrame())
+    monkeypatch.setattr(pipeline.data, "load_espn_injuries", lambda: (pd.DataFrame(columns=pipeline.data.ESPN_COLUMNS), None))
     monkeypatch.setattr(pipeline.data, "load_roster", lambda season: roster)
     with SessionLocal() as s:
         before = s.query(Run).count()
