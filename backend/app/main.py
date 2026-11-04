@@ -1,5 +1,4 @@
 """FastAPI app: JSON API for projections, priced picks and data refresh (+ serves the built React app)."""
-import mimetypes
 import os
 import time
 from contextlib import asynccontextmanager
@@ -772,9 +771,14 @@ def refresh_status():
 
 # ---------- serve the built React app in production ----------
 if os.path.isdir(config.FRONTEND_DIST):
-    # the iPhone Shortcut (frontend/pwa/add-slip.shortcut): sent as a file so Safari hands it to Shortcuts, not shown as text
-    mimetypes.add_type("application/octet-stream", ".shortcut")
     app.mount("/assets", StaticFiles(directory=os.path.join(config.FRONTEND_DIST, "assets")), name="assets")
+
+    @app.get("/add-slip.shortcut", include_in_schema=False)
+    def add_slip_shortcut():
+        """The iPhone Shortcut (frontend/pwa/add-slip.shortcut), as a download (Content-Disposition: attachment) so Safari
+        offers it to Shortcuts instead of showing the file as text."""
+        return FileResponse(os.path.join(config.FRONTEND_DIST, "add-slip.shortcut"), media_type="application/octet-stream",
+                            filename="Add to The Haber Process.shortcut")
 
     @app.post("/share-slip", include_in_schema=False)
     def share_slip():
