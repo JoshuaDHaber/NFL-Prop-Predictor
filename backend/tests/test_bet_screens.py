@@ -260,3 +260,17 @@ def test_moneyline_legs_match_tonights_games_by_nickname(monkeypatch):
     assert [(l.graded, l.player and l.player.player_id) for l in d.legs] == [(True, "LAL"), (True, "NY"), (True, "NYG"), (False, None)]
     assert d.legs[0].kind == "ml" and d.legs[0].player.opp == "SAC" and d.legs[3].text == "Toronto Raptors moneyline +120"
     assert any("15% boost" in n for n in d.notes)
+
+
+@pytest.mark.parametrize("reader", ["", "-apple"])
+def test_a_14_leg_fanduel_parlay_reads_every_leg(reader):
+    s = slip_text.parse(slip("fanduel-14" + reader))
+    assert (s["sportsbook"], s["odds"], len(s["legs"])) == ("FanDuel", 7210, 14)
+    assert [(l["player"], l["kind"], l["line"]) for l in s["legs"]] == [
+        ("Tyrese Maxey", "pts", 21.5), ("Trae Young", "pr", 17.5), ("Paul George", "reb", 4.5), ("Julius Randle", "other", 10.5),
+        ("Karl-Anthony Towns", "pra", 31.5), ("Andrew Nembhard", "pts", 13.5), ("Zion Williamson", "pa", 18.5),
+        ("James Harden", "pra", 22.5),   # "ALT PTS + REB + A..." cut short
+        ("Fred VanVleet", "other", 7.5), ("Immanuel Quickley", "pa", 17.5), ("Deni Avdija", "pr", 26.5),
+        ("Dylan Harper", "pra", 22.5),   # Apple's reader puts its price between the title and the market
+        ("Austin Reaves", "pr", 21.5), ("Davion Mitchell", "pa", 17.5)]
+    assert bets.MAX_LEGS >= 14
