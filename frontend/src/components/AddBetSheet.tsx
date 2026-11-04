@@ -1,7 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconPhoto, IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { BASE } from "../env";
 import type { Kind } from "../api";
 import { useAuth } from "../auth";
 import { addCustomBet, addPropBet, COMMON_BOOKS, findBetPlayers, money, myBets, parseOdds, readScreenshot, readSlipOnDevice, readSlipText, screenshotDataUrl,
@@ -20,9 +19,9 @@ function nextHour() {
   const d = new Date(Date.now() + 3600_000);
   return { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, time: `${pad(d.getHours())}:00` };
 }
-// The Shortcut, opened in Safari (target _blank): an app added to the home screen can't download files, so iOS would show
-// the file's raw contents. The download (backend main.add_slip_shortcut) works from Safari itself.
-const SHORTCUT = `${BASE}add-slip.shortcut`;
+// The Shortcut's iCloud link (pwa/add-slip.shortcut, shared from Shortcuts): it opens the Shortcuts app from anywhere,
+// including the app added to the home screen, which can't download the file itself
+const SHORTCUT = "https://www.icloud.com/shortcuts/a9dc570e389a45c5bb4ad90aaf9ff9a9";
 // an iPhone or iPad (iPadOS reports itself as a Mac with touch): it can't share to a web app, but the Shortcut can
 const IOS = typeof navigator !== "undefined" && (/iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
 /** The parlay price its legs make together, when every leg's own price is known (most slips show only the parlay's). */
