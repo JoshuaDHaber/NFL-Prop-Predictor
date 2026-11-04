@@ -83,3 +83,27 @@ def test_a_database_from_before_weather_gains_the_weather_columns(tmp_path):
         s.commit()
         assert s.query(Run).one().weather == {"g": {"wind": 12.0}}
     eng.dispose()
+
+
+def test_bets_from_before_bonus_bets_gain_the_column_as_not_bonus():
+    """On the suite's own database (Postgres in CI's backend-postgres job), so the ALTER is checked on both dialects."""
+    from sqlalchemy import inspect, text
+
+    from app.db import engine, ensure_columns
+    with engine.begin() as c:
+        c.execute(text("ALTER TABLE bets DROP COLUMN bonus"))
+        uid = c.execute(text("INSERT INTO users (email, created_at) VALUES ('pre-bonus@example.com', CURRENT_TIMESTAMP)"
+                             " RETURNING id")).scalar_one()
+        c.execute(text("INSERT INTO bets (user_id, league, book, kind, stake, odds, status, tags, placed_at)"
+                       " VALUES (:u, 'nfl', 'fanduel', 'single', 10, -110, 'open', '[]', CURRENT_TIMESTAMP)"), {"u": uid})
+    try:
+        ensure_columns(engine)
+        col = next(c for c in inspect(engine).get_columns("bets") if c["name"] == "bonus")
+        assert not col["nullable"]
+        with engine.begin() as c:
+            assert c.execute(text("SELECT bonus FROM bets WHERE user_id = :u"), {"u": uid}).scalar_one() in (False, 0)
+        ensure_columns(engine)   # a second start leaves it alone
+    finally:
+        with engine.begin() as c:
+            c.execute(text("DELETE FROM bets WHERE user_id = :u"), {"u": uid})
+            c.execute(text("DELETE FROM users WHERE id = :u"), {"u": uid})

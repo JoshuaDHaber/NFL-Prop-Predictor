@@ -7,7 +7,7 @@ A full-stack web app that projects NFL and NBA player stats, prices the projecti
 **Markets:** rushing yards, receiving yards, passing yards, rush + receiving yards, receptions, passing touchdowns, longest reception, longest rush, anytime touchdown, first touchdown scorer, and team moneyline (each team's chance to win).
 
 - **Front end:** React + TypeScript (Vite, TanStack Query, Recharts).
-- **Back end:** FastAPI + SQLAlchemy (SQLite locally, Postgres in production).
+- **Back end:** FastAPI + SQLAlchemy on Postgres (locally too; SQLite still works, and the unit tests use it).
 - **Model:** pandas / SciPy projection engine with a walk-forward backtest.
 - **Data:** [nflverse](https://github.com/nflverse/nflverse-data) for stats, schedules (with game-time weather), rosters and injuries; ESPN's public injury feed for news lines and estimated returns; [The Odds API](https://the-odds-api.com) for prop lines; [Open-Meteo](https://open-meteo.com) (free, no key) for kickoff forecasts at outdoor stadiums.
 
@@ -228,7 +228,7 @@ Requires Python 3.9+ and Node 20+. Everything goes through one script:
 
 **Odds:** get a free key at [the-odds-api.com](https://the-odds-api.com) (about 500 credits a month; a full sync costs about 12 credits per game: seven main markets, including the moneyline, plus five alternate-line markets) and put it in `backend/.env`. Without a key the app still shows projections. In the UI, *Refresh data* fetches only markets that have no stored lines; *Re-fetch all odds* is the explicit paid action.
 
-**Tests and CI:** `./run.sh test` runs the backend suite (pytest: model math, pricing logic, API behavior) and the frontend typecheck and tests. GitHub Actions runs the same on every push, and runs the backend suite a second time on Postgres. To do that locally, point `TEST_DATABASE_URL` at an empty Postgres database (the suite wipes it first): `TEST_DATABASE_URL=postgresql://postgres@localhost/props_test .venv/bin/python -m pytest -q`.
+**Tests and CI:** `./run.sh test` runs the backend suite (pytest: model math, pricing logic, API behavior) and the frontend typecheck and tests. GitHub Actions runs the same on every push, and runs the backend suite a second time on Postgres. To do that locally, point `TEST_DATABASE_URL` at an empty Postgres database (the suite wipes it first): `TEST_DATABASE_URL=postgresql://localhost/haber_test .venv/bin/python -m pytest -q`.
 
 **Docker** (untested so far): `docker build -t haber-process . && docker run -p 8000:8000 -v haber-process-data:/srv/backend/data haber-process`. Leave `DATABASE_URL` unset for a SQLite file on the volume, or set it to a Postgres URL.
 
@@ -262,21 +262,46 @@ A slot missed by a redeploy (within 3 hours) runs when the server comes back. Ev
 
 ### Refreshing a local database
 
-A laptop's `backend/data/app.db` doesn't sync on its own, so it goes stale. To bring it up to date, copy production's
-projections, odds, logged picks and settings down instead of re-fetching them, which would spend Odds API credits:
+Production runs on Postgres, so local development does too. A local database doesn't sync on its own and goes stale. To
+bring it up to date, copy production's projections, odds, logged picks and settings down instead of re-fetching them,
+which would spend Odds API credits.
+
+**One-time setup** (Homebrew; production is on Postgres 18):
+
+```bash
+brew install postgresql@18 && brew services start postgresql@18
+createdb haber           # the dev database
+createdb haber_test      # optional: for running the tests on Postgres (the suite wipes it)
+```
+
+**Refresh from production:**
 
 ```bash
 railway connect Postgres --tunnel-only --port 54329        # from propmodel/, in another terminal; Ctrl-C when done
-cd backend && python -m app.copy_db --from 'postgresql://claude_ro@127.0.0.1:54329/railway' \
-  --to "sqlite:///$PWD/data/app.db" --without-accounts
+cd backend && NFLPROPS_NO_DOTENV=1 .venv/bin/python -m app.copy_db \
+  --from 'postgresql://claude_ro@127.0.0.1:54329/railway' --to postgresql://localhost/haber --without-accounts
 ```
 
+**Run the app on it,** without spending Odds API credits (`NFLPROPS_NO_DOTENV=1` skips `backend/.env` and its real
+key; `AUTO_SYNC=0` turns off the schedule):
+
+```bash
+cd backend && DATABASE_URL=postgresql://localhost/haber AUTO_SYNC=0 NFLPROPS_NO_DOTENV=1 \
+  .venv/bin/uvicorn app.main:app --port 8000
+```
+
+On another port, also set `PUBLIC_URL=http://localhost:<port>`, or sign-in is refused as cross-site. With no email key,
+the sign-in code is printed in the server log.
+
 - **`--without-accounts`:** leaves production's people out (accounts, sessions, tracked bets, saved slips) and keeps the
-  laptop's own test accounts.
+  laptop's own test accounts. Always pass it.
 - **Odds history:** it stays behind unless you add `--with-history`.
 - **Credentials:** `claude_ro` is read-only, so the copy can't change production. Its password comes from `~/.pgpass`;
-  without one, use the `postgres` user and the Postgres service's `PGPASSWORD`.
-- **Time:** about 15 seconds. Back up the old file first if you want it.
+  without one, use the `postgres` user and the Postgres service's `PGPASSWORD`. Never use it as the `--to` target.
+- **Time:** about 25 seconds.
+- **SQLite still works:** leave `DATABASE_URL` unset for `backend/data/app.db`, and refresh that file with
+  `--to "sqlite:///$PWD/data/app.db"` (back it up first with `sqlite3 data/app.db ".backup <file>"`). The unit tests
+  run on in-memory SQLite by default.
 
 ## Using it from your phone anywhere (Tailscale, free)
 
