@@ -191,13 +191,15 @@ def test_a_parlay_can_mix_graded_legs_with_ones_marked_by_hand(sent):
 # ---------- reading the slip's text (OCR in the browser) ----------
 
 def slip(name):
-    """What Tesseract.js read off the sample screenshots: kept as text, so these tests run without OCR."""
+    """What a reader made of the sample screenshots, kept as text so these tests run without OCR: Tesseract.js in the browser
+    ("bet365"), or Apple's, as an iPhone Shortcut's "Extract Text from Image" sends it ("bet365-apple")."""
     with open(f"{__file__.rsplit('/', 1)[0]}/slips/{name}.txt") as f:
         return f.read()
 
 
-def test_the_bet365_text_reads_every_leg_the_price_and_the_stake():
-    s = slip_text.parse(slip("bet365"))
+@pytest.mark.parametrize("reader", ["", "-apple"])
+def test_the_bet365_text_reads_every_leg_the_price_and_the_stake(reader):
+    s = slip_text.parse(slip("bet365" + reader))
     assert (s["sportsbook"], s["odds"], s["stake"], s["bonus_stake"], s["to_return"]) == ("bet365", 1300, 8.13, 3.0, 110.82)
     assert [(l["player"], l["kind"], l["line"]) for l in s["legs"]] == [
         ("Jaxon Smith-Njigba", "rec", 89.5), ("D'Andre Swift", "rr", 74.5), ("Caleb Williams", "pass", 199.5),
@@ -206,8 +208,9 @@ def test_the_bet365_text_reads_every_leg_the_price_and_the_stake():
     assert s["legs"][0]["text"] == "Jaxon Smith-Njigba 90+ Rec Yards"
 
 
-def test_the_fanduel_text_reads_every_leg_and_keeps_passing_plus_rushing_for_marking():
-    s = slip_text.parse(slip("fanduel"))
+@pytest.mark.parametrize("reader", ["", "-apple"])
+def test_the_fanduel_text_reads_every_leg_and_keeps_passing_plus_rushing_for_marking(reader):
+    s = slip_text.parse(slip("fanduel" + reader))
     assert (s["sportsbook"], s["odds"], s["stake"]) == ("FanDuel", 2638, None)
     assert s["event"]["teams"] == ["Chicago Bears", "Seattle Seahawks"]
     assert [(l["player"], l["kind"], l["line"]) for l in s["legs"]] == [

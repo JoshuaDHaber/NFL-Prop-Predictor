@@ -9,6 +9,7 @@ import { importOrReload } from "./staleChunk";
 import { setAllowedBooks } from "./api";
 import { leagueFromPath, leaguePath } from "./route";
 import { BetSlipProvider, useBetSlip } from "./BetSlipContext";
+import { holdSharedText } from "./bets";
 import { allowedBooks } from "./legalBooks";
 import { LeagueContext } from "./LeagueContext";
 import { getLeague, setLeague as storeLeague, type League } from "./league";
@@ -64,6 +65,7 @@ function Root() {
   );
 }
 
+holdSharedText();   // a slip from the iPhone Shortcut (/bets#slip=...), before the app reads the address
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BetSlipProvider>

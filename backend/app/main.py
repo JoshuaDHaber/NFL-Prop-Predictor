@@ -1,4 +1,5 @@
 """FastAPI app: JSON API for projections, priced picks and data refresh (+ serves the built React app)."""
+import mimetypes
 import os
 import time
 from contextlib import asynccontextmanager
@@ -16,7 +17,7 @@ import threading
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -771,7 +772,16 @@ def refresh_status():
 
 # ---------- serve the built React app in production ----------
 if os.path.isdir(config.FRONTEND_DIST):
+    # the iPhone Shortcut (frontend/pwa/add-slip.shortcut): sent as a file so Safari hands it to Shortcuts, not shown as text
+    mimetypes.add_type("application/octet-stream", ".shortcut")
     app.mount("/assets", StaticFiles(directory=os.path.join(config.FRONTEND_DIST, "assets")), name="assets")
+
+    @app.post("/share-slip", include_in_schema=False)
+    def share_slip():
+        """A screenshot shared to the installed app (manifest share_target) is caught by the service worker (pwa/sw.js). This
+        only answers when the worker isn't running yet, such as the first launch after installing: on to My bets, where
+        Add a bet can take the upload."""
+        return RedirectResponse("bets", status_code=303)
 
     @app.get("/{path:path}", include_in_schema=False)
     def spa(path: str):

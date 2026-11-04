@@ -2,16 +2,30 @@
 // on the next launch) with the last copy as the offline fallback; built assets have hashed names, so a cached copy is
 // always correct. API calls are never cached: stale odds are worse than an error.
 const CACHE = "props-v2";
+// A bet slip screenshot shared from a sportsbook app (Android's share menu, via the manifest's share_target): held here
+// until My bets opens it in Add a bet (frontend bets.takeSharedSlip)
+const SHARED = "shared-slip";
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => {
-  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== SHARED).map((k) => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   const url = new URL(req.url);
+  if (req.method === "POST" && url.origin === self.location.origin && url.pathname.endsWith("/share-slip")) {
+    e.respondWith((async () => {
+      const slip = (await req.formData()).get("slip");
+      if (slip instanceof File) {
+        const c = await caches.open(SHARED);
+        await c.put("slip", new Response(slip, { headers: { "content-type": slip.type, "x-name": encodeURIComponent(slip.name), "x-at": String(Date.now()) } }));
+      }
+      return Response.redirect(new URL("bets", self.registration.scope).href, 303);
+    })());
+    return;
+  }
   if (req.method !== "GET" || url.origin !== self.location.origin || url.pathname.includes("/api/")) return;
   if (req.mode === "navigate") {
     e.respondWith(fetch(req).then((res) => {
