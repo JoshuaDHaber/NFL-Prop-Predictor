@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Game, Kind } from "../api";
 import { useBetSlip } from "../BetSlipContext";
-import { americanOdds, isYesNo, pct, signedPct, KIND_LABEL } from "../format";
+import { americanOdds, namesItself, pct, signedPct, KIND_LABEL } from "../format";
 import { getLeague } from "../league";
 import { pickToLeg, type Parlay, type ParlayLeg } from "../parlays";
 import type { DrawerPick } from "../playerHash";
@@ -11,6 +11,7 @@ import GamePills from "./GamePills";
 import { Star } from "./icons";
 import Info from "./Info";
 import SidePill from "./SidePill";
+import { PickAvatar } from "./TeamLogo";
 
 const STAKE = 10;
 /** Whether the comparison table was left open, remembered per browser. */
@@ -31,7 +32,7 @@ const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ b
 
 /** A player's name in a leg row: opens the player drawer on that exact play, when the page can open one. */
 function LegName({ l, onSelect }: { l: ParlayLeg; onSelect?: OnSelect }) {
-  if (!onSelect) return <b>{l.name}</b>;
+  if (!onSelect || l.kind === "ml") return <b>{l.name}</b>;   // a team has no player drawer
   return <button type="button" className="link leg-name" onClick={() => onSelect(l.player_id, l.kind, { side: l.side, line: l.line, book: l.book })}
     title={`Open ${l.name}: why this play`}>{l.name}</button>;
 }
@@ -97,10 +98,10 @@ function ParlayCard({ p, lead, onSelect }: { p: Parlay; lead: boolean; onSelect?
       <ul className="parlay-legs">
         {p.legs.map((l) => (
           <li key={`${l.player_id}-${l.kind}-${l.side}-${l.line}`}>
-            <Avatar name={l.name} size={26} />
+            <PickAvatar name={l.name} kind={l.kind} team={l.team} gameId={l.game_id} />
             <span className="leg-main"><LegName l={l} onSelect={onSelect} /> <SidePill kind={l.kind} side={l.side} line={l.line} />
               {mixedAlt && l.alt && <span className="alt">alt</span>}
-              <small>{isYesNo(l.kind) ? "" : `${KIND_LABEL[l.kind]} · `}{pct(l.prob, 0)} · {l.team} {l.home ? "vs" : "@"} {l.opp}</small></span>
+              <small>{namesItself(l.kind) ? "" : `${KIND_LABEL[l.kind]} · `}{pct(l.prob, 0)} · {l.team} {l.home ? "vs" : "@"} {l.opp}</small></span>
             <span className="leg-odds">{americanOdds(l.odds)}</span>
           </li>
         ))}

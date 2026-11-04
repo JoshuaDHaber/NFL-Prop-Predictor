@@ -1,6 +1,8 @@
 import type { MoneylineGame, MoneylineSide, TeamRecord } from "../api";
 import { useBetSlip } from "../BetSlipContext";
 import { americanOdds, kickoff, pct, signedPct } from "../format";
+import { started, sidePick } from "../moneyline";
+import { pickToLeg, type ParlayLeg } from "../parlays";
 import { legLink } from "../slip";
 import { matchupColors, shadeVars } from "../teams";
 import { BookName } from "./BookBadge";
@@ -11,8 +13,27 @@ export function favored(g: MoneylineGame, m: number, digits = 1) {
   return Math.abs(m) < 0.05 ? "Pick'em" : `${(m > 0 ? home : away).team} by ${Math.abs(m).toFixed(digits)}`;
 }
 
-function SideRow({ s, rec }: { s: MoneylineSide; rec?: TeamRecord }) {
+/** Put a team's moneyline on the slip, or take it off. Both teams' moneylines in one game at one book clash, as a book won't
+ *  take both; the button says so instead of hiding it. */
+export function MoneylineAdd({ pick }: { pick: ParlayLeg | null }) {
+  const slip = useBetSlip();
+  if (!pick) return null;
+  const leg = pickToLeg(pick);
+  const on = slip.has(leg.id);
+  const clash = !on && slip.wouldClash(leg);
+  const what = `${pick.name} moneyline at ${pick.book}`;
+  return (
+    <button type="button" className={`add${on ? " on" : ""}${clash ? " clash" : ""}`} onClick={() => slip.toggle(leg)} aria-pressed={on}
+      title={clash ? `The other side of this game is already on your slip at ${pick.book}: a book won't take both` : on ? "On your slip" : "Add to slip"}
+      aria-label={on ? `Remove ${what} from slip` : clash ? `Add ${what} to slip. The other side of this game is already on your slip there` : `Add ${what} to slip`}>
+      {on ? "✓" : "+"}
+    </button>
+  );
+}
+
+function SideRow({ g, s, rec }: { g: MoneylineGame; s: MoneylineSide; rec?: TeamRecord }) {
   const { state } = useBetSlip();
+  const pick = started(g) ? null : sidePick(g, s);
   // the record that matters for this game's venue: the home team's at home, the away team's on the road
   const venue = s.home ? rec?.home : rec?.road;
   const url = s.book ? legLink({ link: s.link, eventLink: s.event_link, book: s.book }, state) : null;
@@ -27,7 +48,7 @@ function SideRow({ s, rec }: { s: MoneylineSide; rec?: TeamRecord }) {
           {url ? <a className="link strong" href={url} target="_blank" rel="noopener noreferrer" title={`Open at ${s.book}`}>{americanOdds(s.odds)} ↗</a> : americanOdds(s.odds)}
           {s.book && <><br /><span className="mut"><BookName book={s.book} size={14} /></span></>}</>}
       </td>
-      <td data-label="EV">{s.ev == null ? "–" : <span className={s.ev > 0 ? "ev-pill" : "mut"}>{signedPct(s.ev)}</span>}</td>
+      <td data-label="EV" className="ml-ev">{s.ev == null ? "–" : <span className={s.ev > 0 ? "ev-pill" : "mut"}>{signedPct(s.ev)}</span>}<MoneylineAdd pick={pick} /></td>
     </tr>
   );
 }
@@ -49,7 +70,7 @@ export function MoneylineCard({ g, records }: { g: MoneylineGame; records?: Reco
         <table className="ml-table">
           <thead><tr><th>Team</th><th title="The team-rating model alone">Model</th><th title="No-vig consensus across every book">Market</th>
             <th title="Chance to win: the blend used for EV">Win %</th><th title="Best moneyline">Price</th><th>EV</th></tr></thead>
-          <tbody><SideRow s={away} rec={records?.[away.team]} /><SideRow s={home} rec={records?.[home.team]} /></tbody>
+          <tbody><SideRow g={g} s={away} rec={records?.[away.team]} /><SideRow g={g} s={home} rec={records?.[home.team]} /></tbody>
         </table>
       </div>
       <p className="mut ml-foot">

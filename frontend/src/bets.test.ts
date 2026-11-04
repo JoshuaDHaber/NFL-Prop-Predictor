@@ -10,8 +10,10 @@ describe("bets helpers", () => {
   });
 
   it("knows a leg's league from its market, as the server does", () => {
-    expect(legLeague("pts")).toBe("nba");
-    expect(legLeague("rush")).toBe("nfl");
+    expect(legLeague({ kind: "pts" })).toBe("nba");
+    expect(legLeague({ kind: "rush" })).toBe("nfl");
+    expect(legLeague({ kind: "ml", gameId: "2026_20261104_BOS_NYK" })).toBe("nba");
+    expect(legLeague({ kind: "ml", gameId: "2026_09_KC_DEN" })).toBe("nfl");
   });
 
   it("signs money", () => {

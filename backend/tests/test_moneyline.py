@@ -1,6 +1,7 @@
 """Team moneyline: ratings, win probability, odds parsing and pricing; and the receptions market's stale-line rule."""
 import numpy as np
 import pandas as pd
+import pytest
 
 from app.engine import moneyline as mlm
 from app.engine import odds
@@ -116,3 +117,42 @@ def test_a_receptions_quote_two_catches_off_the_consensus_is_ignored_as_stale():
                           for ln, b in ((4.5, "A"), (4.5, "B"), (4.5, "C"), (6.5, "D"))])
     picks = build_picks(proj, lines)
     assert not picks.empty and set(picks.line) == {4.5}
+
+
+def test_form_keeps_each_teams_last_results_oldest_first():
+    played = pd.DataFrame([dict(date="2026-09-07", home_team="KC", away_team="LV", home_score=27, away_score=20),
+                           dict(date="2026-09-14", home_team="DEN", away_team="KC", home_score=17, away_score=24),
+                           dict(date="2026-09-21", home_team="KC", away_team="BUF", home_score=10, away_score=13)])
+    f = mlm.form(played, {"KC", "LV", "NYJ"}, n=2)
+    assert [(r["opp"], r["home"], r["pf"], r["pa"]) for r in f["KC"]] == [("DEN", False, 24.0, 17.0), ("BUF", True, 10.0, 13.0)]
+    assert f["LV"] == [dict(date="2026-09-07", opp="KC", home=False, pf=20.0, pa=27.0)] and f["NYJ"] == []
+    assert mlm.form(pd.DataFrame(), {"KC"}) == {"KC": []}
+
+
+def test_a_win_streak_counts_back_from_the_latest_game_and_a_tie_ends_it():
+    assert mlm.win_streak([3, -7, 10, 1, 4]) == 3
+    assert mlm.win_streak([3, 4, 0]) == 0 and mlm.win_streak([]) == 0
+
+
+def test_hot_teams_lists_only_teams_on_a_winning_streak_longest_first():
+    res = lambda margins: [dict(date=f"2026-09-{i + 1:02d}", opp="X", home=True, pf=20.0 + m, pa=20.0) for i, m in enumerate(margins)]
+    games = {GID: dict(GAMES[GID], form={"KC": res([-3, 7, 3, 10, 14]), "LV": res([7, 7, -1, 2, 3])}),
+             "2026_07_DEN_BUF": dict(home="BUF", away="DEN", gameday="2026-10-18", gametime="13:00", margin=6.0, p_home=0.7,
+                                     form={"BUF": res([1, 2, 3, 4, 5, 6]), "DEN": res([4, 4, 4, -2])})}
+    rows = mlm.hot_teams(mlm.price(games, ml_lines()), games, window=5)
+    assert [(r["team"], r["streak"]) for r in rows] == [("BUF", 6), ("KC", 4)]   # LV's 2 in a row is short of MIN_STREAK
+    kc = rows[1]
+    assert (kc["opp"], kc["window"], kc["wins"], kc["recent"]) == ("LV", 5, 4, [-3.0, 7.0, 3.0, 10.0, 14.0])
+    assert kc["odds"] == -190 and kc["avg_margin"] == pytest.approx(6.2) and rows[0]["recent"] == [2.0, 3.0, 4.0, 5.0, 6.0]
+
+
+def test_a_sides_ladder_lists_its_price_at_every_book():
+    lad = mlm.side_ladder(GAMES, ml_lines(), GID, "KC", market_weight=0.35)
+    kc = next(s for s in mlm.price(GAMES, ml_lines())[0]["sides"] if s["team"] == "KC")
+    assert lad["kind"] == "ml" and lad["mu"] == 3.0 and [q["book"] for q in lad["quotes"]] == ["DraftKings", "FanDuel"]
+    dk = lad["quotes"][0]
+    assert (dk["line"], dk["over"]["odds"], dk["over"]["link"], dk["under"]["odds"]) == (0.0, -200, "DraftKings-kc", 170)
+    assert dk["over"]["prob"] == pytest.approx(kc["prob"]) and dk["under"]["prob"] == pytest.approx(1 - kc["prob"])
+    assert dk["over"]["ev"] == pytest.approx(kc["prob"] * 1.5 - 1)
+    assert [q["book"] for q in mlm.side_ladder(GAMES, ml_lines(), GID, "KC", only_book="FanDuel")["quotes"]] == ["FanDuel"]
+    assert mlm.side_ladder(GAMES, ml_lines(), GID, "BUF") is None and mlm.side_ladder(GAMES, ml_lines(), "nope", "KC") is None

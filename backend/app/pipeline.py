@@ -224,6 +224,11 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
     bt_sum = {**bt_sum, "ml": mlm.summary(ml_bt, sigma)}
     var_params["_moneyline"] = dict(sigma=sigma, halflife=mlm.HALFLIFE, min_market_weight=mlm.ML_MIN_MARKET_WEIGHT)
     teams = mlm.project(sched, season, week, sigma)
+    # each team's results this season, for Who's hot (teams on a winning streak)
+    form = mlm.form(sched[(sched.season == season) & sched.home_score.notna()].rename(columns={"gameday": "date"}),
+                    {t for g in teams.values() for t in (g["home"], g["away"])})
+    for g in teams.values():
+        g["form"] = {t: form[t] for t in (g["home"], g["away"])}
     log(f"  {len(teams)} games; win-probability curve sd {sigma:.2f} pts, Brier {bt_sum['ml']['mae_model']:.3f}"
         + (f" (closing moneyline {bt_sum['ml']['mae_market']:.3f})" if bt_sum["ml"].get("mae_market") is not None else ""))
 

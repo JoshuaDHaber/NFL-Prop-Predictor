@@ -66,7 +66,7 @@ export const DEFAULT_FILTERS: Filters = { kind: "all", side: "all", game: "all",
 export function filtersFromUrl(defaultBook = "all"): Filters {
   const kind = param("market");
   const side = param("side");
-  return { ...DEFAULT_FILTERS, kind: kind && kind in KIND_LABEL ? (kind as Kind) : "all", side: side === "Over" || side === "Under" ? side : "all",
+  return { ...DEFAULT_FILTERS, kind: kind && kind !== "ml" && kind in KIND_LABEL ? (kind as Kind) : "all", side: side === "Over" || side === "Under" ? side : "all",
     game: param("game") ?? "all", book: param("book") ?? defaultBook, q: param("q") ?? "" };
 }
 

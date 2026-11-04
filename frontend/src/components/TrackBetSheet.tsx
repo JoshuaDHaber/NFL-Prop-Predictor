@@ -3,7 +3,7 @@ import { useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { useAuth } from "../auth";
 import { legLeague, money, myBets, parseOdds, trackBets, winReturn } from "../bets";
-import { isYesNo, KIND_SHORT, americanOdds } from "../format";
+import { namesItself, KIND_SHORT, americanOdds } from "../format";
 import { leaguePath, goToPath } from "../route";
 import { parlay, toWin, type Leg } from "../slip";
 import BookBadge from "./BookBadge";
@@ -19,7 +19,7 @@ export default function TrackBetSheet({ book, legs, stake: slipStake, bonus: sli
   { book: string; legs: Leg[]; stake: number; bonus?: boolean; onClose: () => void; /** going to My bets: close the slip under this too */ onLeave: () => void }) {
   const auth = useAuth();
   const qc = useQueryClient();
-  const mixed = new Set(legs.map((l) => legLeague(l.kind))).size > 1;   // a parlay can't span leagues
+  const mixed = new Set(legs.map((l) => legLeague(l))).size > 1;   // a parlay can't span leagues
   const [asParlay, setAsParlay] = useState(legs.length > 1 && !mixed);
   const [stake, setStake] = useState(slipStake ? String(slipStake) : "");
   const [odds, setOdds] = useState(americanOdds(parlay(legs, 1).american));
@@ -36,7 +36,7 @@ export default function TrackBetSheet({ book, legs, stake: slipStake, bonus: sli
   const stakeOk = Number.isFinite(stakeN) && stakeN > 0;
   const oddsN = asParlay ? parseOdds(odds) : 0;
   const pays = !stakeOk ? null : asParlay ? (oddsN ? winReturn(stakeN, toWin(oddsN, stakeN), bonus) : null) : null;
-  const league = legLeague(legs[0].kind);
+  const league = legLeague(legs[0]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -74,7 +74,7 @@ export default function TrackBetSheet({ book, legs, stake: slipStake, bonus: sli
     <ul className="track-legs">
       {legs.map((l) => (
         <li key={l.id}>
-          <span><b>{l.name}</b> <SidePill kind={l.kind} side={l.side} line={l.line} />{!isYesNo(l.kind) && <span className="mut"> {KIND_SHORT[l.kind]}</span>}</span>
+          <span><b>{l.name}</b> <SidePill kind={l.kind} side={l.side} line={l.line} />{!namesItself(l.kind) && <span className="mut"> {KIND_SHORT[l.kind]}</span>}</span>
           <span className="mut">{americanOdds(l.odds)}</span>
         </li>
       ))}
