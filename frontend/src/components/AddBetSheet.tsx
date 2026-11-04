@@ -5,7 +5,7 @@ import type { Kind } from "../api";
 import { useAuth } from "../auth";
 import { addCustomBet, addPropBet, COMMON_BOOKS, findBetPlayers, money, myBets, parseOdds, readScreenshot, readSlipOnDevice, readSlipText, screenshotDataUrl,
   winReturn, type BetPlayer, type ManualLeg, type ScreenDraft } from "../bets";
-import { isYesNo, KIND_LABEL, americanOdds, playLabel } from "../format";
+import { isYesNo, KIND_LABEL, namesItself, americanOdds, playLabel } from "../format";
 import { toAmerican, toDecimal, toWin } from "../slip";
 import { useDebounced } from "../useDebounced";
 import Sheet from "./Sheet";
@@ -201,7 +201,7 @@ export default function AddBetSheet({ onClose, defaultLeague, sharedSlip }: { on
                 <li key={l.custom ? `custom-${i}` : `${l.player.player_id}-${l.kind}-${i}`}>
                   {l.custom
                     ? <span><b>{l.text}</b> <span className="st">You mark it</span></span>
-                    : <span><b>{l.player.name}</b> <SidePill kind={l.kind} side={l.side} line={l.line} />{!isYesNo(l.kind) && <span className="mut"> {KIND_LABEL[l.kind]}</span>}</span>}
+                    : <span><b>{l.player.name}</b> <SidePill kind={l.kind} side={l.side} line={l.line} />{!namesItself(l.kind) && <span className="mut"> {KIND_LABEL[l.kind]}</span>}</span>}
                   <span className="add-leg-end">{l.odds != null && <span className="mut">{americanOdds(l.odds)}</span>}
                     <button type="button" className="icon-btn add-leg-x" aria-label={`Remove ${l.custom ? l.text : l.player.name}`} onClick={() => setLegs(legs.filter((_, j) => j !== i))}>
                       <IconX size={14} stroke={2} aria-hidden /></button></span>

@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from . import auth, config, slip_text
-from .bets import NBA_KINDS, require_member, upcoming_players
+from .bets import ML, NBA_KINDS, require_member, upcoming_players, upcoming_teams
 from .db import User
 from .engine import odds
 from .schemas import BetPlayer
@@ -31,6 +31,7 @@ _reads: dict[int, list[float]] = {}
 
 # What a leg's market means, in the site's terms: the model maps the book's wording onto these (or "other")
 KINDS = {
+    "ml": "a team's moneyline: to win the game (player is the team's name)",
     "rush": "NFL rushing yards", "rec": "NFL receiving yards", "pass": "NFL passing yards", "rr": "NFL rushing + receiving yards",
     "recs": "NFL receptions", "ptd": "NFL passing touchdowns", "lng": "NFL longest reception (yards)", "rlng": "NFL longest rush (yards)",
     "td": "NFL anytime touchdown scorer", "ftd": "NFL first touchdown scorer",
@@ -161,9 +162,18 @@ def to_draft(slip: dict, db: Session, now: datetime) -> ScreenDraft:
     teams = {t.lower() for t in slip.get("event", {}).get("teams") or []}
     for raw in slip.get("legs") or []:
         kind, name = raw.get("kind"), raw.get("player")
-        league = None if kind == "other" else "nba" if kind in NBA_KINDS else "nfl"
+        league = None if kind in ("other", ML) else "nba" if kind in NBA_KINDS else "nfl"
         match = None
-        if league and name:
+        if kind == ML and name:
+            # a team's moneyline: by its nickname, which every book shows ("LA Lakers", "Los Angeles Lakers"), in either league
+            nick = _norm(name).split()[-1:] or [""]
+            for lg in ("nba", "nfl"):
+                found = [t for t in pools.setdefault(f"ml-{lg}", upcoming_teams(db, lg, now)) if _norm(t["name"]).split()[-1:] == nick]
+                if found:
+                    match, league = min(found, key=lambda t: t["kickoff"]), lg
+                    break
+            raw = {**raw, "line": 0.0, "side": "Over"}
+        elif league and name:
             pool = pools.setdefault(league, upcoming_players(db, league, now))
             found = [p for p in pool if _norm(p["name"]) == _norm(name) and kind in p["kinds"]]
             # a player with two games ahead: the one whose teams the slip names, else the next one
@@ -188,6 +198,8 @@ def to_draft(slip: dict, db: Session, now: datetime) -> ScreenDraft:
     elif slip.get("bonus_stake"):
         notes.append(f"Includes ${slip['bonus_stake']:.2f} in bonus bets: the stake below is the whole wager, so the payout here is "
                      f"${slip['bonus_stake']:.2f} more than the slip's (a bonus bet's stake isn't paid back).")
+    if slip.get("boost"):
+        notes.append(f"Includes a {slip['boost']:g}% boost: the odds here are worked out from what the slip says it returns.")
     if slip.get("odds") is None:
         notes.append("The slip didn't show the bet's odds: enter them before saving.")
     if slip.get("stake") is None:

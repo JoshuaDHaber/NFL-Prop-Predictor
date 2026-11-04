@@ -113,6 +113,10 @@ def test_sign_in_writes_are_open_but_other_writes_stay_admin_only(sent):
     with remote() as c:
         assert c.post("/api/auth/email", json={"email": "open@example.com"}).status_code == 200
         assert c.post("/api/refresh", json={"odds": "none"}).status_code == 403
+        # a screenshot shared to the installed app before its service worker runs: on to My bets (303, or no route in tests
+        # without a built frontend), never "Admin only"
+        assert c.post("/share-slip", follow_redirects=False).status_code != 403
+        assert c.post("/share-slip/x").status_code == 403
 
 
 def test_age_prefs_logout_and_delete(sent):

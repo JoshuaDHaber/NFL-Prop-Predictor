@@ -74,6 +74,8 @@ def is_admin(request: Request) -> bool:
 
 
 PUBLIC_WRITES = ("/api/auth/", "/api/me/")   # each route checks the signed-in user and Origin itself
+# a screenshot shared to the installed app (manifest share_target) that reaches the server: it only redirects to My bets
+PUBLIC_POSTS = ("/share-slip",)
 
 
 @app.middleware("http")
@@ -81,7 +83,8 @@ async def admin_writes_only(request: Request, call_next):
     """The app can be served beyond this machine (LAN, Tailscale, a host). Writes are POSTs, and those
     (refreshes, alt-line fetches) spend API credits, so they need to come from here or from the owner's account.
     Signing in, preferences and tracked bets are writes anyone may make: app/auth.py and app/bets.py guard those."""
-    if request.method not in ("GET", "HEAD", "OPTIONS") and not request.url.path.startswith(PUBLIC_WRITES):
+    if request.method not in ("GET", "HEAD", "OPTIONS") and not request.url.path.startswith(PUBLIC_WRITES) \
+            and request.url.path not in PUBLIC_POSTS:
         if not is_admin(request):
             return JSONResponse({"detail": "Admin only"}, status_code=403)
     return await call_next(request)

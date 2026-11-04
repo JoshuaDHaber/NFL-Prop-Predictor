@@ -232,3 +232,31 @@ def test_the_text_endpoint_matches_legs_to_the_board(sent):
         assert c.post("/api/me/bets/read-slip-text", json={"text": "x" * 20001}).status_code == 422
     with TestClient(main.app, client=("198.51.100.33", 5000)) as anon:
         assert anon.post("/api/me/bets/read-slip-text", json={"text": slip("bet365")}).status_code == 401
+
+
+@pytest.mark.parametrize("reader", ["", "-apple"])
+def test_a_boosted_moneyline_parlay_reads_its_teams_and_its_price_from_the_return(reader):
+    s = slip_text.parse(slip("bet365-ml" + reader))
+    assert (s["sportsbook"], s["stake"], s["to_return"], s["boost"]) == ("bet365", 15.06, 85.98, 15.0)
+    assert s["odds"] == 471   # no parlay price on the slip: $85.98 back on $15.06
+    assert [(l["player"], l["kind"], l["odds"]) for l in s["legs"]] == [
+        ("LA Lakers", "ml", -575), ("SA Spurs", "ml", -550), ("HOU Rockets", "ml", -310), ("NO Pelicans", "ml", -220),
+        ("MEM Grizzlies", "ml", -260), ("BOS Celtics", "ml", -550), ("NY Knicks", "ml", -600)]
+
+
+def test_moneyline_legs_match_tonights_games_by_nickname(monkeypatch):
+    ko = (datetime.utcnow() + timedelta(hours=3)).isoformat()
+    board = {"nba": [dict(player_id=t, name=n, pos="", team=t, opp=o, game_id=f"2027_20261104_{o}_{t}", kickoff=ko, kinds=["ml"])
+                     for t, n, o in [("LAL", "Los Angeles Lakers", "SAC"), ("SAC", "Sacramento Kings", "LAL"), ("NY", "New York Knicks", "CHI")]],
+             "nfl": [dict(player_id="NYG", name="New York Giants", pos="", team="NYG", opp="DAL", game_id="2026_10_DAL_NYG", kickoff=ko, kinds=["ml"])]}
+    monkeypatch.setattr(bet_screens, "upcoming_teams", lambda db, league, now: board[league])
+    slip = {"sportsbook": "bet365", "odds": 471, "stake": 15.06, "boost": 15.0, "legs": [
+        {"player": "LA Lakers", "kind": "ml", "side": "Over", "line": 0.0, "odds": -575, "text": "LA Lakers moneyline -575"},
+        {"player": "NY Knicks", "kind": "ml", "side": "Over", "line": 0.0, "odds": -600, "text": "NY Knicks moneyline -600"},
+        {"player": "NY Giants", "kind": "ml", "side": "Over", "line": 0.0, "odds": -150, "text": "NY Giants moneyline -150"},
+        {"player": "Toronto Raptors", "kind": "ml", "side": "Over", "line": 0.0, "odds": 120, "text": "Toronto Raptors moneyline +120"}]}
+    with SessionLocal() as s:
+        d = bet_screens.to_draft(slip, s, datetime.utcnow())
+    assert [(l.graded, l.player and l.player.player_id) for l in d.legs] == [(True, "LAL"), (True, "NY"), (True, "NYG"), (False, None)]
+    assert d.legs[0].kind == "ml" and d.legs[0].player.opp == "SAC" and d.legs[3].text == "Toronto Raptors moneyline +120"
+    assert any("15% boost" in n for n in d.notes)

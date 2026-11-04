@@ -388,6 +388,20 @@ def upcoming_players(db: Session, league: str, now: datetime) -> list:
     return list(players.values())
 
 
+def upcoming_teams(db: Session, league: str, now: datetime) -> list:
+    """Both teams of every game on the latest board that hasn't started, shaped like upcoming_players' entries (player_id
+    is the team, the market a moneyline), so a slip's moneyline legs match like its props."""
+    run_t = Run if league == "nfl" else NbaRun
+    run = db.scalar(select(run_t).order_by(run_t.id.desc()).limit(1))
+    out = []
+    for gid, g in ((run.teams or {}) if run else {}).items():
+        for team in (g.get("home"), g.get("away")):
+            t = team and _team_game(db, league, gid, team)
+            if t and t["kickoff"] and t["kickoff"] > now:
+                out.append(dict(player_id=team, name=t["name"], pos="", team=team, opp=t["opp"], game_id=gid, kickoff=t["kickoff"].isoformat(), kinds=[ML]))
+    return out
+
+
 def _track_custom(body: BetIn, user: User, db: Session, now: datetime) -> BetOut:
     """A bet the site can't grade (a spread, a total, another sport, a boost): what it was, when its event starts, the
     book, odds and stake. Like every tracked bet it's recorded before its event starts; the bettor marks the result."""
