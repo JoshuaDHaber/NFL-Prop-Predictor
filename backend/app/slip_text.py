@@ -136,18 +136,44 @@ def _fanduel(lines: list[str]) -> list[dict]:
     return out
 
 
+def _moneylines(lines: list[str]) -> list[dict]:
+    """bet365 moneylines: "LA Lakers -575" over "Money Line" (Apple's reader may put the price on a line of its own)."""
+    out = []
+    for i, ln in enumerate(lines):
+        if not re.fullmatch(r"(?i)\W*money ?line\W*", ln) or i == 0:
+            continue
+        prev = re.sub(r"(?i)\|?\s*early pay\w*.*$", "", lines[i - 1]).strip(" |")
+        if ODDS.fullmatch(prev.strip()) and i > 1:   # the price alone: the team is the line above
+            prev = f"{lines[i - 2]} {prev}"
+        m = re.match(r"^(.*?)\s*([+-]\d{3,5})\b", prev)
+        team = _name(m.group(1) if m else prev)
+        if not re.search(r"[A-Za-z]{2}", team):
+            continue
+        odds = int(m.group(2)) if m else None
+        out.append({"player": team, "kind": "ml", "side": "Over", "line": 0.0, "odds": odds,
+                    "text": f"{team} moneyline" + (f" {m.group(2)}" if m else "")})
+    return out
+
+
+def _american(dec: float) -> int:
+    return round((dec - 1) * 100) if dec >= 2 else -round(100 / (dec - 1))
+
+
 def parse(text: str) -> dict:
     """The slip in bet_screens.SCHEMA's shape, from OCR text; legs it couldn't make out are simply missing."""
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     low = text.lower()
-    fd, b365 = _fanduel(lines), _bet365(lines)
+    fd, b365 = _fanduel(lines), _bet365(lines) + _moneylines(lines)
     legs = fd if len(fd) >= len(b365) else b365
     book = "bet365" if "bet365" in low or (legs is b365 and legs) else "FanDuel" if "fanduel" in low or (legs is fd and legs) else None
     for b in ("DraftKings", "BetMGM", "Caesars", "ESPN BET", "Fanatics", "Hard Rock", "BetRivers"):
         if b.lower() in low:
             book = b
-    head = next((ln for ln in lines if re.search(r"(?i)parlay|single|straight", ln) and ODDS.search(ln)), None)
-    odds_m = ODDS.search(head) if head else ODDS.search(text)
+    # the bet's price: beside "Parlay" / "Single" or on the line after it (Apple's reader splits "SAME GAME PARLAY" / "+1300")
+    head = next((ln if ODDS.search(ln) else nxt for ln, nxt in zip(lines, lines[1:] + [""])
+                 if re.search(r"(?i)parlay|single|straight", ln) and not re.search(r"(?i)boost", ln)
+                 and (ODDS.search(ln) or ODDS.fullmatch(nxt.strip()))), None)
+    odds_m = ODDS.search(head) if head else ODDS.search(text) if not any(leg["odds"] for leg in legs) else None
     stake = bonus = to_return = None
     for i, ln in enumerate(lines):
         if re.search(r"(?i)\b(wager|stake|bet amount)\b", ln):
@@ -160,7 +186,7 @@ def parse(text: str) -> dict:
             break
     # the payout on its own line, its amount beside it or on the next line (Apple's reader splits "Net Return" / "$110.82")
     for i, ln in enumerate(lines):
-        if to_return is None and re.fullmatch(r"(?i)\W*(net return|to return|returns?|payout|potential payout|to win|to pay)\W*(\$.*)?", ln):
+        if to_return is None and re.fullmatch(r"(?i)\W*(net return|(total )?to return|returns?|payout|potential payout|to win|to pay)\W*(\$.*)?", ln):
             amounts = MONEY.findall(ln) or (MONEY.findall(lines[i + 1]) if i + 1 < len(lines) else [])
             if amounts:
                 to_return = float(amounts[0].replace(",", ""))
@@ -171,5 +197,12 @@ def parse(text: str) -> dict:
     m = re.search(r"([A-Z][A-Za-z.' ]+?)\s+(?:@|vs\.?|at)\s+([A-Z][A-Za-z.' ]+?)(?:\s+\d|\s*$)", text, re.M)
     if m:
         teams = [m.group(1).strip(), m.group(2).strip()]
-    return {"sportsbook": book, "bet_type": "parlay" if len(legs) > 1 else "single", "odds": int(odds_m.group(1)) if odds_m else None,
+    odds = int(odds_m.group(1)) if odds_m else None
+    if odds is None and len(legs) == 1:
+        odds = legs[0]["odds"]
+    elif odds is None and stake and to_return and to_return > stake:
+        odds = _american(to_return / stake)   # no price shown (a boosted parlay of priced legs): what it pays says it
+    boost = re.search(r"(\d+(?:\.\d+)?)\s?%[\s|]*(?:parlay |profit |odds )?boost", text, re.I)
+    return {"boost": float(boost.group(1)) if boost else None,
+            "sportsbook": book, "bet_type": "parlay" if len(legs) > 1 else "single", "odds": odds,
             "stake": stake, "bonus_stake": bonus, "to_return": to_return, "event": {"teams": teams, "starts": None}, "legs": legs}
