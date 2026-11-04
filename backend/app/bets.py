@@ -21,7 +21,7 @@ from .schemas import BetIn, BetLegOut, BetOut, BetPatch, BetPlayer, BetsOut, Bet
 router = APIRouter(prefix="/api/me", tags=["bets"])
 
 NBA_KINDS = {"pts", "reb", "ast", "threes", "pra", "pr", "pa", "stl", "blk", "dd", "tpl"}
-MAX_LEGS = 12
+MAX_LEGS = 25   # FanDuel and DraftKings take up to 25 legs
 MAX_STAKE = 100_000
 MAX_TAGS, TAG_LEN = 6, 24
 # a parlay leg whose own price the book didn't show (most only show the parlay's): bet_legs.odds can't be NULL in
