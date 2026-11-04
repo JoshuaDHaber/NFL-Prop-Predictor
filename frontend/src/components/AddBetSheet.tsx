@@ -20,6 +20,9 @@ function nextHour() {
   const d = new Date(Date.now() + 3600_000);
   return { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, time: `${pad(d.getHours())}:00` };
 }
+// The Shortcut, opened in Safari (target _blank): an app added to the home screen can't download files, so iOS would show
+// the file's raw contents. The download (backend main.add_slip_shortcut) works from Safari itself.
+const SHORTCUT = `${BASE}add-slip.shortcut`;
 // an iPhone or iPad (iPadOS reports itself as a Mac with touch): it can't share to a web app, but the Shortcut can
 const IOS = typeof navigator !== "undefined" && (/iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
 /** The parlay price its legs make together, when every leg's own price is known (most slips show only the parlay's). */
@@ -171,7 +174,7 @@ export default function AddBetSheet({ onClose, defaultLeague, sharedSlip }: { on
           <span className="mut">{claude ? "Fills in the bet from your slip for you to check. The image isn't kept."
             : "Fills in the bet from a bet365 or FanDuel slip for you to check. The image stays on your device."}</span>
           <input ref={file} type="file" accept="image/*" hidden onChange={(e) => upload(e.target.files?.[0])} />
-          {IOS && <span className="mut add-shortcut">On iPhone, <a href={`${BASE}add-slip.shortcut`}>add the Shortcut</a> to share a slip here
+          {IOS && <span className="mut add-shortcut">On iPhone or iPad, <a href={SHORTCUT} target="_blank" rel="noopener noreferrer">add the Shortcut</a> to share a slip here
             straight from your sportsbook app.</span>}
         </div>
       )}
