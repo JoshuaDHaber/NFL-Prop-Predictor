@@ -1,4 +1,4 @@
-"""SQLAlchemy models. SQLite locally; swap DATABASE_URL for Postgres in deployment."""
+"""SQLAlchemy models. Postgres in production and local dev; SQLite still works (the unit tests run on it in memory)."""
 import json
 import math
 import os
