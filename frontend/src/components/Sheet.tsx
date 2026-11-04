@@ -5,6 +5,13 @@ const isPhone = () => typeof window !== "undefined" && window.matchMedia(PHONE).
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea, summary, [tabindex]:not([tabindex="-1"])';
 /** Panels on screen, newest last: Escape and the focus trap belong to the top one (the slip can sit over the player drawer). */
 const stack: object[] = [];
+/** The page behind doesn't scroll while any panel is up. One count for every panel, so closing two at once (the Track
+ *  sheet's "See My bets" closes it and the slip under it) can't leave the page locked, whatever order they unmount in. */
+let locks = 0, bodyOverflow = "";
+export function lockScroll() {
+  if (locks++ === 0) { bodyOverflow = document.body.style.overflow; document.body.style.overflow = "hidden"; }
+  return () => { if (--locks === 0) document.body.style.overflow = bodyOverflow; };
+}
 
 interface Props {
   label: string;
@@ -46,12 +53,11 @@ export default function Sheet({ label, onClose, overlayClass = "", children }: P
       else if (!e.shiftKey && at === last) { e.preventDefault(); first.focus(); }
     };
     document.addEventListener("keydown", keys);
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";   // the page behind doesn't scroll while the panel is up
+    const unlock = lockScroll();
     return () => {
       mq.removeEventListener("change", on);
       document.removeEventListener("keydown", keys);
-      document.body.style.overflow = overflow;
+      unlock();
       stack.splice(stack.indexOf(me), 1);
       if (opener?.isConnected) opener.focus({ preventScroll: true });
     };
