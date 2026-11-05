@@ -133,6 +133,8 @@ class ProjectionOut(BaseModel):
     wx: Optional[float] = None  # weather multiplier already in mu (1 or None: no effect)
     teammate_out: Optional[str] = ""  # same-position rotation receivers in their first game out
     thin: Optional[bool] = False      # thin history (a rookie, or back from IR): shown, never priced
+    qb_adj: Optional[float] = None    # receiving cut for a downgrade at QB, already in mu (None: no effect)
+    qb_name: Optional[str] = ""       # the starting QB behind qb_adj
     parts: Optional[dict] = None      # NBA: what mu is made of (min, rate, opp, tm, tm_min, out); None for the NFL
     dvp: Optional[float] = None       # matchup grade (engine/dvp.py): the defense's factor against his position
     dvp_rank: Optional[int] = None    # 1 = the softest matchup of dvp_n

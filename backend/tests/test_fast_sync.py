@@ -234,3 +234,23 @@ def test_a_rest_day_dnp_keeps_the_player_but_an_injury_dnp_drops_him(synthetic, 
     monkeypatch.setattr(pipeline.data, "load_injuries", lambda season: inj)
     projected = {pid for pid, *_ in rows(pipeline.run_projections(log=lambda m: None))}
     assert "AAA_TE" in projected and "BBB_TE" not in projected
+
+
+def test_a_calibration_fitted_before_the_quarterback_receiver_adjustment_is_refit(synthetic):
+    from app.engine import model
+    pipeline.run_projections(log=lambda m: None)
+    assert pipeline.reusable_calibration(2026) is not None
+    with SessionLocal() as s:
+        run = s.query(Run).order_by(Run.id.desc()).first()
+        v = dict(run.variance)
+        v["_calibration"] = {k: x for k, x in v["_calibration"].items() if k != "qb_rec_k"}
+        run.variance = v
+        s.commit()
+    assert pipeline.reusable_calibration(2026) is None
+    assert model.QB_REC_K > 0
+
+
+def test_rows_without_a_qb_cut_store_an_empty_name_not_nan():
+    assert pipeline._str_or_empty(float("nan")) == "" and pipeline._str_or_empty(None) == ""
+    assert pipeline._str_or_empty("Joe Fagnano") == "Joe Fagnano"
+    assert pipeline._float_or_none(float("nan")) is None and pipeline._float_or_none(0.84) == 0.84
