@@ -350,3 +350,92 @@ def test_thin_history_receivers_are_projected_flagged_and_leave_teammates_alone(
     without = model.upcoming_projections(base, s, pri, dist, 202609, roster)
     key = ["player_id", "kind"]
     pd.testing.assert_series_equal(p[p.player_id != "rook"].set_index(key).mu.sort_index(), without.set_index(key).mu.sort_index())
+
+
+# ---------- quarterbacks: a starter with one game, and his receivers ----------
+def rookie_league():
+    """AAA: qb1 starts weeks 1-7 at 8 yards an attempt and is hurt for week 8, when a rookie (qb3, no earlier games) starts
+    and throws 21 for 91. CCC's QB starts every game."""
+    rows = []
+    for w in range(1, 9):
+        if w < 8:
+            rows.append(row("qb1", "QB", w, attempts=33))
+        else:
+            rows.append(row("qb3", "QB", w, attempts=21))
+        rows += [row("wr", "WR", w, targets=8), row("rb", "RB", w, carries=15, targets=3),
+                 row("zz", "QB", w, attempts=30, team="CCC"), row("zwr", "WR", w, targets=8, team="CCC")]
+    df = pd.DataFrame(rows, columns=COLS)
+    df.loc[df.player_id == "qb1", "passing_yards"] = 8.0 * 33
+    df.loc[df.player_id == "qb3", "passing_yards"] = 91.0
+    return model.prep(df)
+
+
+DIST = {k: dict(mu=[1.0, 400.0], sd=[40.0, 40.0], z=[float(z) for z in np.linspace(-2, 2, 41)]) for k in ("rush", "rec", "pass", "rr", "recs")}
+
+
+def test_the_passer_ratio_is_one_with_the_qb_unchanged_and_only_counts_a_downgrade():
+    eff = {"a": 7.5, "b": 6.0, "c": 9.0}.get
+    assert rd.passer_ratio(["a"] * 8, "a", eff) == 1.0
+    assert rd.passer_ratio(["a"] * 8, "b", eff) == pytest.approx(6.0 / 7.5)
+    assert rd.passer_ratio(["a"] * 8, "c", eff) == 1.0                         # a better QB taking over: no lift
+    assert rd.passer_ratio(["a", "a"], "b", eff) == 1.0                         # too few games to measure
+    assert rd.passer_ratio(["a"] * 8, None, eff) == 1.0
+    mixed = rd.passer_ratio(["a"] * 6 + ["b"] * 2, "b", eff)                     # receivers' recent games already had b
+    assert 6.0 / 7.5 < mixed < 1.0
+
+
+def test_live_a_one_game_rookie_starts_for_the_injured_starter_and_is_flagged_thin():
+    df = rookie_league()
+    s, pri = sched(), model.league_priors(df)
+    roster = {pid: "AAA" for pid in ("qb1", "qb3", "wr", "rb")} | {"zz": "CCC", "zwr": "CCC"}
+    rho = {"rush": 0.5, "rec": 0.0, "pass": 0.0}
+    out = model.upcoming_projections(df, s, pri, DIST, 202609, roster, rho=rho, absent_ids={"qb1"})
+    qb3 = out[(out.player_id == "qb3") & (out.kind == "pass")]
+    assert len(qb3) == 1 and qb3.vol.iloc[0] > 25                              # takes over the starter's ~33 attempts
+    assert out[out.player_id == "qb3"].thin.all()                                # one game: shown, not priced
+    assert not out[out.player_id == "wr"].thin.any()
+    # qb1 back, with week 8's injury report: the rookie's start was a fill-in, and a one-game backup isn't projected
+    healthy = model.upcoming_projections(df, s, pri, DIST, 202609, roster, rho=rho, absent_ids=set(), ruled_out={(202608, "qb1")})
+    assert "qb3" not in set(healthy.player_id) and "qb1" in set(healthy.player_id)
+
+    def mu(frame, pid, kind):
+        return float(frame[(frame.player_id == pid) & (frame.kind == kind)].mu.iloc[0])
+
+    eff = lambda q: model.passer_eff(df[(df.player_id == q)], pri)
+    f = rd.passer_ratio(["qb1"] * 7 + ["qb3"], "qb3", eff) ** model.QB_REC_K
+    assert f < 0.95
+    assert mu(out, "wr", "rec") == pytest.approx(mu(healthy, "wr", "rec") * f / rd.passer_ratio(["qb1"] * 7 + ["qb3"], "qb1", eff) ** model.QB_REC_K)
+    assert mu(out, "wr", "recs") == pytest.approx(mu(healthy, "wr", "recs"))    # catches left alone
+
+
+def test_in_the_backtest_receivers_follow_a_downgrade_at_quarterback():
+    df = rookie_league()
+    rows = [row("qb1", "QB", 9, attempts=33), row("wr", "WR", 9, targets=8), row("rb", "RB", 9, carries=15, targets=3),
+            row("zz", "QB", 9, attempts=30, team="CCC"), row("zwr", "WR", 9, targets=8, team="CCC")]
+    later = pd.DataFrame(rows, columns=COLS)
+    later.loc[later.player_id == "qb1", "passing_yards"] = 8.0 * 33
+    df = model.prep(pd.concat([df.drop(columns=["t", "qb_start"]), later], ignore_index=True))
+    s, pri = sched(range(1, 11)), model.league_priors(df)
+    bt = model.walk_forward(df, pri, s, 202608)
+
+    def mu(pid, t):
+        return float(bt[(bt.player_id == pid) & (bt.t == t) & (bt.kind == "rec")].mu.iloc[0])
+
+    wr8, zwr8 = mu("wr", 202608), mu("zwr", 202608)
+    assert wr8 < zwr8 * 0.95                                    # same history, but the rookie starts week 8
+    assert mu("wr", 202609) == pytest.approx(mu("zwr", 202609), rel=0.05)   # qb1 back in week 9: no cut (upgrades don't lift)
+
+
+def test_a_qb_cut_is_stored_on_the_receiving_rows_it_touched():
+    comp = {"rec": (50.0, 7.0, 7.9), "rush": (30.0, 6.0, 5.0)}
+    assert model.qb_fields("rec", "WR", comp, 0.8, "rookie") == dict(qb_adj=0.8, qb_name="rookie")
+    assert model.qb_fields("rr", "RB", comp, 0.8, "rookie")["qb_adj"] == pytest.approx(80.0 / (30.0 + 50.0 / 0.8))
+    assert model.qb_fields("recs", "WR", comp, 0.8, "rookie") == dict(qb_adj=None, qb_name="")   # catches untouched
+    assert model.qb_fields("rec", "WR", comp, 1.0, "") == dict(qb_adj=None, qb_name="")
+    df = rookie_league()
+    s, pri = sched(), model.league_priors(df)
+    roster = {pid: "AAA" for pid in ("qb1", "qb3", "wr", "rb")}
+    out = model.upcoming_projections(df, s, pri, DIST, 202609, roster, rho={"rush": 0.5, "rec": 0.0, "pass": 0.0}, absent_ids={"qb1"})
+    wr = out[(out.player_id == "wr") & (out.kind == "rec")].iloc[0]
+    assert wr.qb_name == "qb3" and wr.qb_adj < 0.95
+    assert wr.mu == pytest.approx(wr.vol * wr.eff * wr.qb_adj * wr.wx, rel=0.02)   # the Why panel's steps multiply to mu

@@ -48,9 +48,20 @@ def reusable_calibration(season: int, now: datetime = None):
             return None  # fitted before weather was modeled
         if not isinstance((v.get("_correlation") or {}).get("pairs"), dict):
             return None  # fitted before same-game correlations
+        if cal.get("qb_rec_k") != model.QB_REC_K:
+            return None  # error tables fitted with another receiver adjustment for a downgrade at quarterback
         if (now - datetime.fromisoformat(cal["at"])).days > CALIBRATION_MAX_AGE_DAYS:
             return None
         return dict(variance=copy.deepcopy(v), backtest=copy.deepcopy(run.backtest), run_id=run.id)
+
+
+def _float_or_none(x):
+    return float(x) if x is not None and pd.notna(x) else None
+
+
+def _str_or_empty(x) -> str:
+    """A text column from a projection row: "" for the NaN pandas fills in on rows that never set it (TD rows)."""
+    return x if isinstance(x, str) else ""
 
 
 def _dvp_cols(r) -> dict:
@@ -202,7 +213,7 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
         var_params["_weather"] = wxm.summary(bt, wx_coef)
         var_params["_correlation"] = cm.fit(pd.concat([bt, bt_td]), var_params)
         log(_correlation_line(var_params["_correlation"]))
-        var_params["_calibration"] = dict(at=datetime.utcnow().isoformat(), season=season, week=week)
+        var_params["_calibration"] = dict(at=datetime.utcnow().isoformat(), season=season, week=week, qb_rec_k=model.QB_REC_K)
         log(f"Redistribution: {var_params['_redistribution']['summary']}")
         log("Weather: " + _weather_line(wx_coef))
 
@@ -247,6 +258,7 @@ def run_projections(exclude=(), keep_dnp=False, season=None, week=None, log: Log
                        spread=float(r.spread), status=r.status, game_id=r.game_id, gameday=str(r.gameday),
                        gametime="" if pd.isna(r.gametime) else str(r.gametime), last5=[float(x) for x in r.last5],
                        wx=float(r.wx), teammate_out=getattr(r, "teammate_out", "") or "", thin=bool(pd.notna(getattr(r, "thin", False)) and getattr(r, "thin", False)),
+                       qb_adj=_float_or_none(getattr(r, "qb_adj", None)), qb_name=_str_or_empty(getattr(r, "qb_name", "")),
                        **_dvp_cols(r))
             for r in proj.itertuples()]
         s.add(run)

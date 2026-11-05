@@ -54,6 +54,8 @@ class Projection(Base):
     wx: Mapped[float] = mapped_column(Float, nullable=True, default=1.0)  # weather multiplier already in mu (1 = none)
     teammate_out: Mapped[str] = mapped_column(String(160), nullable=True, default="")  # see redistribute.teammates_out
     thin: Mapped[bool] = mapped_column(Boolean, nullable=True, default=False)  # thin history: shown, never priced (model.THIN_GAMES)
+    qb_adj: Mapped[float] = mapped_column(Float, nullable=True)     # receiving cut for a downgrade at QB, already in mu (model.qb_fields)
+    qb_name: Mapped[str] = mapped_column(String(80), nullable=True, default="")  # the starting QB behind qb_adj
     dvp: Mapped[float] = mapped_column(Float, nullable=True)        # matchup grade (engine/dvp.py): the defense's factor vs his position
     dvp_rank: Mapped[int] = mapped_column(Integer, nullable=True)   # 1 = the softest defense for his position and this market
     dvp_n: Mapped[int] = mapped_column(Integer, nullable=True)      # teams ranked
@@ -514,6 +516,7 @@ def ensure_columns(eng) -> bool:
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_odds_lines_game_id ON odds_lines (game_id)"))
     for table, col, sql_type in (("runs", "weather", "JSON"), ("runs", "teams", "JSON"), ("projections", "wx", "FLOAT"),
                                  ("projections", "teammate_out", "VARCHAR(160)"), ("projections", "thin", "BOOLEAN"),
+                                 ("projections", "qb_adj", "FLOAT"), ("projections", "qb_name", "VARCHAR(80)"),
                                  ("nba_projections", "parts", "JSON"), ("users", "favorites", "JSON"),
                                  # bets.tags: a database whose bets table predates tags (an early local one)
                                  ("bets", "tags", "JSON"), ("bets", "description", "VARCHAR(200)"),

@@ -161,6 +161,23 @@ def teammates_out(absent: list, comp_fn) -> dict:
 
 
 STARTER_WINDOW = 16            # team games looked back over to decide who starts at quarterback
+PASSER_MIN_GAMES = 3           # team starts needed before a passer ratio is measured
+
+
+def passer_ratio(starters, starter, eff) -> float:
+    """How the expected starter's passing compares with the QBs his receivers' recent games came from, capped at 1.
+
+    starters: the team's starting QBs in its games before this one, oldest first. eff: pid -> that QB's projected yards
+    per attempt now. The baseline is the recency-weighted (HALFLIFE, like the receivers' own projections) average of
+    the starters' current efficiency over the last STARTER_WINDOW games, so a team whose starter played every one of
+    those games gets exactly 1. Only a downgrade counts: in the backtest, receivers ran 10% under projection behind a
+    starter below 0.95 (5% over with the QB unchanged), while a better QB taking over showed no lift."""
+    s = list(starters)[-STARTER_WINDOW:]
+    if starter is None or len(s) < PASSER_MIN_GAMES:
+        return 1.0
+    w = 0.5 ** (np.arange(len(s))[::-1] / HALFLIFE)
+    base = float(sum(wi * eff(p) for wi, p in zip(w, s)) / w.sum())
+    return min(float(eff(starter)) / base, 1.0) if base > 0 else 1.0
 
 
 def pick_starter(starts: pd.DataFrame, team_games, cands, ruled_out=frozenset(), season=None, sat_out=frozenset()):

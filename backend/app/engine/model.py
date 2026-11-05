@@ -28,6 +28,12 @@ HALFLIFE = 5.0          # games
 # expected starters: 1 (all games alike) under-projected them by 6 yards, 0 (starts only) over-projected by 7 and
 # dropped the real chance of an early exit; 0.35 had the lowest error (passing MAE 62.3 -> 61.9, bias +1.5).
 NONSTART_W = 0.35
+# receivers behind a downgrade at quarterback: receiving yards x (redistribute.passer_ratio) ** QB_REC_K. On 2021-2026
+# (11,168 receiver-games), receivers behind a starter with a ratio under 0.95 ran 0.90x their projection against 1.05x
+# with the QB unchanged; 1.5 brought them to 1.03x and cut receiving error in every two-season block (23.85 -> 23.78
+# overall; 23.45 -> 22.52 on those games). Receptions showed no effect (every strength made them worse), so they're
+# left alone.
+QB_REC_K = 1.5
 VOL_PRIOR_K = {"rush": 0.5, "rec": 0.5, "pass": 0.2, "recs": 0.5, "ptd": 0.2}   # pseudo-games of shrinkage on volume (QB volume is stable)
 EFF_K = {"rush": 40.0, "rec": 30.0, "pass": 120.0, "recs": 30.0, "ptd": 400.0}   # pseudo-attempts of shrinkage on efficiency
 OPP_SHRINK_GAMES = 8.0
@@ -49,6 +55,9 @@ SCRIPT = {"rush": SCRIPT_RUSH, "rec": SCRIPT_REC, "pass": SCRIPT_PASS, "recs": S
 # "thin history": a non-QB with fewer than this many games in the loaded seasons (a rookie, or back from IR after a game or
 # two). Markets the model would otherwise drop for him are still projected, flagged thin, for display only: the backtest's
 # error tables were measured on players who clear the volume minimum, so thin rows are never priced (picks.build_picks).
+# A starting QB under it is flagged too: taking over the missing starter's attempts gets his volume right (29.5
+# projected, 29.1 thrown, 2021-2026), but his yards missed by 78 on average against 59 for established starters, wider
+# than the passing error table assumes.
 THIN_GAMES = 3
 THIN_KINDS = {"RB": ("rush", "rec", "recs"), "FB": ("rush", "rec", "recs"), "WR": ("rec", "recs"), "TE": ("rec", "recs")}
 LNG_LAMBDA = np.linspace(0.0, 16.0, 161)   # expected catches at which long_table tabulates the expected longest
@@ -251,6 +260,70 @@ def components(hist, pos, priors, opp, spread, wx=None):
     return out
 
 
+def passer_eff(hist, priors):
+    """A QB's projected yards per attempt from his games in hist (weighted toward his starts); the league QB rate
+    without any."""
+    prior = priors.get(("pass", "QB"))
+    if prior is None or hist.empty:
+        return prior
+    res = project_player(starts_only(hist, "QB"), "pass", prior)
+    return res[2] if res else prior
+
+
+def scale_receiving(members, f):
+    """Receiving yards x f for every non-QB member (in place on each comp). The longest reception (yards per catch come
+    from mu) and rush + rec follow; targets, receptions and the stored yards per target are left alone, so the Why
+    panel shows the cut as its own step (qb_fields), like weather."""
+    for c in members:
+        if c["pos"] != "QB" and "rec" in c["comp"]:
+            mu, vol, eff = c["comp"]["rec"]
+            c["comp"]["rec"] = (mu * f, vol, eff)
+
+
+def _passer_adjust(ctx, df, priors):
+    """Backtest: scale receivers' yards in every team-game by the passer ratio of the QB who started it."""
+    from . import redistribute as rd
+    if "qb_start" not in df or QB_REC_K == 0:
+        return
+    st = df[df.qb_start].sort_values("t")
+    by_team = {tm: (g.t.to_numpy(), g.player_id.to_numpy()) for tm, g in st.groupby("team")}
+    hists = {pid: g.sort_values("t") for pid, g in df[df.position == "QB"].groupby("player_id")}
+    cache = {}
+    groups = {}
+    for c in ctx:
+        if c["pos"] != "QB":
+            groups.setdefault((c["team"], c["t"]), []).append(c)
+    for (team, t), members in groups.items():
+        ts, ps = by_team.get(team, (np.array([]), np.array([])))
+        i = int(np.searchsorted(ts, t))
+        if i >= len(ts) or ts[i] != t:
+            continue
+
+        def eff(pid, _t=t):
+            if (pid, _t) not in cache:
+                h = hists.get(pid)
+                cache[(pid, _t)] = passer_eff(h[h.t < _t] if h is not None else df.iloc[:0], priors)
+            return cache[(pid, _t)]
+
+        f = rd.passer_ratio(ps[:i], ps[i], eff) ** QB_REC_K
+        if f < 1:
+            scale_receiving(members, f)
+
+
+QB_KINDS = ("rec", "rr", "lng")   # the markets a downgrade at quarterback scales (scale_receiving)
+
+
+def qb_fields(kind, pos, comp, f, name) -> dict:
+    """A projection row's qb_adj (the multiplier scale_receiving put in its mu; for rush + rec, the receiving part's share
+    of it) and qb_name (the starting QB behind it); None and "" where it has none."""
+    if f >= 1 or pos == "QB" or kind not in QB_KINDS or "rec" not in comp:
+        return dict(qb_adj=None, qb_name="")
+    if kind == "rr":
+        rush, rec = comp["rush"][0], comp["rec"][0]
+        f = (rush + rec) / (rush + rec / f) if rush + rec > 0 else 1.0
+    return dict(qb_adj=float(f), qb_name=name)
+
+
 def wx_ratio(kind, comp, wx):
     """The weather multiplier a projection carries; for rush + rec, its parts' factors weighted by their yards."""
     if not wx:
@@ -407,6 +480,7 @@ def walk_forward(df, priors, sched, start_t, td_priors=None, rho=None, records=N
     if rho is not None or records is not None:
         from . import redistribute as rd
         affected = _apply_redistribution(ctx, rd.Logs(df), priors, opp_cache, spread_map, rho, records)
+    _passer_adjust(ctx, df, priors)
     skip = backup_qbs(df, ctx)
     rows = []
     for c in ctx:
@@ -594,7 +668,7 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
                 hist.attrs["opp"] = other
                 if len(hist) < THIN_GAMES and p.position in THIN_KINDS:
                     thin.append((pid, p, hist))
-                if len(hist) < 2:
+                if len(hist) < (1 if p.position == "QB" else 2):   # a QB's one game can make him the starter
                     continue
                 members.append(dict(pid=pid, p=p, hist=hist, pos=p.position, comp=components(hist, p.position, priors, opp, sp, wx)))
             qbs = {c["pid"] for c in members if c["pos"] == "QB" and c["pid"] not in absent_ids}
@@ -618,6 +692,17 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
             if starter is not None and starter not in questionable:
                 # a ruled-out QB stays, so the pipeline lists him among the excluded
                 members = [c for c in members if c["pos"] != "QB" or c["pid"] == starter or c["pid"] in absent_ids]
+            # a one-game QB is projected only as the starter (Joe Fagnano, BAL 2026 week 9, with Jackson and Huntley out)
+            members = [c for c in members if c["pos"] != "QB" or len(c["hist"]) >= 2 or c["pid"] == starter]
+            thin_qbs = {c["pid"] for c in members if c["pos"] == "QB" and len(c["hist"]) < THIN_GAMES}
+            qb_f = 1.0
+            if starter is not None and QB_REC_K:
+                before = starts[(starts.team == team) & (starts.t < week_t)].sort_values("t").player_id.tolist()
+                qb_f = rd.passer_ratio(before, starter, lambda q: passer_eff(by_player[q] if q in by_player else df.iloc[:0], priors))
+                qb_f = qb_f ** QB_REC_K
+                if qb_f < 1:
+                    scale_receiving(members, qb_f)
+            qb_name = str(by_player[starter].player_display_name.iat[-1]) if qb_f < 1 else ""
             for c in members:
                 pid, p, hist, comp = c["pid"], c["p"], c["hist"], c["comp"]
                 if td_priors is not None:
@@ -626,7 +711,7 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
                         rows.append(dict(player_id=pid, name=p.player_display_name, pos=p.position, team=team,
                                          opp=other, home=team == gm.home_team, kind="td", mu=res[0], vol=res[2], eff=res[1],
                                          sd=0.0, spread=sp, gameday=gm.gameday, gametime=gm.gametime, game_id=gm.game_id,
-                                         last5=tdm.td_count(hist).tail(5).tolist(), wx=1.0, thin=False))
+                                         last5=tdm.td_count(hist).tail(5).tolist(), wx=1.0, thin=pid in thin_qbs))
                         if ftd_scale is not None:   # kind "ftd": mu = P(first TD of the game), from the same expected TDs
                             game_lam = tdm.game_tds(implied_map.get((season, week, team)), implied_map.get((season, week, other)))
                             rows.append(dict(rows[-1], kind="ftd", mu=tdm.first_td(res[1], game_lam, ftd_scale),
@@ -638,11 +723,14 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
                                      sd=sd_at(mu, var_params[kind]), spread=sp,
                                      gameday=gm.gameday, gametime=gm.gametime, game_id=gm.game_id,
                                      last5=actual_hist(hist, kind).tail(5).tolist(), wx=wx_ratio(kind, comp, wx),
-                                     teammate_out=out_here if kind in rd.TAG_KINDS else "", thin=False, **dvp_fields(dv, kind, other, p.position)))
+                                     teammate_out=out_here if kind in rd.TAG_KINDS else "", thin=pid in thin_qbs,
+                                     **qb_fields(kind, p.position, comp, qb_f, qb_name), **dvp_fields(dv, kind, other, p.position)))
             # thin-history players: the markets the volume minimum dropped, projected as-is and flagged (not in redistribution)
             have = {(r["player_id"], r["kind"]) for r in rows}
             for pid, p, hist in thin:
                 comp = components(hist, p.position, priors, opp, sp, wx)
+                if qb_f < 1:
+                    scale_receiving([dict(pos=p.position, comp=comp)], qb_f)
                 for kind in THIN_KINDS[p.position]:
                     if kind not in comp or (pid, kind) in have:
                         continue
@@ -652,5 +740,5 @@ def upcoming_projections(df, sched, priors, var_params, week_t, roster, td_prior
                                      sd=sd_at(mu, var_params[kind]), spread=sp,
                                      gameday=gm.gameday, gametime=gm.gametime, game_id=gm.game_id,
                                      last5=actual_hist(hist, kind).tail(5).tolist(), wx=wx_ratio(kind, comp, wx),
-                                     teammate_out="", thin=True))
+                                     teammate_out="", thin=True, **qb_fields(kind, p.position, comp, qb_f, qb_name)))
     return pd.DataFrame(rows)

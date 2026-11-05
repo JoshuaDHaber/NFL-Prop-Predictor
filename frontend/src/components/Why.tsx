@@ -12,7 +12,7 @@ const breakEven = (odds: number) => 1 / (odds > 0 ? 1 + odds / 100 : 1 + 100 / -
 interface Step { label: string; detail: string; effect?: string; cls?: string }
 
 /** The projection's ingredients, in the order the model multiplies them. NBA rows come from the stored parts; the NFL
- *  shows its volume, efficiency (opponent and game script are already in those) and weather. */
+ *  shows its volume, efficiency (opponent and game script are already in those), a change at quarterback and weather. */
 function buildSteps(kind: Kind, proj: Projection, nba: boolean): Step[] {
   const p = proj.parts;
   if (nba && p && p.rate != null && p.opp != null && p.tm != null) {
@@ -33,6 +33,8 @@ function buildSteps(kind: Kind, proj: Projection, nba: boolean): Step[] {
     { label: volLabel(kind), detail: `${proj.vol.toFixed(1)}, from recent games, matchup and game script` },
     { label: effText(kind, proj.eff)[0], detail: `${effText(kind, proj.eff)[1]}, steadied toward his position, vs this defense` },
   ];
+  if (proj.qb_adj != null && proj.qb_adj <= 0.995) steps.push({ label: "QB change",
+    detail: `${proj.qb_name || "A backup"} starting: a downgrade from his recent QBs`, effect: mult(proj.qb_adj), cls: tone(proj.qb_adj) });
   if (proj.wx != null && Math.abs(proj.wx - 1) >= 0.005) steps.push({ label: "Weather", detail: "wind, cold or rain at kickoff", effect: mult(proj.wx), cls: tone(proj.wx) });
   return steps;
 }
